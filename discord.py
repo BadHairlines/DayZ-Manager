@@ -1,26 +1,9 @@
 import os
-import discord
-from discord.ext import commands
-
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-# Simulated storage (replace with real database if needed)
-server_vars = {}
-
-# Common flags
-flags = [
-    "Altis", "APA", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals", "CDF",
-    "CHEL", "Chedaki", "Chernarus", "CMC", "Crook", "DayZ", "HunterZ", "NAPA",
-    "Livonia", "LivoniaArmy", "LivoniaPolice", "NSahrani", "Pirates", "Rex",
-    "Refuge", "Rooster", "RSTA", "Snake", "SSahrani", "TEC", "UEC", "Wolf",
-    "Zagorky", "Zenit"
-]
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup(ctx, *, message: str):
+    # Map data (expandable)
     map_data = {
         'livonia': {
             'name': 'Livonia',
@@ -36,38 +19,42 @@ async def setup(ctx, *, message: str):
         }
     }
 
-    # Lowercase message for easier matching
     msg_lower = message.lower()
+    guild_id = ctx.guild.id
 
-    for key, data in map_data.items():
-        if key in msg_lower:
-            # Set variables
-            prefix = f"{key}_"
-            for flag in flags:
-                server_vars[prefix + flag] = "✅"
-            server_vars[key] = data['name']
+    # Ensure a dictionary exists for this server
+    if guild_id not in server_vars:
+        server_vars[guild_id] = {}
 
-            # Build embed
-            embed = discord.Embed(
-                title="__SETUP COMPLETE__",
-                description=f"**{data['name']}’s** system is now online ✅.",
-                color=0x00FF00
-            )
-            embed.set_image(url=data['image'])
-            embed.set_author(name="🚨Setup Notification🚨")
-            embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
-            embed.timestamp = ctx.message.created_at
+    # Try to detect which map is mentioned in the message
+    matched_map_key = next((k for k in map_data if k in msg_lower), None)
 
-            await ctx.send(embed=embed)
-            return
+    if matched_map_key:
+        map_info = map_data[matched_map_key]
+        prefix = f"{matched_map_key}_"
 
-    await ctx.send("❌ No valid map found in your message (livonia, chernarus, sakhal).")
+        # Set flag variables for this server and map
+        for flag in flags:
+            server_vars[guild_id][prefix + flag] = "✅"
+        server_vars[guild_id][matched_map_key] = map_info['name']
 
-# Handle missing admin permission
-@setup.error
-async def setup_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("This command is for admins ONLY!")
+        # Build and send confirmation embed
+        embed = discord.Embed(
+            title="__SETUP COMPLETE__",
+            description=f"**{map_info['name']}’s** system is now online ✅.",
+            color=0x00FF00
+        )
+        embed.set_image(url=map_info['image'])
+        embed.set_author(name="🚨 Setup Notification 🚨")
+        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        embed.timestamp = ctx.message.created_at
+
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("❌ No valid map found in your message (livonia, chernarus, sakhal).")
+
+import os
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
+
