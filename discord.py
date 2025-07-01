@@ -68,4 +68,4 @@ async def setup_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("This command is for admins ONLY!")
 
-bot.run('YOUR_BOT_TOKEN')
+bot.run('MTIxNTkyODY4Njk4NjAwMjUwMw.G-ie0D.PkwW49RzfxHp8nuE218H8KtjEpzCRheTY2F7tU')
