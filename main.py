@@ -8,8 +8,6 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 tree = bot.tree
 
-server_vars = {}
-
 flags = [
     "Altis", "APA", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals", "CDF",
     "CHEL", "Chedaki", "Chernarus", "CMC", "Crook", "DayZ", "HunterZ", "NAPA",
@@ -33,13 +31,14 @@ map_data = {
     }
 }
 
+server_vars = {}
+
 @bot.event
 async def on_ready():
     await tree.sync()
-    print(f'Logged in as {bot.user} (ID: {bot.user.id})')
-    print('------')
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print("------")
 
-# Define choices for the map option
 map_choices = [
     app_commands.Choice(name="Livonia", value="livonia"),
     app_commands.Choice(name="Chernarus", value="chernarus"),
@@ -51,7 +50,7 @@ map_choices = [
 @app_commands.describe(map="Select the map to setup")
 @app_commands.choices(map=map_choices)
 async def setup(interaction: discord.Interaction, map: app_commands.Choice[str]):
-    selected_key = map.value  # "livonia", "chernarus", or "sakhal"
+    selected_key = map.value
     map_info = map_data[selected_key]
     guild_id = interaction.guild.id
 
@@ -59,8 +58,10 @@ async def setup(interaction: discord.Interaction, map: app_commands.Choice[str])
         server_vars[guild_id] = {}
 
     prefix = f"{selected_key}_"
+    # Set all flags to ✅ for the selected map
     for flag in flags:
         server_vars[guild_id][prefix + flag] = "✅"
+    # Set the main map name var
     server_vars[guild_id][selected_key] = map_info['name']
 
     embed = discord.Embed(
