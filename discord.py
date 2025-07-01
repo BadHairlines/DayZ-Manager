@@ -8,8 +8,8 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Simulated storage (replace with real database if needed)
 server_vars = {}
 
-# Common factions
-factions = [
+# Common flags
+flags = [
     "Altis", "APA", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals", "CDF",
     "CHEL", "Chedaki", "Chernarus", "CMC", "Crook", "DayZ", "HunterZ", "NAPA",
     "Livonia", "LivoniaArmy", "LivoniaPolice", "NSahrani", "Pirates", "Rex",
@@ -42,8 +42,8 @@ async def setup(ctx, *, message: str):
         if key in msg_lower:
             # Set variables
             prefix = f"{key}_"
-            for faction in factions:
-                server_vars[prefix + faction] = "✅"
+            for flag in flags:
+                server_vars[prefix + flag] = "✅"
             server_vars[key] = data['name']
 
             # Build embed
@@ -60,7 +60,7 @@ async def setup(ctx, *, message: str):
             await ctx.send(embed=embed)
             return
 
-    await ctx.send("❌ No valid region found in your message (livonia, chernarus, sakhal).")
+    await ctx.send("❌ No valid map found in your message (livonia, chernarus, sakhal).")
 
 # Handle missing admin permission
 @setup.error
