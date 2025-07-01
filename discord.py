@@ -20,7 +20,7 @@ flags = [
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup(ctx, *, message: str):
-    region_data = {
+    map_data = {
         'livonia': {
             'name': 'Livonia',
             'image': 'https://i.postimg.cc/QN9vfr9m/Livonia.jpg'
@@ -38,7 +38,7 @@ async def setup(ctx, *, message: str):
     # Lowercase message for easier matching
     msg_lower = message.lower()
 
-    for key, data in region_data.items():
+    for key, data in map_data.items():
         if key in msg_lower:
             # Set variables
             prefix = f"{key}_"
