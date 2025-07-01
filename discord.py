@@ -1,9 +1,27 @@
+import discord
+from discord.ext import commands
 import os
+
+# Intents
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Simulated per-server storage
+server_vars = {}
+
+# Your flags
+flags = [
+    "Altis", "APA", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals", "CDF",
+    "CHEL", "Chedaki", "Chernarus", "CMC", "Crook", "DayZ", "HunterZ", "NAPA",
+    "Livonia", "LivoniaArmy", "LivoniaPolice", "NSahrani", "Pirates", "Rex",
+    "Refuge", "Rooster", "RSTA", "Snake", "SSahrani", "TEC", "UEC", "Wolf",
+    "Zagorky", "Zenit"
+]
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup(ctx, *, message: str):
-    # Map data (expandable)
     map_data = {
         'livonia': {
             'name': 'Livonia',
@@ -22,23 +40,19 @@ async def setup(ctx, *, message: str):
     msg_lower = message.lower()
     guild_id = ctx.guild.id
 
-    # Ensure a dictionary exists for this server
     if guild_id not in server_vars:
         server_vars[guild_id] = {}
 
-    # Try to detect which map is mentioned in the message
     matched_map_key = next((k for k in map_data if k in msg_lower), None)
 
     if matched_map_key:
         map_info = map_data[matched_map_key]
         prefix = f"{matched_map_key}_"
 
-        # Set flag variables for this server and map
         for flag in flags:
             server_vars[guild_id][prefix + flag] = "✅"
         server_vars[guild_id][matched_map_key] = map_info['name']
 
-        # Build and send confirmation embed
         embed = discord.Embed(
             title="__SETUP COMPLETE__",
             description=f"**{map_info['name']}’s** system is now online ✅.",
@@ -53,8 +67,14 @@ async def setup(ctx, *, message: str):
     else:
         await ctx.send("❌ No valid map found in your message (livonia, chernarus, sakhal).")
 
-import os
+# Handle missing admin permission
+@setup.error
+async def setup_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("🚫 This command is for admins ONLY!")
 
+# Run the bot using Railway's environment variable
 TOKEN = os.getenv("DISCORD_TOKEN")
+if not TOKEN:
+    raise RuntimeError("❌ DISCORD_TOKEN not set in Railway environment variables.")
 bot.run(TOKEN)
-
