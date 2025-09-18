@@ -28,15 +28,20 @@ CUSTOM_EMOJIS = {
 }
 
 def load_data():
+    """Safely load server data from JSON file."""
     global server_vars
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            server_vars = json.load(f)
+        try:
+            with open(DATA_FILE, "r") as f:
+                content = f.read().strip()
+                server_vars = json.loads(content) if content else {}
+        except (json.JSONDecodeError, FileNotFoundError):
+            server_vars = {}
     else:
         server_vars = {}
 
 async def save_data():
-    from asyncio import Lock
+    """Save server data to JSON file."""
     async with data_lock:
         with open(DATA_FILE, "w") as f:
             json.dump(server_vars, f, indent=4)
