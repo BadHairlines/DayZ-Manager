@@ -19,26 +19,42 @@ class Flags(commands.Cog):
     async def flags(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
         map_key = selected_map.value
         guild_id = str(interaction.guild.id)
-        guild_data = server_vars.get(guild_id, {})
+        guild_data = server_vars.get(guild_id)
 
+        # ✅ If no setup data exists yet
+        if not guild_data or map_key not in guild_data:
+            await interaction.response.send_message(
+                f"🚫 {MAP_DATA[map_key]['name']} hasn’t been set up yet! Run `/setup` first.",
+                ephemeral=True
+            )
+            return
+
+        # ✅ Build embed
         embed = Embed(
-            title=f"**———⛳️{MAP_DATA[map_key]['name'].upper()} FLAGS⛳️———**",
+            title=f"**———⛳️ {MAP_DATA[map_key]['name'].upper()} FLAGS ⛳️———**",
             color=0x86DC3D,
             timestamp=interaction.created_at
         )
-        embed.set_author(name="🚨Flags Notification🚨")
+        embed.set_author(name="🚨 Flags Notification 🚨")
         embed.set_footer(
             text="DayZ Manager",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
         )
 
+        # ✅ Loop through flags safely
         lines = []
         for flag in FLAGS:
             key = f"{map_key}_{flag}"
             value = guild_data.get(key, "✅")
-            role_mention = f"<@&{guild_data.get(f'{key}_role')}>" if value == "❌" and guild_data.get(f'{key}_role') else "❌"
             emoji = CUSTOM_EMOJIS.get(flag, "")
-            lines.append(f"{emoji}**•{flag}**: {value if value=='✅' else role_mention}")
+
+            if value == "✅":
+                display_value = "✅"
+            else:
+                role_id = guild_data.get(f"{key}_role")
+                display_value = f"<@&{role_id}>" if role_id else "❌"
+
+            lines.append(f"{emoji} **• {flag}**: {display_value}")
 
         embed.description = "\n".join(lines)
         await interaction.response.send_message(embed=embed)
