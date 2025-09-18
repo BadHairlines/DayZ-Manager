@@ -2,11 +2,32 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import os
+import json
+from asyncio import Lock
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 tree = bot.tree
+
+# Thread-safe lock for JSON access
+data_lock = Lock()
+DATA_FILE = "server_vars.json"
+
+# Load server vars from file
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+# Save server vars to file
+async def save_data():
+    async with data_lock:
+        with open(DATA_FILE, "w") as f:
+            json.dump(server_vars, f, indent=4)
+
+server_vars = load_data()
 
 flags = [
     "Altis", "APA", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals", "CDF",
@@ -31,8 +52,6 @@ map_data = {
     }
 }
 
-server_vars = {}
-
 @bot.event
 async def on_ready():
     await tree.sync()
@@ -47,12 +66,12 @@ map_choices = [
 
 @tree.command(name="setup", description="Setup the DayZ map system")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(map="Select the map to setup")
-@app_commands.choices(map=map_choices)
-async def setup(interaction: discord.Interaction, map: app_commands.Choice[str]):
-    selected_key = map.value
+@app_commands.describe(selected_map="Select the map to setup")
+@app_commands.choices(selected_map=map_choices)
+async def setup(interaction: discord.Interaction, selected_map: app_commands.Choice[str]):
+    selected_key = selected_map.value
     map_info = map_data[selected_key]
-    guild_id = interaction.guild.id
+    guild_id = str(interaction.guild.id)
 
     if guild_id not in server_vars:
         server_vars[guild_id] = {}
@@ -64,9 +83,11 @@ async def setup(interaction: discord.Interaction, map: app_commands.Choice[str])
     # Set the main map name var
     server_vars[guild_id][selected_key] = map_info['name']
 
+    await save_data()  # persist changes
+
     embed = discord.Embed(
         title="__SETUP COMPLETE__",
-        description=f"**{map_info['name']}’s** system is now online ✅.",
+        description=f"**{map_info['name']}** system is now online ✅.",
         color=0x00FF00
     )
     embed.set_image(url=map_info['image'])
@@ -81,7 +102,7 @@ async def setup_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.MissingPermissions):
         await interaction.response.send_message("🚫 This command is for admins ONLY!", ephemeral=True)
     else:
-        raise error
+        await interaction.response.send_message(f"❌ An unexpected error occurred:\n```{error}```", ephemeral=True)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
