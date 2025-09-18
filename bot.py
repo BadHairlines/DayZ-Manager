@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from discord.ext import commands
 from cogs.utils import load_data
@@ -16,15 +17,17 @@ async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     print("------")
 
-# Load cogs
 async def load_cogs():
     for cog in ["cogs.setup", "cogs.flags"]:
         await bot.load_extension(cog)
 
-bot.loop.run_until_complete(load_cogs())
+async def main():
+    async with bot:
+        await load_cogs()
+        token = os.getenv("DISCORD_TOKEN")
+        if not token:
+            raise RuntimeError("❌ DISCORD_TOKEN not set in Railway environment variables.")
+        await bot.start(token)
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-if not TOKEN:
-    raise RuntimeError("❌ DISCORD_TOKEN not set in Railway environment variables.")
-
-bot.run(TOKEN)
+if __name__ == "__main__":
+    asyncio.run(main())
