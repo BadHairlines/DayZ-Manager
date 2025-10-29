@@ -15,17 +15,22 @@ FLAGS = [
 ]
 
 MAP_DATA = {
-    "livonia": {"name": "Livonia", "image": "https://i.postimg.cc/QN9vfr9m/Livonia.jpg"},
-    "chernarus": {"name": "Chernarus", "image": "https://i.postimg.cc/3RWzMsLK/Chernarus.jpg"},
-    "sakhal": {"name": "Sakhal", "image": "https://i.postimg.cc/HkBSpS8j/Sakhal.png"},
+    "livonia": {
+        "name": "Livonia",
+        "image": "https://i.postimg.cc/QN9vfr9m/Livonia.jpg"
+    },
+    "chernarus": {
+        "name": "Chernarus",
+        "image": "https://i.postimg.cc/3RWzMsLK/Chernarus.jpg"
+    },
+    "sakhal": {
+        "name": "Sakhal",
+        "image": "https://i.postimg.cc/HkBSpS8j/Sakhal.png"
+    },
 }
 
-CUSTOM_EMOJIS = {
-    "Altis": "<:Altis:1234567890>",
-    "APA": "<:APA:1234567890>",
-    "BabyDeer": "<:BabyDeer:1234567890>",
-    # Add all emojis here
-}
+# Automatically generate emoji map in the :Name: format
+CUSTOM_EMOJIS = {flag: f":{flag}:" for flag in FLAGS}
 
 def load_data():
     """Safely load server data from JSON file."""
