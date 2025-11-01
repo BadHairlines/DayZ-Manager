@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs.utils import server_vars, save_data
+import aiohttp
 import asyncio
 
 # ✅ emoji name → image URL map
@@ -48,6 +48,7 @@ EMOJIS = {
     "White": "https://i.postimg.cc/MTqhM314/White.png",
 }
 
+
 class SetupEmojis(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -61,45 +62,40 @@ class SetupEmojis(commands.Cog):
 
     @app_commands.command(name="setup-emojis", description="Add all flag and armband emojis to the server.")
     async def setup_emojis(self, interaction: discord.Interaction):
-        guild_id = str(interaction.guild.id)
-        guild_data = server_vars.setdefault(guild_id, {})
+        """Uploads all custom flag/armband emojis to the guild."""
+        await interaction.response.send_message("⚙️ Adding all flag emojis... This may take a minute.", ephemeral=True)
 
-        # ✅ Prevent re-adding if already done
-        if guild_data.get("emojisAdded") == "✅":
-            embed = self.make_embed(
-                "❌ __Emojis Already Set Up__ ❌",
-                "> If you're missing any, please reach out to the **DayZ Manager Support Team** for assistance.",
-                0xFF0000
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        await interaction.response.send_message("⚙️ Adding all flag emojis... This may take a few seconds.", ephemeral=True)
         success = 0
         fail = 0
 
-        for name, url in EMOJIS.items():
-            try:
-                async with interaction.client.session.get(url) as resp:
-                    if resp.status == 200:
-                        image_data = await resp.read()
-                        await interaction.guild.create_custom_emoji(name=name, image=image_data)
-                        success += 1
-                        await asyncio.sleep(0.5)  # small delay for rate limiting
-                    else:
-                        fail += 1
-            except Exception:
-                fail += 1
+        async with aiohttp.ClientSession() as session:
+            for name, url in EMOJIS.items():
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            image_data = await resp.read()
 
-        guild_data["emojisAdded"] = "✅"
-        await save_data()
+                            # Avoid duplicates
+                            if discord.utils.get(interaction.guild.emojis, name=name):
+                                fail += 1
+                                continue
+
+                            await interaction.guild.create_custom_emoji(name=name, image=image_data)
+                            success += 1
+                            await asyncio.sleep(0.5)
+                        else:
+                            fail += 1
+                except Exception as e:
+                    print(f"⚠️ Failed to add {name}: {e}")
+                    fail += 1
 
         embed = self.make_embed(
             "__EMOJIS ADDED__",
-            f"✅ **{success} emojis added successfully!**\n❌ **{fail} failed (possibly duplicates or quota limits).**",
-            0x00FF00
+            f"✅ **{success} emojis added successfully!**\n❌ **{fail} failed (duplicates or quota limits).**",
+            0x00FF00 if success > 0 else 0xFF0000
         )
         await interaction.followup.send(embed=embed)
+
 
 async def setup(bot):
     await bot.add_cog(SetupEmojis(bot))
