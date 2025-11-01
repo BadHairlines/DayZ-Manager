@@ -23,7 +23,8 @@ async def load_cogs():
     cogs = [
         "cogs.setup",
         "cogs.flags",
-        "cogs.assign"  # ✅ Added assign cog
+        "cogs.assign",  # ✅ Added assign cog
+        "cogs.release"  # ✅ new release command
     ]
 
     for cog in cogs:
