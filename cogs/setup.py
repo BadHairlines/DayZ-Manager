@@ -1,6 +1,8 @@
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from cogs.utils import server_vars, FLAGS, MAP_DATA, save_data
+import discord
+
 
 class Setup(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -21,6 +23,7 @@ class Setup(commands.Cog):
 
         guild_data = server_vars.setdefault(guild_id, {})
 
+        # Create default flag entries
         prefix = f"{selected_key}_"
         for flag in FLAGS:
             guild_data[f"{prefix}{flag}"] = "✅"
@@ -31,8 +34,7 @@ class Setup(commands.Cog):
         embed = Embed(
             title="__SETUP COMPLETE__",
             description=f"**{map_info['name']}** system is now online ✅.",
-            color=0x00FF00,
-            timestamp=interaction.created_at
+            color=0x00FF00
         )
         embed.set_image(url=map_info["image"])
         embed.set_author(name="🚨 Setup Notification 🚨")
@@ -40,6 +42,7 @@ class Setup(commands.Cog):
             text="DayZ Manager",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
         )
+        embed.timestamp = discord.utils.utcnow()
 
         await interaction.response.send_message(embed=embed)
 
@@ -53,6 +56,7 @@ class Setup(commands.Cog):
             await interaction.response.send_message(
                 f"❌ An unexpected error occurred:\n```{error}```", ephemeral=True
             )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Setup(bot))
