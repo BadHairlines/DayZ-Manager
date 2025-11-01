@@ -17,8 +17,11 @@ class Setup(commands.Cog):
             title=f"**———⛳️ {MAP_DATA[map_key]['name'].upper()} FLAGS ⛳️———**",
             color=0x86DC3D
         )
-        embed.set_author(name="🚨 Live Flag Status 🚨")
-        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        embed.set_author(name="🚨 Flags Notification 🚨")
+        embed.set_footer(
+            text="DayZ Manager",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+        )
         embed.timestamp = discord.utils.utcnow()
 
         lines = []
@@ -50,19 +53,14 @@ class Setup(commands.Cog):
         map_info = MAP_DATA[map_key]
         channel_name = f"flags-{map_key}"
 
-        # 🟡 Stage 1: Send initial “boot” embed
-        loading_embed = Embed(
-            title=f"⚙️ INITIALIZING {map_info['name'].upper()} SETUP",
-            description="Establishing database link...\nMapping field coordinates...\nDeploying flag units...",
-            color=0xFFD166
+        await interaction.response.send_message(
+            f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
+            ephemeral=True
         )
-        loading_embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
-        loading_embed.timestamp = discord.utils.utcnow()
-        await interaction.response.send_message(embed=loading_embed, ephemeral=True)
-        await asyncio.sleep(1.2)
 
         try:
             async with db_pool.acquire() as conn:
+                # ✅ Properly closed triple quotes here
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS flag_messages (
                         guild_id TEXT NOT NULL,
@@ -77,7 +75,7 @@ class Setup(commands.Cog):
                     guild_id, map_key
                 )
 
-            # 🟢 Stage 2: Create / reuse channel
+            # ✅ Reuse or create the channel
             existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
             if existing_channel:
                 setup_channel = existing_channel
@@ -86,16 +84,18 @@ class Setup(commands.Cog):
                     name=channel_name,
                     reason=f"Auto-created for {map_info['name']} setup"
                 )
-                await setup_channel.send(f"📜 This channel displays flag ownership for **{map_info['name']}**.")
+                await setup_channel.send(
+                    f"📜 This channel displays flag ownership for **{map_info['name']}**."
+                )
 
-            # 🟢 Stage 3: Initialize flags
+            # ✅ Initialize flags
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await asyncio.sleep(0.03)
+                await asyncio.sleep(0.05)
 
             embed = await self.create_flag_embed(guild_id, map_key)
 
-            # 🟢 Stage 4: Update or recreate flag message
+            # ✅ Update or recreate message
             if row:
                 try:
                     channel = guild.get_channel(int(row["channel_id"]))
@@ -109,7 +109,7 @@ class Setup(commands.Cog):
                 msg = await setup_channel.send(embed=embed)
                 msg_id = msg.id
 
-            # 🟢 Stage 5: Store updated message info
+            # ✅ Store message info
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
@@ -118,31 +118,30 @@ class Setup(commands.Cog):
                     DO UPDATE SET channel_id = EXCLUDED.channel_id, message_id = EXCLUDED.message_id;
                 """, guild_id, map_key, str(setup_channel.id), str(msg_id))
 
-            # 🟢 Stage 6: Completion Embed
+            # ✅ Success response
             complete_embed = Embed(
-                title=f"✅ {map_info['name'].upper()} SETUP COMPLETE",
+                title="__SETUP COMPLETE__",
                 description=(
-                    f"📍 All {len(FLAGS)} flags deployed successfully.\n"
-                    f"📁 Channel: {setup_channel.mention}\n"
-                    f"🧭 Live map synchronization active."
+                    f"✅ **{map_info['name']}** setup finished successfully.\n\n"
+                    f"📁 Flags channel: {setup_channel.mention}\n"
+                    f"🧭 Live flag message refreshed automatically."
                 ),
-                color=0x57F287
+                color=0x00FF00
             )
             complete_embed.set_image(url=map_info["image"])
-            complete_embed.set_author(name="📡 Setup Transmission Complete")
-            complete_embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+            complete_embed.set_author(name="🚨 Setup Notification 🚨")
+            complete_embed.set_footer(
+                text="DayZ Manager",
+                icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+            )
             complete_embed.timestamp = discord.utils.utcnow()
 
-            await interaction.edit_original_response(embed=complete_embed)
+            await interaction.edit_original_response(content=None, embed=complete_embed)
 
         except Exception as e:
-            error_embed = Embed(
-                title=f"❌ SETUP FAILURE: {map_info['name'].upper()}",
-                description=f"Operation aborted.\n\n```\n{e}\n```",
-                color=0xED4245
+            await interaction.edit_original_response(
+                content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
             )
-            error_embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
-            await interaction.edit_original_response(embed=error_embed)
 
 
 async def setup(bot: commands.Bot):
