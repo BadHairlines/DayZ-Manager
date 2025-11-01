@@ -36,12 +36,10 @@ async def init_db():
     if not db_url:
         raise RuntimeError("❌ DATABASE_URL not found in environment variables!")
 
-    # ⚙️ Choose SSL settings dynamically
-    ssl_ctx = None
-    if "railway.internal" not in db_url:
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
+    # ✅ Always use SSL (safe for both internal & external Railway URLs)
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
 
     # ✅ Create connection pool
     db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
