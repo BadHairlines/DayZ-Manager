@@ -1,24 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import json
-import os
-
-DATA_FILE = "server_vars.json"
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-data = load_data()
-
-VALID_MAPS = ["livonia", "chernarus", "sakhal"]
+from cogs.utils import server_vars, save_data, FLAGS, MAP_DATA
 
 class Reset(commands.Cog):
     def __init__(self, bot):
@@ -27,40 +10,52 @@ class Reset(commands.Cog):
     def make_embed(self, title, desc, color):
         embed = discord.Embed(title=title, description=desc, color=color)
         embed.set_author(name="🧹 Reset Notification 🧹")
-        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        embed.set_footer(
+            text="DayZ Manager",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+        )
         return embed
 
     @app_commands.command(name="reset", description="Reset all flags for a selected map back to ✅.")
-    @app_commands.describe(map="The map (livonia, chernarus, sakhal)")
-    async def reset(self, interaction: discord.Interaction, map: str):
+    @app_commands.describe(selected_map="Select the map to reset (Livonia, Chernarus, Sakhal)")
+    @app_commands.choices(selected_map=[
+        app_commands.Choice(name="Livonia", value="livonia"),
+        app_commands.Choice(name="Chernarus", value="chernarus"),
+        app_commands.Choice(name="Sakhal", value="sakhal"),
+    ])
+    async def reset(self, interaction: discord.Interaction, selected_map: app_commands.Choice[str]):
         # Only allow admins
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You must be an administrator to use this command.",
+                ephemeral=True
+            )
             return
 
-        map = map.lower()
+        guild_id = str(interaction.guild.id)
+        map_key = selected_map.value
+        guild_data = server_vars.get(guild_id)
 
-        # Validate map
-        if map not in VALID_MAPS:
-            embed = self.make_embed("**ERROR**", "Invalid map specified. Please use `livonia`, `chernarus`, or `sakhal`.", 0xFF0000)
+        # Check if map setup exists
+        if not guild_data or map_key not in guild_data:
+            embed = self.make_embed(
+                "**NOT SET UP**",
+                f"❌ {MAP_DATA[map_key]['name']} has not been set up yet! Run `/setup` first.",
+                0xFF0000
+            )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # If map not found
-        if map not in data:
-            embed = self.make_embed("**NOT SET UP**", f"❌ {map.title()} has not been set up yet! Run `/setup` first.", 0xFF0000)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
+        # Reset all flags on this map
+        for flag in FLAGS:
+            guild_data[f"{map_key}_{flag}"] = "✅"
+            guild_data.pop(f"{map_key}_{flag}_role", None)
 
-        # Reset all flags
-        for flag in data[map].keys():
-            data[map][flag] = {"assigned": False, "role_id": None}
-
-        save_data(data)
+        await save_data()
 
         embed = self.make_embed(
             "**RESET COMPLETE**",
-            f"✅ All flags for **{map.title()}** have been reset to ✅ and roles cleared.",
+            f"✅ All flags for **{MAP_DATA[map_key]['name']}** have been reset to ✅ and all role assignments cleared.",
             0x00FF00
         )
         await interaction.response.send_message(embed=embed)
