@@ -29,16 +29,22 @@ async def init_db():
     """Initialize PostgreSQL connection and ensure the table exists."""
     global db_pool
 
-    # ✅ Railway uses a self-signed SSL certificate, so disable verification
-    ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("❌ DATABASE_URL not found in environment variables!")
 
-    db_pool = await asyncpg.create_pool(
-        os.getenv("DATABASE_URL"),
-        ssl=ssl_ctx
-    )
+    # ⚙️ Choose SSL settings dynamically
+    ssl_ctx = None
+    if "railway.internal" not in db_url:
+        # External connection → enable SSL (disable hostname verification)
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
 
+    # ✅ Create connection pool
+    db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
+
+    # ✅ Create table if missing
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
@@ -50,6 +56,7 @@ async def init_db():
                 PRIMARY KEY (guild_id, map, flag)
             );
         """)
+
     print("✅ Connected to PostgreSQL and ensured flags table exists.")
 
 
