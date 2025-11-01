@@ -13,12 +13,18 @@ class Release(commands.Cog):
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         return embed
 
+    # ✅ Bring back autocomplete
+    async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [
+            app_commands.Choice(name=flag, value=flag)
+            for flag in FLAGS if current.lower() in flag.lower()
+        ][:25]
+
     async def update_flag_message(self, guild, guild_id, map_key):
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2", guild_id, map_key)
         if not row:
             return
-
         channel = guild.get_channel(int(row["channel_id"]))
         if not channel:
             return
@@ -46,7 +52,6 @@ class Release(commands.Cog):
                 display_value = "✅" if status == "✅" else (f"<@&{role_id}>" if role_id else "❌")
                 lines.append(f"{emoji} **• {flag}**: {display_value}")
             embed.description = "\n".join(lines)
-
             await msg.edit(embed=embed)
         except Exception as e:
             print(f"⚠️ Failed to update flag message: {e}")
@@ -58,6 +63,7 @@ class Release(commands.Cog):
         app_commands.Choice(name="Chernarus", value="chernarus"),
         app_commands.Choice(name="Sakhal", value="sakhal"),
     ])
+    @app_commands.autocomplete(flag=flag_autocomplete)  # ✅ Added back
     async def release(self, interaction: discord.Interaction, selected_map: app_commands.Choice[str], flag: str):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
@@ -73,7 +79,6 @@ class Release(commands.Cog):
             0x00FF00
         )
         await interaction.response.send_message(embed=embed)
-
         await self.update_flag_message(interaction.guild, guild_id, map_key)
 
 async def setup(bot):
