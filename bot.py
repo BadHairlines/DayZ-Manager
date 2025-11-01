@@ -28,13 +28,15 @@ async def on_ready():
 async def load_cogs():
     """Load bot cogs dynamically."""
     cogs = [
-        "cogs.factions",
         "cogs.activity_check",
-        "cogs.setup_emojis",
-        "cogs.mention_category",
-        "cogs.flags",
         "cogs.assign",
-        "cogs.release"
+        "cogs.factions",
+        "cogs.flags",
+        "cogs.mention_category",
+        "cogs.release",
+        "cogs.reset",
+        "cogs.setup",
+        "cogs.setup_emojis"
     ]
 
     for cog in cogs:
