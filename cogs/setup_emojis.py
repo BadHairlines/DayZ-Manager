@@ -3,6 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 import aiohttp
 import asyncio
+from cogs.utils import log_action  # ✅ add this import
+
 
 # ✅ Official 25 DayZ faction/flag emojis only
 FLAG_EMOJIS = {
@@ -41,7 +43,7 @@ class SetupEmojis(commands.Cog):
     def make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
         """Standard embed for setup notifications."""
         embed = discord.Embed(title=title, description=desc, color=color)
-        embed.set_author(name="🚨 Setup Notification 🚨")
+        embed.set_author(name="🚨 Emoji Setup Notification 🚨")
         embed.set_footer(
             text="DayZ Manager",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
@@ -65,6 +67,14 @@ class SetupEmojis(commands.Cog):
             await interaction.response.send_message(
                 "✅ All 25 flag emojis already exist in this server!",
                 ephemeral=True
+            )
+            # 🪵 Log all present
+            await log_action(
+                guild,
+                "livonia",  # arbitrary map key for global logs
+                title="Emoji Setup Check",
+                description=f"✅ {interaction.user.mention} confirmed all 25 flag emojis already exist.",
+                color=0x2ECC71
             )
             return
 
@@ -106,6 +116,18 @@ class SetupEmojis(commands.Cog):
             0x00FF00 if success > 0 else 0xFF0000
         )
         await interaction.followup.send(embed=embed)
+
+        # 🪵 Log the results in embedded form
+        await log_action(
+            guild,
+            "livonia",  # re-use a map key or handle via general log
+            title="Emoji Setup Completed",
+            description=(
+                f"🪄 {interaction.user.mention} ran `/setup-emojis`.\n\n"
+                f"✅ Added: **{success}**\n⚪ Skipped: **{25 - len(missing_emojis)}**\n❌ Failed: **{failed}**"
+            ),
+            color=0x3498DB if success > 0 else 0xE74C3C
+        )
 
 
 async def setup(bot: commands.Bot):
