@@ -1,5 +1,6 @@
 import asyncpg
 import os
+import ssl
 
 # Database connection pool
 db_pool: asyncpg.Pool | None = None
@@ -21,10 +22,18 @@ MAP_DATA = {
 CUSTOM_EMOJIS = {flag: f":{flag}:" for flag in FLAGS}
 
 
+# ======================================================
+# 🧩 Database Initialization
+# ======================================================
 async def init_db():
-    """Initialize database connection and ensure the table exists."""
+    """Initialize PostgreSQL connection and ensure the table exists."""
     global db_pool
-    db_pool = await asyncpg.create_pool(os.getenv("DATABASE_URL"))
+
+    ssl_ctx = ssl.create_default_context()  # Needed for Railway-hosted Postgres
+    db_pool = await asyncpg.create_pool(
+        os.getenv("DATABASE_URL"),
+        ssl=ssl_ctx
+    )
 
     async with db_pool.acquire() as conn:
         await conn.execute("""
@@ -40,6 +49,9 @@ async def init_db():
     print("✅ Connected to PostgreSQL and ensured flags table exists.")
 
 
+# ======================================================
+# ⚙️ CRUD Operations
+# ======================================================
 async def set_flag(guild_id: str, map_name: str, flag: str, status: str, role_id: str | None):
     """Insert or update a flag record."""
     async with db_pool.acquire() as conn:
@@ -55,20 +67,32 @@ async def get_flag(guild_id: str, map_name: str, flag: str):
     """Fetch one flag record."""
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT status, role_id FROM flags WHERE guild_id=$1 AND map=$2 AND flag=$3
+            SELECT status, role_id FROM flags
+            WHERE guild_id=$1 AND map=$2 AND flag=$3
         """, guild_id, map_name, flag)
         return row
 
 
 async def get_all_flags(guild_id: str, map_name: str):
-    """Fetch all flags for a map."""
+    """Fetch all flags for a specific map."""
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT flag, status, role_id FROM flags WHERE guild_id=$1 AND map=$2
+            SELECT flag, status, role_id FROM flags
+            WHERE guild_id=$1 AND map=$2
         """, guild_id, map_name)
         return rows
 
 
 async def release_flag(guild_id: str, map_name: str, flag: str):
-    """Reset a flag to ✅ and clear role."""
+    """Reset a flag to ✅ and clear the assigned role."""
     await set_flag(guild_id, map_name, flag, "✅", None)
+
+
+async def reset_map_flags(guild_id: str, map_name: str):
+    """Reset all flags for a map to ✅ and clear all roles."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE flags
+            SET status='✅', role_id=NULL
+            WHERE guild_id=$1 AND map=$2;
+        """, guild_id, map_name)
