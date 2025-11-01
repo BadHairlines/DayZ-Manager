@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
-from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed
+from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action
 import asyncio
 
 
@@ -26,7 +26,8 @@ class Setup(commands.Cog):
         guild_id = str(guild.id)
         map_key = selected_map.value
         map_info = MAP_DATA[map_key]
-        channel_name = f"flags-{map_key}"
+        flags_channel_name = f"flags-{map_key}"
+        logs_channel_name = f"{map_key}-logs"
 
         await interaction.response.send_message(
             f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
@@ -42,34 +43,42 @@ class Setup(commands.Cog):
                         map TEXT NOT NULL,
                         channel_id TEXT NOT NULL,
                         message_id TEXT NOT NULL,
+                        log_channel_id TEXT,
                         PRIMARY KEY (guild_id, map)
                     );
                 """)
                 row = await conn.fetchrow(
-                    "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                    "SELECT channel_id, message_id, log_channel_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
                     guild_id, map_key
                 )
 
-            # ✅ Create or reuse the flag channel
-            setup_channel = discord.utils.get(guild.text_channels, name=channel_name)
-            if not setup_channel:
-                setup_channel = await guild.create_text_channel(
-                    name=channel_name,
+            # ✅ Create or reuse flag display channel
+            flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
+            if not flags_channel:
+                flags_channel = await guild.create_text_channel(
+                    name=flags_channel_name,
                     reason=f"Auto-created for {map_info['name']} setup"
                 )
-                await setup_channel.send(
-                    f"📜 This channel displays flag ownership for **{map_info['name']}**."
+                await flags_channel.send(f"📜 This channel displays flag ownership for **{map_info['name']}**.")
+
+            # ✅ Create or reuse log channel
+            log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
+            if not log_channel:
+                log_channel = await guild.create_text_channel(
+                    name=logs_channel_name,
+                    reason=f"Log channel for {map_info['name']} flag activity"
                 )
+                await log_channel.send(f"🗒️ Log channel created for **{map_info['name']}** setup.")
 
             # ✅ Initialize all flags in DB
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await asyncio.sleep(0.05)  # brief delay for async pacing
+                await asyncio.sleep(0.05)  # smooth pacing
 
-            # ✅ Generate unified flag embed
+            # ✅ Create unified flag embed
             embed = await create_flag_embed(guild_id, map_key)
 
-            # ✅ Update or recreate the existing message
+            # ✅ Update or recreate the live message
             msg = None
             if row:
                 try:
@@ -80,24 +89,28 @@ class Setup(commands.Cog):
                     pass
 
             if not msg:
-                msg = await setup_channel.send(embed=embed)
+                msg = await flags_channel.send(embed=embed)
 
-            # ✅ Store or update the flag message record
+            # ✅ Store or update DB with both flag and log channel IDs
             async with db_pool.acquire() as conn:
                 await conn.execute("""
-                    INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
-                    VALUES ($1, $2, $3, $4)
+                    INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
+                    VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT (guild_id, map)
-                    DO UPDATE SET channel_id = EXCLUDED.channel_id, message_id = EXCLUDED.message_id;
-                """, guild_id, map_key, str(setup_channel.id), str(msg.id))
+                    DO UPDATE SET
+                        channel_id = EXCLUDED.channel_id,
+                        message_id = EXCLUDED.message_id,
+                        log_channel_id = EXCLUDED.log_channel_id;
+                """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-            # ✅ Final success confirmation
+            # ✅ Create success embed
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
                     f"✅ **{map_info['name']}** setup finished successfully.\n\n"
-                    f"📁 Flags channel: {setup_channel.mention}\n"
-                    f"🧭 Live flag message refreshed automatically."
+                    f"📁 Flags channel: {flags_channel.mention}\n"
+                    f"🧭 Log channel: {log_channel.mention}\n"
+                    f"🧾 Live flag message refreshed automatically."
                 ),
                 color=0x00FF00
             )
@@ -110,6 +123,14 @@ class Setup(commands.Cog):
             complete_embed.timestamp = discord.utils.utcnow()
 
             await interaction.edit_original_response(content=None, embed=complete_embed)
+
+            # ✅ Log the setup completion
+            await log_action(
+                guild,
+                map_key,
+                f"✅ **Setup complete** for **{map_info['name']}** by {interaction.user.mention}\n"
+                f"Flags channel: {flags_channel.mention}"
+            )
 
         except Exception as e:
             await interaction.edit_original_response(
