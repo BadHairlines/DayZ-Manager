@@ -13,11 +13,11 @@ class MentionCategory(commands.Cog):
             await interaction.response.send_message("❌ Only admins can use this command!", ephemeral=True)
             return
 
-        # Collect text channels
-        text_channels = [ch for ch in category.channels if isinstance(ch, discord.TextChannel)]
+        # Collect text channels and skip first 2
+        text_channels = [ch for ch in category.channels if isinstance(ch, discord.TextChannel)][2:]
 
         if not text_channels:
-            await interaction.response.send_message(f"⚠️ No text channels found in **{category.name}**.", ephemeral=True)
+            await interaction.response.send_message(f"⚠️ No text channels found in **{category.name}** (after skipping first two).", ephemeral=True)
             return
 
         # Put each mention on a new line
