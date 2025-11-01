@@ -36,7 +36,7 @@ class AutoRefresh(commands.Cog):
     async def on_ready(self):
         """Auto-refresh all stored flag messages after bot startup."""
         await self.bot.wait_until_ready()
-        print("🚀 Starting flag auto-refresh...")
+        print("🚀 DayZ Manager starting flag auto-refresh...")
 
         # Small delay to ensure bot is fully connected
         await asyncio.sleep(5)
@@ -46,7 +46,7 @@ class AutoRefresh(commands.Cog):
                 await self.update_flag_message(guild, map_key)
                 await asyncio.sleep(1)  # avoid hitting rate limits
 
-        print("✅ All stored flag messages refreshed successfully.")
+        print("✅ DayZ Manager has refreshed all stored flag messages successfully.")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AutoRefresh(bot))
