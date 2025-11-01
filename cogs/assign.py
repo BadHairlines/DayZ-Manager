@@ -13,7 +13,6 @@ class Assign(commands.Cog):
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         return embed
 
-    # ✅ Bring back autocomplete
     async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
         return [
             app_commands.Choice(name=flag, value=flag)
@@ -63,7 +62,7 @@ class Assign(commands.Cog):
         app_commands.Choice(name="Chernarus", value="chernarus"),
         app_commands.Choice(name="Sakhal", value="sakhal"),
     ])
-    @app_commands.autocomplete(flag=flag_autocomplete)  # ✅ Added back
+    @app_commands.autocomplete(flag=flag_autocomplete)
     async def assign(self, interaction: discord.Interaction, selected_map: app_commands.Choice[str], flag: str, role: discord.Role):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
@@ -71,14 +70,44 @@ class Assign(commands.Cog):
 
         guild_id = str(interaction.guild.id)
         map_key = selected_map.value
+
+        # ✅ Fetch all flags for this map
+        existing_flags = await get_all_flags(guild_id, map_key)
+        db_flags = {r["flag"]: r for r in existing_flags}
+
+        # 🚫 Check if this flag is already taken by someone else
+        if flag in db_flags and db_flags[flag]["status"] == "❌" and db_flags[flag]["role_id"] is not None:
+            current_owner = db_flags[flag]["role_id"]
+            embed = self.make_embed(
+                "**FLAG ALREADY CLAIMED**",
+                f"❌ The **{flag}** flag on **{MAP_DATA[map_key]['name']}** is already assigned to <@&{current_owner}>.",
+                0xFF0000
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # 🚫 Check if this role already owns another flag
+        for record in existing_flags:
+            if record["role_id"] == str(role.id):
+                embed = self.make_embed(
+                    "**ROLE ALREADY HAS A FLAG**",
+                    f"{role.mention} already owns the **{record['flag']}** flag on **{MAP_DATA[map_key]['name']}**.",
+                    0xFF0000
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+
+        # ✅ Assign the flag
         await set_flag(guild_id, map_key, flag, "❌", str(role.id))
 
         embed = self.make_embed(
-            "**ASSIGNED**",
-            f"The **{flag} Flag** has been marked as ❌ on **{MAP_DATA[map_key]['name']}** and assigned to {role.mention}.",
+            "**FLAG ASSIGNED**",
+            f"✅ The **{flag}** flag has been marked as ❌ and assigned to {role.mention} on **{MAP_DATA[map_key]['name']}**.",
             0x86DC3D
         )
         await interaction.response.send_message(embed=embed)
+
+        # 🔁 Update flag display
         await self.update_flag_message(interaction.guild, guild_id, map_key)
 
 async def setup(bot):
