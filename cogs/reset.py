@@ -103,24 +103,30 @@ class Reset(commands.Cog):
 
             await interaction.edit_original_response(content=None, embed=embed)
 
-            # 🪵 Step 5: Log reset action
+            # 🪵 Step 5: Structured success log
             await log_action(
                 guild,
                 map_key,
-                f"🧹 **Map Reset:** All flags reset by {interaction.user.mention} "
-                f"on **{MAP_DATA[map_key]['name']}**"
+                title="Map Reset Complete",
+                description=(
+                    f"🧹 **All flags reset** on **{map_info['name']}** by {interaction.user.mention}.\n"
+                    f"All flags have been restored to ✅ and the live map view was refreshed."
+                ),
+                color=0x2ECC71
             )
 
         except Exception as e:
             await interaction.edit_original_response(
                 content=f"❌ Reset failed for **{map_info['name']}**:\n```{e}```"
             )
-            # 🪵 Log failure
+
+            # 🪵 Structured error log
             await log_action(
                 guild,
                 map_key,
-                f"❌ **Reset Failed:** Attempt by {interaction.user.mention} on "
-                f"**{MAP_DATA[map_key]['name']}** — Error: `{e}`"
+                title="Map Reset Failed",
+                description=f"❌ **Reset failed** on **{map_info['name']}** by {interaction.user.mention}:\n```{e}```",
+                color=0xE74C3C
             )
 
 
