@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from cogs.utils import (
-    FLAGS, MAP_DATA, get_all_flags, db_pool, create_flag_embed
+    FLAGS, MAP_DATA, get_all_flags, db_pool, create_flag_embed, log_action
 )
 from datetime import datetime
 
@@ -38,7 +38,8 @@ class Status(commands.Cog):
         selected_map: app_commands.Choice[str]
     ):
         """Displays flag ownership summary for a map."""
-        guild_id = str(interaction.guild.id)
+        guild = interaction.guild
+        guild_id = str(guild.id)
         map_key = selected_map.value
         map_info = MAP_DATA[map_key]
 
@@ -50,6 +51,15 @@ class Status(commands.Cog):
             await interaction.followup.send(
                 f"🚫 {map_info['name']} hasn’t been set up yet. Run `/setup` first.",
                 ephemeral=True
+            )
+
+            # 🪵 Log failed status check
+            await log_action(
+                guild,
+                map_key,
+                title="Status Check Failed",
+                description=f"🚫 {interaction.user.mention} tried to check **{map_info['name']}**, but it hasn’t been set up yet.",
+                color=0xE74C3C
             )
             return
 
@@ -66,7 +76,7 @@ class Status(commands.Cog):
 
         owners_text = "\n".join(owners) if owners else "_No claimed flags currently._"
 
-        # 📊 Build the embed
+        # 📊 Build the status embed
         embed = discord.Embed(
             title=f"**———📊 {map_info['name'].upper()} STATUS 📊———**",
             color=0x3498DB
@@ -83,6 +93,18 @@ class Status(commands.Cog):
         )
 
         await interaction.followup.send(embed=embed)
+
+        # 🪵 Log successful status view
+        await log_action(
+            guild,
+            map_key,
+            title="Status Viewed",
+            description=(
+                f"📊 {interaction.user.mention} viewed the **status report** for **{map_info['name']}**.\n"
+                f"✅ Available: **{available_flags}/{total_flags}**, ❌ Claimed: **{taken_flags}/{total_flags}**."
+            ),
+            color=0x3498DB
+        )
 
 
 async def setup(bot: commands.Bot):
