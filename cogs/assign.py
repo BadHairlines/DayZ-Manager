@@ -1,56 +1,50 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs.utils import FLAGS, MAP_DATA, set_flag, get_all_flags, CUSTOM_EMOJIS, db_pool
+from cogs.utils import (
+    FLAGS, MAP_DATA, set_flag, get_all_flags,
+    db_pool, create_flag_embed
+)
+
 
 class Assign(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def make_embed(self, title, desc, color):
+    def make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
+        """Helper to make consistent embeds for assign notifications."""
         embed = discord.Embed(title=title, description=desc, color=color)
         embed.set_author(name="🪧 Assign Notification 🪧")
-        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        embed.set_footer(
+            text="DayZ Manager",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+        )
         return embed
 
     async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for flag names."""
         return [
             app_commands.Choice(name=flag, value=flag)
             for flag in FLAGS if current.lower() in flag.lower()
         ][:25]
 
-    async def update_flag_message(self, guild, guild_id, map_key):
+    async def update_flag_message(self, guild: discord.Guild, guild_id: str, map_key: str):
+        """Refresh the live flag embed for a specific map."""
         async with db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2", guild_id, map_key)
+            row = await conn.fetchrow(
+                "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                guild_id, map_key
+            )
         if not row:
             return
+
         channel = guild.get_channel(int(row["channel_id"]))
         if not channel:
             return
 
         try:
             msg = await channel.fetch_message(int(row["message_id"]))
-            records = await get_all_flags(guild_id, map_key)
-            db_flags = {r["flag"]: r for r in records}
-
-            embed = discord.Embed(
-                title=f"**———⛳️ {MAP_DATA[map_key]['name'].upper()} FLAGS ⛳️———**",
-                color=0x86DC3D
-            )
-            embed.set_author(name="🚨 Flags Notification 🚨")
-            embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
-
-            lines = []
-            for flag in FLAGS:
-                data = db_flags.get(flag)
-                status = data["status"] if data else "✅"
-                role_id = data["role_id"] if data and data["role_id"] else None
-                emoji = CUSTOM_EMOJIS.get(flag, "")
-                if not emoji.startswith("<:"):
-                    emoji = ""
-                display_value = "✅" if status == "✅" else (f"<@&{role_id}>" if role_id else "❌")
-                lines.append(f"{emoji} **• {flag}**: {display_value}")
-            embed.description = "\n".join(lines)
+            embed = await create_flag_embed(guild_id, map_key)
             await msg.edit(embed=embed)
         except Exception as e:
             print(f"⚠️ Failed to update flag message: {e}")
@@ -63,9 +57,19 @@ class Assign(commands.Cog):
         app_commands.Choice(name="Sakhal", value="sakhal"),
     ])
     @app_commands.autocomplete(flag=flag_autocomplete)
-    async def assign(self, interaction: discord.Interaction, selected_map: app_commands.Choice[str], flag: str, role: discord.Role):
+    async def assign(
+        self,
+        interaction: discord.Interaction,
+        selected_map: app_commands.Choice[str],
+        flag: str,
+        role: discord.Role
+    ):
+        """Assigns a flag to a specific role."""
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You must be an administrator to use this command.",
+                ephemeral=True
+            )
             return
 
         guild_id = str(interaction.guild.id)
@@ -75,12 +79,13 @@ class Assign(commands.Cog):
         existing_flags = await get_all_flags(guild_id, map_key)
         db_flags = {r["flag"]: r for r in existing_flags}
 
-        # 🚫 Check if this flag is already taken by someone else
-        if flag in db_flags and db_flags[flag]["status"] == "❌" and db_flags[flag]["role_id"] is not None:
+        # 🚫 Check if this flag is already taken
+        if flag in db_flags and db_flags[flag]["status"] == "❌" and db_flags[flag]["role_id"]:
             current_owner = db_flags[flag]["role_id"]
             embed = self.make_embed(
                 "**FLAG ALREADY CLAIMED**",
-                f"❌ The **{flag}** flag on **{MAP_DATA[map_key]['name']}** is already assigned to <@&{current_owner}>.",
+                f"❌ The **{flag}** flag on **{MAP_DATA[map_key]['name']}** "
+                f"is already assigned to <@&{current_owner}>.",
                 0xFF0000
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -91,7 +96,8 @@ class Assign(commands.Cog):
             if record["role_id"] == str(role.id):
                 embed = self.make_embed(
                     "**ROLE ALREADY HAS A FLAG**",
-                    f"{role.mention} already owns the **{record['flag']}** flag on **{MAP_DATA[map_key]['name']}**.",
+                    f"{role.mention} already owns the **{record['flag']}** flag "
+                    f"on **{MAP_DATA[map_key]['name']}**.",
                     0xFF0000
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -100,15 +106,18 @@ class Assign(commands.Cog):
         # ✅ Assign the flag
         await set_flag(guild_id, map_key, flag, "❌", str(role.id))
 
+        # ✅ Notify success
         embed = self.make_embed(
             "**FLAG ASSIGNED**",
-            f"✅ The **{flag}** flag has been marked as ❌ and assigned to {role.mention} on **{MAP_DATA[map_key]['name']}**.",
+            f"✅ The **{flag}** flag has been marked as ❌ and assigned to "
+            f"{role.mention} on **{MAP_DATA[map_key]['name']}**.",
             0x86DC3D
         )
         await interaction.response.send_message(embed=embed)
 
-        # 🔁 Update flag display
+        # 🔁 Update live display
         await self.update_flag_message(interaction.guild, guild_id, map_key)
 
-async def setup(bot):
+
+async def setup(bot: commands.Bot):
     await bot.add_cog(Assign(bot))
