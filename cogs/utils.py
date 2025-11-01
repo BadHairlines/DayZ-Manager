@@ -29,7 +29,11 @@ async def init_db():
     """Initialize PostgreSQL connection and ensure the table exists."""
     global db_pool
 
-    ssl_ctx = ssl.create_default_context()  # Needed for Railway-hosted Postgres
+    # ✅ Railway uses a self-signed SSL certificate, so disable verification
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+
     db_pool = await asyncpg.create_pool(
         os.getenv("DATABASE_URL"),
         ssl=ssl_ctx
