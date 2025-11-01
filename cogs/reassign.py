@@ -75,6 +75,7 @@ class Reassign(commands.Cog):
         guild = interaction.guild
         guild_id = str(guild.id)
         map_key = selected_map.value
+        map_name = MAP_DATA[map_key]["name"]
 
         # ✅ Fetch all current flags
         existing_flags = await get_all_flags(guild_id, map_key)
@@ -108,7 +109,7 @@ class Reassign(commands.Cog):
         for record in existing_flags:
             if record["role_id"] == str(new_role.id):
                 await interaction.response.send_message(
-                    f"❌ {new_role.mention} already owns the **{record['flag']}** flag on **{MAP_DATA[map_key]['name']}**.",
+                    f"❌ {new_role.mention} already owns the **{record['flag']}** flag on **{map_name}**.",
                     ephemeral=True
                 )
                 return
@@ -120,7 +121,7 @@ class Reassign(commands.Cog):
         embed = self.make_embed(
             "**FLAG REASSIGNED**",
             f"🔁 The **{flag}** flag has been transferred from <@&{current_owner}> "
-            f"to {new_role.mention} on **{MAP_DATA[map_key]['name']}**.",
+            f"to {new_role.mention} on **{map_name}**.",
             0x3498DB
         )
         await interaction.response.send_message(embed=embed)
@@ -128,12 +129,14 @@ class Reassign(commands.Cog):
         # 🔁 Update live display
         await self.update_flag_message(guild, guild_id, map_key)
 
-        # 🪵 Log action
+        # 🪵 Structured log for reassign
         await log_action(
             guild,
             map_key,
-            f"🔁 **Flag Reassigned:** {flag} → {new_role.mention} "
-            f"(from <@&{current_owner}>) by {interaction.user.mention}"
+            title="Flag Reassigned",
+            description=f"🔁 **{flag}** moved from <@&{current_owner}> → {new_role.mention}\n"
+                        f"👤 Changed by {interaction.user.mention} on **{map_name}**.",
+            color=0x3498DB
         )
 
 
