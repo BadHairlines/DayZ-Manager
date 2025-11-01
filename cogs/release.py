@@ -37,10 +37,28 @@ class Release(commands.Cog):
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         return embed
 
+    # ===============================
+    # Autocomplete Functions
+    # ===============================
+    async def map_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [
+            app_commands.Choice(name=m.title(), value=m)
+            for m in VALID_MAPS if current.lower() in m.lower()
+        ]
+
+    async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [
+            app_commands.Choice(name=f, value=f)
+            for f in VALID_FLAGS if current.lower() in f.lower()
+        ][:25]
+
+    # ===============================
+    # /release
+    # ===============================
     @app_commands.command(name="release", description="Release a flag back to ✅ for a specific map.")
-    @app_commands.describe(map="The map (livonia, chernarus, sakhal)", flag="The flag to release")
+    @app_commands.describe(map="Select the map", flag="Select the flag to release")
+    @app_commands.autocomplete(map=map_autocomplete, flag=flag_autocomplete)
     async def release(self, interaction: discord.Interaction, map: str, flag: str):
-        # Only allow admins
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
             return
@@ -48,25 +66,21 @@ class Release(commands.Cog):
         map = map.lower()
         flag = flag.strip()
 
-        # Invalid map check
         if map not in VALID_MAPS:
-            embed = self.make_embed("**ERROR**", "Invalid map specified. Please use `livonia`, `chernarus`, or `sakhal`.", 0xFF0000)
+            embed = self.make_embed("**ERROR**", "Invalid map specified. Please use Livonia, Chernarus, or Sakhal.", 0xFF0000)
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Invalid flag check
         if flag not in VALID_FLAGS:
             embed = self.make_embed("**DOESN'T EXIST**", f"The **{flag} Flag** does not exist on **{map.title()}** lol.", 0xFF0000)
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Flag not found or already free
         if map not in data or flag not in data[map] or not data[map][flag]["assigned"]:
             embed = self.make_embed("**ALREADY RELEASED**", f"The **{flag} Flag** is already free on **{map.title()}**.", 0xFF0000)
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Release the flag
         data[map][flag] = {"assigned": False, "role_id": None}
         save_data(data)
 
