@@ -2,14 +2,12 @@ import os
 import asyncio
 import discord
 from discord.ext import commands
-from cogs.utils import load_data
+from cogs.utils import init_db  # ✅ Import PostgreSQL init
+# (No more load_data, since JSON is replaced)
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# === Load server data ===
-load_data()
 
 
 @bot.event
@@ -33,7 +31,10 @@ async def load_cogs():
         "cogs.factions",
         "cogs.activity_check",
         "cogs.setup_emojis",
-        "cogs.mention_category"
+        "cogs.mention_category",
+        "cogs.flags",
+        "cogs.assign",
+        "cogs.release"
     ]
 
     for cog in cogs:
@@ -46,7 +47,12 @@ async def load_cogs():
 
 async def main():
     async with bot:
+        # ✅ Connect to PostgreSQL
+        await init_db()
+
+        # ✅ Load all cogs after DB is ready
         await load_cogs()
+
         token = os.getenv("DISCORD_TOKEN")
         if not token:
             raise RuntimeError("❌ DISCORD_TOKEN not set in Railway environment variables.")
