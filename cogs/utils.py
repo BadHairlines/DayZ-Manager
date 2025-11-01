@@ -1,11 +1,14 @@
 import asyncpg
 import os
 import ssl
+import discord
 
-# Database connection pool
+# ======================================================
+# 🗃 Database connection pool
+# ======================================================
 db_pool: asyncpg.Pool | None = None
 
-# ✅ Updated official 25 flags only
+# ✅ Official 25 flags only
 FLAGS = [
     "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
     "CHEL", "Chedaki", "CMC", "Crook", "HunterZ", "NAPA", "NSahrani",
@@ -36,7 +39,6 @@ async def init_db():
     # ⚙️ Choose SSL settings dynamically
     ssl_ctx = None
     if "railway.internal" not in db_url:
-        # External connection → enable SSL (disable hostname verification)
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -107,3 +109,40 @@ async def reset_map_flags(guild_id: str, map_name: str):
             SET status='✅', role_id=NULL
             WHERE guild_id=$1 AND map=$2;
         """, guild_id, map_name)
+
+
+# ======================================================
+# 🧱 Shared Flag Embed Builder (Improvement A)
+# ======================================================
+async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
+    """
+    Generate a unified embed showing all flags and their current status for a map.
+    Used by setup, assign, release, reset, and flags commands.
+    """
+    records = await get_all_flags(guild_id, map_key)
+    db_flags = {r["flag"]: r for r in records}
+
+    embed = discord.Embed(
+        title=f"**———⛳️ {MAP_DATA[map_key]['name'].upper()} FLAGS ⛳️———**",
+        color=0x86DC3D
+    )
+    embed.set_author(name="🚨 Flags Notification 🚨")
+    embed.set_footer(
+        text="DayZ Manager",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
+    embed.timestamp = discord.utils.utcnow()
+
+    lines = []
+    for flag in FLAGS:
+        data = db_flags.get(flag)
+        status = data["status"] if data else "✅"
+        role_id = data["role_id"] if data and data["role_id"] else None
+        emoji = CUSTOM_EMOJIS.get(flag, "")
+        if not emoji.startswith("<:"):
+            emoji = ""
+        display_value = "✅" if status == "✅" else (f"<@&{role_id}>" if role_id else "❌")
+        lines.append(f"{emoji} **• {flag}**: {display_value}")
+
+    embed.description = "\n".join(lines)
+    return embed
