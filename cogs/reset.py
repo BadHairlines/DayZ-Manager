@@ -1,7 +1,8 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs.utils import server_vars, save_data, FLAGS, MAP_DATA
+from cogs.utils import reset_map_flags, MAP_DATA, FLAGS  # uses new db helper
+import asyncpg
 
 class Reset(commands.Cog):
     def __init__(self, bot):
@@ -24,34 +25,20 @@ class Reset(commands.Cog):
         app_commands.Choice(name="Sakhal", value="sakhal"),
     ])
     async def reset(self, interaction: discord.Interaction, selected_map: app_commands.Choice[str]):
-        # Only allow admins
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "❌ You must be an administrator to use this command.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
             return
 
         guild_id = str(interaction.guild.id)
         map_key = selected_map.value
-        guild_data = server_vars.get(guild_id)
 
-        # Check if map setup exists
-        if not guild_data or map_key not in guild_data:
-            embed = self.make_embed(
-                "**NOT SET UP**",
-                f"❌ {MAP_DATA[map_key]['name']} has not been set up yet! Run `/setup` first.",
-                0xFF0000
-            )
+        try:
+            # reset all flags in the database for this guild & map
+            await reset_map_flags(guild_id, map_key)
+        except asyncpg.PostgresError as e:
+            embed = self.make_embed("❌ Database Error", f"Could not reset flags:\n```{e}```", 0xFF0000)
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
-
-        # Reset all flags on this map
-        for flag in FLAGS:
-            guild_data[f"{map_key}_{flag}"] = "✅"
-            guild_data.pop(f"{map_key}_{flag}_role", None)
-
-        await save_data()
 
         embed = self.make_embed(
             "**RESET COMPLETE**",
