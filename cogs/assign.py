@@ -90,12 +90,15 @@ class Assign(commands.Cog):
                 0xFF0000
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            # 🪵 Log attempt
+
+            # 🪵 Structured log for failed assignment
             await log_action(
                 guild,
                 map_key,
-                f"⚠️ **Assign Attempt Failed** — {interaction.user.mention} tried to assign **{flag}**, "
-                f"but it's already owned by <@&{current_owner}>."
+                title="Assign Attempt Failed",
+                description=f"⚠️ {interaction.user.mention} tried to assign **{flag}**, "
+                            f"but it’s already owned by <@&{current_owner}>.",
+                color=0xE74C3C
             )
             return
 
@@ -109,12 +112,15 @@ class Assign(commands.Cog):
                     0xFF0000
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
-                # 🪵 Log duplicate assignment attempt
+
+                # 🪵 Structured log for duplicate assignment
                 await log_action(
                     guild,
                     map_key,
-                    f"⚠️ **Duplicate Flag Attempt** — {interaction.user.mention} tried to assign another flag "
-                    f"to {role.mention} (already owns {record['flag']})."
+                    title="Duplicate Flag Attempt",
+                    description=f"⚠️ {interaction.user.mention} tried to assign another flag "
+                                f"to {role.mention} (already owns **{record['flag']}**).",
+                    color=0xF1C40F
                 )
                 return
 
@@ -133,12 +139,13 @@ class Assign(commands.Cog):
         # 🔁 Update live display
         await self.update_flag_message(guild, guild_id, map_key)
 
-        # 🪵 Log assignment
+        # 🪵 Structured log for assignment
         await log_action(
             guild,
             map_key,
-            f"🪧 **Flag Assigned:** {flag} → {role.mention} "
-            f"(by {interaction.user.mention}) on **{MAP_DATA[map_key]['name']}**"
+            title="Flag Assigned",
+            description=f"🪧 **{flag}** → {role.mention}\nAssigned by {interaction.user.mention}",
+            color=0x2ECC71
         )
 
 
