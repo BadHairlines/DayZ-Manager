@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.utils import (
     FLAGS, MAP_DATA, release_flag,
-    db_pool, create_flag_embed
+    db_pool, create_flag_embed, log_action
 )
 
 
@@ -14,7 +14,7 @@ class Release(commands.Cog):
     def make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
         """Helper for consistent release notifications."""
         embed = discord.Embed(title=title, description=desc, color=color)
-        embed.set_author(name="🪧 Release Notification 🪧")
+        embed.set_author(name="🏳️ Release Notification 🏳️")
         embed.set_footer(
             text="DayZ Manager",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
@@ -74,7 +74,8 @@ class Release(commands.Cog):
             )
             return
 
-        guild_id = str(interaction.guild.id)
+        guild = interaction.guild
+        guild_id = str(guild.id)
         map_key = selected_map.value
 
         # ✅ Release flag in DB
@@ -90,7 +91,15 @@ class Release(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
         # 🔁 Update the live flag message
-        await self.update_flag_message(interaction.guild, guild_id, map_key)
+        await self.update_flag_message(guild, guild_id, map_key)
+
+        # 🪵 Log the release action
+        await log_action(
+            guild,
+            map_key,
+            f"🏳️ **Flag Released:** {flag} (by {interaction.user.mention}) "
+            f"on **{MAP_DATA[map_key]['name']}**"
+        )
 
 
 async def setup(bot: commands.Bot):
