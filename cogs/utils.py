@@ -44,7 +44,7 @@ async def init_db():
     # ✅ Create connection pool
     db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
 
-    # ✅ Create table if missing
+    # ✅ Create tables if missing
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
@@ -57,7 +57,18 @@ async def init_db():
             );
         """)
 
-    print("✅ Connected to PostgreSQL and ensured flags table exists.")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS flag_messages (
+                guild_id TEXT NOT NULL,
+                map TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                log_channel_id TEXT,
+                PRIMARY KEY (guild_id, map)
+            );
+        """)
+
+    print("✅ Connected to PostgreSQL and ensured all tables exist.")
 
 
 # ======================================================
@@ -77,21 +88,19 @@ async def set_flag(guild_id: str, map_name: str, flag: str, status: str, role_id
 async def get_flag(guild_id: str, map_name: str, flag: str):
     """Fetch one flag record."""
     async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("""
+        return await conn.fetchrow("""
             SELECT status, role_id FROM flags
             WHERE guild_id=$1 AND map=$2 AND flag=$3
         """, guild_id, map_name, flag)
-        return row
 
 
 async def get_all_flags(guild_id: str, map_name: str):
     """Fetch all flags for a specific map."""
     async with db_pool.acquire() as conn:
-        rows = await conn.fetch("""
+        return await conn.fetch("""
             SELECT flag, status, role_id FROM flags
             WHERE guild_id=$1 AND map=$2
         """, guild_id, map_name)
-        return rows
 
 
 async def release_flag(guild_id: str, map_name: str, flag: str):
@@ -110,7 +119,7 @@ async def reset_map_flags(guild_id: str, map_name: str):
 
 
 # ======================================================
-# 🧱 Shared Flag Embed Builder (Improvement A)
+# 🧱 Shared Flag Embed Builder
 # ======================================================
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     """
@@ -144,3 +153,33 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
     embed.description = "\n".join(lines)
     return embed
+
+
+# ======================================================
+# 🪵 Shared Logging Function
+# ======================================================
+async def log_action(guild: discord.Guild, map_key: str, message: str):
+    """
+    Send a log message to the proper log channel for the map.
+    Automatically looks up the log_channel_id from DB.
+    """
+    guild_id = str(guild.id)
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT log_channel_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+            guild_id, map_key
+        )
+
+    if not row or not row["log_channel_id"]:
+        print(f"⚠️ No log channel found for {guild.name} ({map_key})")
+        return
+
+    log_channel = guild.get_channel(int(row["log_channel_id"]))
+    if not log_channel:
+        print(f"⚠️ Log channel deleted or invalid for {guild.name} ({map_key})")
+        return
+
+    try:
+        await log_channel.send(message)
+    except Exception as e:
+        print(f"⚠️ Failed to send log message for {guild.name} ({map_key}): {e}")
