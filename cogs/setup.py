@@ -22,33 +22,39 @@ class Setup(commands.Cog):
         map_key = selected_map.value
         map_info = MAP_DATA[map_key]
 
-        # ✅ Immediately acknowledge and show progress message
+        # ✅ Send initial progress message
         await interaction.response.send_message(
             f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
             ephemeral=True
         )
 
-        # ✅ Setup flags in DB
-        for flag in FLAGS:
-            await set_flag(guild_id, map_key, flag, "✅", None)
-            await asyncio.sleep(0.05)  # small delay keeps things smoother
+        # ✅ Perform setup
+        try:
+            for flag in FLAGS:
+                await set_flag(guild_id, map_key, flag, "✅", None)
+                await asyncio.sleep(0.05)  # helps prevent async pool congestion
 
-        # ✅ Create success embed
-        embed = Embed(
-            title="__SETUP COMPLETE__",
-            description=f"✅ **{map_info['name']}** setup finished successfully.\n\nAll flags have been initialized in the database.",
-            color=0x00FF00
-        )
-        embed.set_image(url=map_info["image"])
-        embed.set_author(name="🚨 Setup Notification 🚨")
-        embed.set_footer(
-            text="DayZ Manager",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-        )
-        embed.timestamp = discord.utils.utcnow()
+            # ✅ Prepare success embed
+            embed = Embed(
+                title="__SETUP COMPLETE__",
+                description=f"✅ **{map_info['name']}** setup finished successfully.\n\nAll flags have been initialized in the database.",
+                color=0x00FF00
+            )
+            embed.set_image(url=map_info["image"])
+            embed.set_author(name="🚨 Setup Notification 🚨")
+            embed.set_footer(
+                text="DayZ Manager",
+                icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+            )
+            embed.timestamp = discord.utils.utcnow()
 
-        # ✅ Edit the “setting up” message with final embed
-        await interaction.edit_original_response(content=None, embed=embed)
+            await interaction.edit_original_response(content=None, embed=embed)
+
+        except Exception as e:
+            # ✅ If an error happens mid-setup, update message instead of new response
+            await interaction.edit_original_response(
+                content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
+            )
 
     @setup.error
     async def setup_error(self, interaction: Interaction, error):
@@ -57,8 +63,10 @@ class Setup(commands.Cog):
                 "🚫 This command is for admins ONLY!", ephemeral=True
             )
         else:
-            await interaction.response.send_message(
-                f"❌ An unexpected error occurred:\n```{error}```", ephemeral=True
+            # ✅ use followup.send since response may already exist
+            await interaction.followup.send(
+                f"❌ An unexpected error occurred:\n```{error}```",
+                ephemeral=True
             )
 
 
