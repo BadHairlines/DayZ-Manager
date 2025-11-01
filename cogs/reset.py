@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.utils import reset_map_flags, MAP_DATA, FLAGS, get_all_flags, CUSTOM_EMOJIS, db_pool
 import asyncpg
+import asyncio
 
 class Reset(commands.Cog):
     def __init__(self, bot):
@@ -83,16 +84,27 @@ class Reset(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        embed = self.make_embed(
+        # Send initial "in progress" embed
+        progress_embed = self.make_embed(
             "**RESET COMPLETE**",
             f"✅ All flags for **{MAP_DATA[map_key]['name']}** have been reset to ✅ and all role assignments cleared.\n\n"
-            f"🔄 Updating live flag display...",
+            f"🧭 Updating flag display...",
             0x00FF00
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=progress_embed)
 
-        # 🔁 Update the /flags embed automatically
+        # Update the main flag display
         await self.update_flag_message(guild, guild_id, map_key)
+
+        # Wait a couple seconds, then edit the original embed to show final status
+        await asyncio.sleep(3)
+
+        final_embed = self.make_embed(
+            "**RESET COMPLETE**",
+            f"✅ All flags for **{MAP_DATA[map_key]['name']}** have been fully reset and display updated successfully.",
+            0x86DC3D
+        )
+        await interaction.edit_original_response(embed=final_embed)
 
 async def setup(bot):
     await bot.add_cog(Reset(bot))
