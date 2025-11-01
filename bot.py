@@ -2,11 +2,15 @@ import os
 import asyncio
 import discord
 from discord.ext import commands
-from cogs.utils import init_db  # ✅ Import PostgreSQL init
+from cogs.utils import init_db, cleanup_deleted_roles  # ✅ Import cleanup
 # (No more load_data, since JSON is replaced)
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.guilds = True
+intents.guild_messages = True
+intents.guild_reactions = True
+intents.members = True  # ✅ Needed to check role existence
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
@@ -21,6 +25,14 @@ async def on_ready():
         print(f"✅ Synced {len(synced)} slash commands with Discord.")
     except Exception as e:
         print(f"⚠️ Failed to sync slash commands: {e}")
+
+    # 🧹 Auto-Cleanup of Deleted Roles
+    try:
+        for guild in bot.guilds:
+            await cleanup_deleted_roles(guild)
+        print("🧹 Auto-cleanup complete for all guilds.")
+    except Exception as e:
+        print(f"⚠️ Auto-cleanup failed: {e}")
 
     print("------")
 
@@ -60,6 +72,7 @@ async def main():
         token = os.getenv("DISCORD_TOKEN")
         if not token:
             raise RuntimeError("❌ DISCORD_TOKEN not set in Railway environment variables.")
+
         await bot.start(token)
 
 
