@@ -2,6 +2,22 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# Common popular role colors
+COLOR_CHOICES = [
+    app_commands.Choice(name="Red ❤️", value="#FF0000"),
+    app_commands.Choice(name="Orange 🧡", value="#FFA500"),
+    app_commands.Choice(name="Yellow 💛", value="#FFFF00"),
+    app_commands.Choice(name="Green 💚", value="#00FF00"),
+    app_commands.Choice(name="Blue 💙", value="#0000FF"),
+    app_commands.Choice(name="Purple 💜", value="#800080"),
+    app_commands.Choice(name="Pink 💖", value="#FF69B4"),
+    app_commands.Choice(name="Cyan 💎", value="#00FFFF"),
+    app_commands.Choice(name="White 🤍", value="#FFFFFF"),
+    app_commands.Choice(name="Black 🖤", value="#000000"),
+    app_commands.Choice(name="Grey ⚙️", value="#808080"),
+    app_commands.Choice(name="Brown 🤎", value="#8B4513"),
+]
+
 class Factions(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -13,30 +29,25 @@ class Factions(commands.Cog):
         return embed
 
     # =======================================
-    # /create-faction (single-step)
+    # /create-faction with color dropdown
     # =======================================
     @app_commands.command(name="create-faction", description="Create a faction (role, channel, and permissions).")
-    @app_commands.describe(
-        name="The faction name.",
-        color="Hex color for the role (example: #ff0000)"
-    )
-    async def create_faction(self, interaction: discord.Interaction, name: str, color: str):
+    @app_commands.describe(name="Faction name")
+    @app_commands.choices(color=COLOR_CHOICES)
+    async def create_faction(self, interaction: discord.Interaction, name: str, color: app_commands.Choice[str]):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ You must be an **Admin** to use this command!", ephemeral=True)
             return
 
         guild = interaction.guild
+        color_hex = color.value
 
-        # Parse color
-        try:
-            role_color = discord.Color(int(color.strip("#"), 16))
-        except ValueError:
-            await interaction.response.send_message("⚠️ Invalid color format! Example: `#00FF00`", ephemeral=True)
-            return
+        # Parse hex to discord.Color
+        role_color = discord.Color(int(color_hex.strip("#"), 16))
 
         # Create role and channel
         role = await guild.create_role(name=name, color=role_color, mentionable=True)
-        channel = await guild.create_text_channel(name)
+        channel = await guild.create_text_channel(name.lower())
 
         # Apply permissions
         await channel.set_permissions(role,
@@ -56,6 +67,7 @@ class Factions(commands.Cog):
             f"""
 > ✅ **Channel Created:** {channel.mention}  
 > 🎭 **Role Created:** {role.mention}  
+> 🎨 **Color:** `{color.name}`
 
 **Permissions Granted:**
 ✓ View Channel  
