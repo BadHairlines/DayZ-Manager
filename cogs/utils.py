@@ -26,10 +26,10 @@ CUSTOM_EMOJIS = {flag: f":{flag}:" for flag in FLAGS}
 
 
 # ======================================================
-# 🧩 Database Initialization
+# 🧩 Database Initialization (with auto-migration)
 # ======================================================
 async def init_db():
-    """Initialize PostgreSQL connection and ensure the table exists."""
+    """Initialize PostgreSQL connection and ensure all tables/columns exist."""
     global db_pool
 
     db_url = os.getenv("DATABASE_URL")
@@ -44,8 +44,8 @@ async def init_db():
     # ✅ Create connection pool
     db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
 
-    # ✅ Create tables if missing
     async with db_pool.acquire() as conn:
+        # Create flags table if missing
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
                 guild_id TEXT NOT NULL,
@@ -57,18 +57,31 @@ async def init_db():
             );
         """)
 
+        # Create flag_messages table if missing
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flag_messages (
                 guild_id TEXT NOT NULL,
                 map TEXT NOT NULL,
                 channel_id TEXT NOT NULL,
                 message_id TEXT NOT NULL,
-                log_channel_id TEXT,
                 PRIMARY KEY (guild_id, map)
             );
         """)
 
-    print("✅ Connected to PostgreSQL and ensured all tables exist.")
+        # ✅ Auto-add log_channel_id column if missing (self-healing schema)
+        await conn.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='flag_messages' AND column_name='log_channel_id'
+                ) THEN
+                    ALTER TABLE flag_messages ADD COLUMN log_channel_id TEXT;
+                END IF;
+            END $$;
+        """)
+
+    print("✅ Connected to PostgreSQL and ensured all tables/columns exist.")
 
 
 # ======================================================
@@ -122,10 +135,7 @@ async def reset_map_flags(guild_id: str, map_name: str):
 # 🧱 Shared Flag Embed Builder
 # ======================================================
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
-    """
-    Generate a unified embed showing all flags and their current status for a map.
-    Used by setup, assign, release, reset, and flags commands.
-    """
+    """Generate an embed showing all flags and their statuses for a map."""
     records = await get_all_flags(guild_id, map_key)
     db_flags = {r["flag"]: r for r in records}
 
@@ -134,10 +144,7 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
         color=0x86DC3D
     )
     embed.set_author(name="🚨 Flags Notification 🚨")
-    embed.set_footer(
-        text="DayZ Manager",
-        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-    )
+    embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
     embed.timestamp = discord.utils.utcnow()
 
     lines = []
@@ -159,10 +166,7 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 # 🪵 Shared Logging Function
 # ======================================================
 async def log_action(guild: discord.Guild, map_key: str, message: str):
-    """
-    Send a log message to the proper log channel for the map.
-    Automatically looks up the log_channel_id from DB.
-    """
+    """Send a log message to the map’s assigned log channel."""
     guild_id = str(guild.id)
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -206,9 +210,6 @@ async def cleanup_deleted_roles(guild: discord.Guild):
             WHERE guild_id = $1 AND role_id IS NOT NULL;
         """, guild_id)
 
-        if not rows:
-            return
-
         for row in rows:
             map_key = row["map"]
             flag = row["flag"]
@@ -224,12 +225,11 @@ async def cleanup_deleted_roles(guild: discord.Guild):
                 cleaned_count += 1
                 print(f"🧹 Cleaned up deleted role {role_id} for flag {flag} ({map_key})")
 
-                # 🪵 Log the cleanup in the map's log channel (if available)
                 await log_action(
                     guild,
                     map_key,
-                    f"🧹 **Auto-Cleanup:** `{flag}` reset to ✅ — deleted role <@&{role_id}> was removed from the server."
+                    f"🧹 **Auto-Cleanup:** `{flag}` reset to ✅ — deleted role <@&{role_id}> was removed."
                 )
 
     if cleaned_count > 0:
-        print(f"✅ Auto-Cleanup complete: {cleaned_count} removed in {guild.name}")
+        print(f"✅ Auto-Cleanup complete: {cleaned_count} cleaned in {guild.name}")
