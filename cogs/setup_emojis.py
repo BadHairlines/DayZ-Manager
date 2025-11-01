@@ -51,27 +51,33 @@ class SetupEmojis(commands.Cog):
 
     @app_commands.command(
         name="setup-emojis",
-        description="Add all 25 faction flag emojis to the server."
+        description="Add missing faction flag emojis (25 total) to the server."
     )
     async def setup_emojis(self, interaction: discord.Interaction):
-        """Uploads the 25 official DayZ flag emojis to the guild."""
+        """Uploads only missing custom flag emojis to the guild."""
+        guild = interaction.guild
+        existing_names = {emoji.name for emoji in guild.emojis}
+
+        # 🧠 Filter out ones that already exist
+        missing_emojis = {name: url for name, url in FLAG_EMOJIS.items() if name not in existing_names}
+
+        if not missing_emojis:
+            await interaction.response.send_message(
+                "✅ All 25 flag emojis already exist in this server!",
+                ephemeral=True
+            )
+            return
+
         await interaction.response.send_message(
-            "⚙️ Uploading 25 flag emojis... please wait ⏳",
+            f"⚙️ Uploading **{len(missing_emojis)}** missing flag emojis... please wait ⏳",
             ephemeral=True
         )
 
-        guild = interaction.guild
-        success, skipped, failed = 0, 0, 0
-        total = len(FLAG_EMOJIS)
+        success, failed = 0, 0
 
         async with aiohttp.ClientSession() as session:
-            for name, url in FLAG_EMOJIS.items():
+            for name, url in missing_emojis.items():
                 try:
-                    # Skip existing emojis
-                    if discord.utils.get(guild.emojis, name=name):
-                        skipped += 1
-                        continue
-
                     async with session.get(url) as resp:
                         if resp.status != 200:
                             failed += 1
@@ -80,7 +86,7 @@ class SetupEmojis(commands.Cog):
 
                     await guild.create_custom_emoji(name=name, image=image_data)
                     success += 1
-                    await asyncio.sleep(0.4)  # brief delay to respect rate limits
+                    await asyncio.sleep(0.4)  # gentle rate limit buffer
 
                 except discord.HTTPException as http_err:
                     print(f"⚠️ Discord error adding {name}: {http_err}")
@@ -89,13 +95,13 @@ class SetupEmojis(commands.Cog):
                     print(f"⚠️ Failed to add {name}: {e}")
                     failed += 1
 
-        # ✅ Completion summary
+        # ✅ Final summary
         embed = self.make_embed(
-            "__FLAG EMOJIS SETUP COMPLETE__",
+            "__FLAG EMOJI SETUP COMPLETE__",
             (
-                f"✅ **{success} emojis added successfully.**\n"
-                f"⚪ **{skipped} already existed.**\n"
-                f"❌ **{failed} failed (invalid or quota limit).**"
+                f"✅ **{success} new emojis added successfully.**\n"
+                f"⚪ **{25 - len(missing_emojis)} already existed.**\n"
+                f"❌ **{failed} failed to upload.**"
             ),
             0x00FF00 if success > 0 else 0xFF0000
         )
