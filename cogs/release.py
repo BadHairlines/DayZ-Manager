@@ -77,6 +77,7 @@ class Release(commands.Cog):
         guild = interaction.guild
         guild_id = str(guild.id)
         map_key = selected_map.value
+        map_name = MAP_DATA[map_key]["name"]
 
         # ✅ Release flag in DB
         await release_flag(guild_id, map_key, flag)
@@ -85,7 +86,7 @@ class Release(commands.Cog):
         embed = self.make_embed(
             "**FLAG RELEASED**",
             f"✅ The **{flag}** flag has been released and is now available again "
-            f"on **{MAP_DATA[map_key]['name']}**.",
+            f"on **{map_name}**.",
             0x00FF00
         )
         await interaction.response.send_message(embed=embed)
@@ -93,12 +94,13 @@ class Release(commands.Cog):
         # 🔁 Update the live flag message
         await self.update_flag_message(guild, guild_id, map_key)
 
-        # 🪵 Log the release action
+        # 🪵 Structured log entry
         await log_action(
             guild,
             map_key,
-            f"🏳️ **Flag Released:** {flag} (by {interaction.user.mention}) "
-            f"on **{MAP_DATA[map_key]['name']}**"
+            title="Flag Released",
+            description=f"🏳️ **{flag}** released by {interaction.user.mention} on **{map_name}**.",
+            color=0x2ECC71
         )
 
 
