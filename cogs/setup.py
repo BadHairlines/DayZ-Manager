@@ -18,9 +18,11 @@ class Setup(commands.Cog):
         app_commands.Choice(name="Sakhal", value="sakhal"),
     ])
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
-        guild_id = str(interaction.guild.id)
+        guild = interaction.guild
+        guild_id = str(guild.id)
         map_key = selected_map.value
         map_info = MAP_DATA[map_key]
+        channel_name = f"flags-{map_key}"
 
         # ✅ Send initial progress message
         await interaction.response.send_message(
@@ -28,16 +30,33 @@ class Setup(commands.Cog):
             ephemeral=True
         )
 
-        # ✅ Perform setup
         try:
+            # ✅ Create channel if it doesn’t exist
+            existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
+            if existing_channel:
+                setup_channel = existing_channel
+            else:
+                setup_channel = await guild.create_text_channel(
+                    name=channel_name,
+                    reason=f"Auto-created for {map_info['name']} setup"
+                )
+                await setup_channel.send(
+                    f"📜 This channel will display flag updates for **{map_info['name']}**."
+                )
+
+            # ✅ Initialize all flags in DB
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await asyncio.sleep(0.05)  # helps prevent async pool congestion
+                await asyncio.sleep(0.05)
 
-            # ✅ Prepare success embed
+            # ✅ Success embed
             embed = Embed(
                 title="__SETUP COMPLETE__",
-                description=f"✅ **{map_info['name']}** setup finished successfully.\n\nAll flags have been initialized in the database.",
+                description=(
+                    f"✅ **{map_info['name']}** setup finished successfully.\n\n"
+                    f"All flags have been initialized in the database.\n\n"
+                    f"📁 Channel created: {setup_channel.mention}"
+                ),
                 color=0x00FF00
             )
             embed.set_image(url=map_info["image"])
@@ -51,7 +70,6 @@ class Setup(commands.Cog):
             await interaction.edit_original_response(content=None, embed=embed)
 
         except Exception as e:
-            # ✅ If an error happens mid-setup, update message instead of new response
             await interaction.edit_original_response(
                 content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
             )
@@ -63,7 +81,6 @@ class Setup(commands.Cog):
                 "🚫 This command is for admins ONLY!", ephemeral=True
             )
         else:
-            # ✅ use followup.send since response may already exist
             await interaction.followup.send(
                 f"❌ An unexpected error occurred:\n```{error}```",
                 ephemeral=True
