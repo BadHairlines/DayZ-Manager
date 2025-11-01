@@ -5,12 +5,12 @@ import ssl
 # Database connection pool
 db_pool: asyncpg.Pool | None = None
 
+# ✅ Updated official 25 flags only
 FLAGS = [
-    "Altis", "APA", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals", "CDF",
-    "CHEL", "Chedaki", "Chernarus", "CMC", "Crook", "DayZ", "HunterZ", "NAPA",
-    "Livonia", "LivoniaArmy", "LivoniaPolice", "NSahrani", "Pirates", "Rex",
-    "Refuge", "Rooster", "RSTA", "Snake", "SSahrani", "TEC", "UEC", "Wolf",
-    "Zagorky", "Zenit"
+    "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
+    "CHEL", "Chedaki", "CMC", "Crook", "HunterZ", "NAPA", "NSahrani",
+    "Pirates", "Rex", "Refuge", "Rooster", "RSTA", "Snake",
+    "TEC", "UEC", "Wolf", "Zagorky", "Zenit"
 ]
 
 MAP_DATA = {
