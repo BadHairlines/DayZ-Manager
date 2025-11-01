@@ -124,17 +124,31 @@ class Setup(commands.Cog):
 
             await interaction.edit_original_response(content=None, embed=complete_embed)
 
-            # ✅ Log the setup completion
+            # 🪵 Structured embed log entry
             await log_action(
                 guild,
                 map_key,
-                f"✅ **Setup complete** for **{map_info['name']}** by {interaction.user.mention}\n"
-                f"Flags channel: {flags_channel.mention}"
+                title="Map Setup Complete",
+                description=(
+                    f"✅ **{map_info['name']}** setup successfully by {interaction.user.mention}.\n\n"
+                    f"📁 Flags channel: {flags_channel.mention}\n"
+                    f"🧭 Logs channel: {log_channel.mention}"
+                ),
+                color=0x2ECC71
             )
 
         except Exception as e:
             await interaction.edit_original_response(
                 content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
+            )
+
+            # 🪵 Structured error log
+            await log_action(
+                guild,
+                map_key,
+                title="Setup Failed",
+                description=f"❌ **Setup failed** for **{map_info['name']}**:\n```{e}```",
+                color=0xE74C3C
             )
 
 
