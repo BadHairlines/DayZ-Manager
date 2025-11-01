@@ -163,10 +163,13 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
 
 # ======================================================
-# 🪵 Shared Logging Function
+# 🪵 Shared Logging Function (Embed Version)
 # ======================================================
 async def log_action(guild: discord.Guild, map_key: str, message: str):
-    """Send a log message to the map’s assigned log channel."""
+    """
+    Send a log message as an embed to the map's assigned log channel.
+    Automatically formats messages with color and timestamp.
+    """
     guild_id = str(guild.id)
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -183,10 +186,34 @@ async def log_action(guild: discord.Guild, map_key: str, message: str):
         print(f"⚠️ Log channel deleted or invalid for {guild.name} ({map_key})")
         return
 
+    # 🟩 Pick color based on context
+    lower_msg = message.lower()
+    if "assigned" in lower_msg or "released" in lower_msg:
+        color = 0x2ECC71  # green
+    elif "cleanup" in lower_msg:
+        color = 0x95A5A6  # gray
+    elif "failed" in lower_msg or "error" in lower_msg:
+        color = 0xE74C3C  # red
+    else:
+        color = 0xF1C40F  # yellow (warning/info)
+
+    # 🧱 Build embed
+    embed = discord.Embed(
+        title=f"🪵 {MAP_DATA[map_key]['name']} Log",
+        description=message,
+        color=color
+    )
+    embed.set_thumbnail(url=MAP_DATA[map_key]["image"])
+    embed.set_footer(
+        text="DayZ Manager Logs",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
+    embed.timestamp = discord.utils.utcnow()
+
     try:
-        await log_channel.send(message)
+        await log_channel.send(embed=embed)
     except Exception as e:
-        print(f"⚠️ Failed to send log message for {guild.name} ({map_key}): {e}")
+        print(f"⚠️ Failed to send embed log for {guild.name} ({map_key}): {e}")
 
 
 # ======================================================
