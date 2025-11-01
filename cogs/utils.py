@@ -29,8 +29,11 @@ MAP_DATA = {
     },
 }
 
-# Automatically generate emoji map in the :Name: format
-CUSTOM_EMOJIS = {flag: f":{flag}:" for flag in FLAGS}
+# Custom emoji placeholders (replace values with actual emoji IDs if you have them)
+CUSTOM_EMOJIS = {
+    flag: f":{flag}:" for flag in FLAGS
+}
+
 
 def load_data():
     """Safely load server data from JSON file."""
@@ -40,10 +43,13 @@ def load_data():
             with open(DATA_FILE, "r") as f:
                 content = f.read().strip()
                 server_vars = json.loads(content) if content else {}
+            print("✅ Loaded server data successfully.")
         except (json.JSONDecodeError, FileNotFoundError):
+            print("⚠️ Corrupted or missing JSON, resetting data.")
             server_vars = {}
     else:
         server_vars = {}
+
 
 async def save_data():
     """Save server data to JSON file."""
