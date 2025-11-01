@@ -35,7 +35,8 @@ async def load_cogs():
         "cogs.assign",
         "cogs.release",
         "cogs.reset",
-        "cogs.factions"  # 👈 add this
+        "cogs.factions",
+        "cogs.activity_check"
     ]
 
     for cog in cogs:
