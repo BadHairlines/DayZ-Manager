@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.utils import (
     FLAGS, MAP_DATA, set_flag, get_all_flags,
-    db_pool, create_flag_embed
+    db_pool, create_flag_embed, log_action
 )
 
 
@@ -72,7 +72,8 @@ class Assign(commands.Cog):
             )
             return
 
-        guild_id = str(interaction.guild.id)
+        guild = interaction.guild
+        guild_id = str(guild.id)
         map_key = selected_map.value
 
         # ✅ Fetch all flags for this map
@@ -89,6 +90,13 @@ class Assign(commands.Cog):
                 0xFF0000
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            # 🪵 Log attempt
+            await log_action(
+                guild,
+                map_key,
+                f"⚠️ **Assign Attempt Failed** — {interaction.user.mention} tried to assign **{flag}**, "
+                f"but it's already owned by <@&{current_owner}>."
+            )
             return
 
         # 🚫 Check if this role already owns another flag
@@ -101,12 +109,19 @@ class Assign(commands.Cog):
                     0xFF0000
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
+                # 🪵 Log duplicate assignment attempt
+                await log_action(
+                    guild,
+                    map_key,
+                    f"⚠️ **Duplicate Flag Attempt** — {interaction.user.mention} tried to assign another flag "
+                    f"to {role.mention} (already owns {record['flag']})."
+                )
                 return
 
         # ✅ Assign the flag
         await set_flag(guild_id, map_key, flag, "❌", str(role.id))
 
-        # ✅ Notify success
+        # ✅ Success embed
         embed = self.make_embed(
             "**FLAG ASSIGNED**",
             f"✅ The **{flag}** flag has been marked as ❌ and assigned to "
@@ -116,7 +131,15 @@ class Assign(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
         # 🔁 Update live display
-        await self.update_flag_message(interaction.guild, guild_id, map_key)
+        await self.update_flag_message(guild, guild_id, map_key)
+
+        # 🪵 Log assignment
+        await log_action(
+            guild,
+            map_key,
+            f"🪧 **Flag Assigned:** {flag} → {role.mention} "
+            f"(by {interaction.user.mention}) on **{MAP_DATA[map_key]['name']}**"
+        )
 
 
 async def setup(bot: commands.Bot):
