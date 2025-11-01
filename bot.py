@@ -36,7 +36,8 @@ async def load_cogs():
         "cogs.release",
         "cogs.reset",
         "cogs.setup",
-        "cogs.setup_emojis"
+        "cogs.setup_emojis",
+        "cogs.reassign"
     ]
 
     for cog in cogs:
