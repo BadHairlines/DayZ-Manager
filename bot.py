@@ -8,18 +8,27 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Load server data
+
+# === Load server data ===
 load_data()
+
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     print("------")
 
+
 async def load_cogs():
+    """Load bot cogs dynamically."""
     for cog in ["cogs.setup", "cogs.flags"]:
-        await bot.load_extension(cog)
+        try:
+            await bot.load_extension(cog)
+            print(f"✅ Loaded {cog}")
+        except Exception as e:
+            print(f"❌ Failed to load {cog}: {e}")
+
 
 async def main():
     async with bot:
@@ -28,6 +37,7 @@ async def main():
         if not token:
             raise RuntimeError("❌ DISCORD_TOKEN not set in Railway environment variables.")
         await bot.start(token)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
