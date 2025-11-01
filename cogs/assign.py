@@ -13,15 +13,12 @@ class Assign(commands.Cog):
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         return embed
 
-    # ===============================
-    # Autocomplete for flags
-    # ===============================
     async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
         """Autocomplete list of flag names."""
         return [
             app_commands.Choice(name=flag, value=flag)
             for flag in FLAGS if current.lower() in flag.lower()
-        ][:25]  # limit to 25 results per Discord API
+        ][:25]
 
     @app_commands.command(name="assign", description="Assign a flag to a role for a specific map.")
     @app_commands.describe(
@@ -54,6 +51,7 @@ class Assign(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
+        # Validate flag
         if flag not in FLAGS:
             embed = self.make_embed(
                 "**DOESN'T EXIST**",
@@ -66,7 +64,19 @@ class Assign(commands.Cog):
         flag_key = f"{map_key}_{flag}"
         role_key = f"{flag_key}_role"
 
-        # Check if already assigned
+        # ✅ Prevent assigning multiple flags to the same role
+        for existing_flag in FLAGS:
+            existing_role_key = f"{map_key}_{existing_flag}_role"
+            if guild_data.get(existing_role_key) == role.id:
+                embed = self.make_embed(
+                    "**ALREADY HAS A FLAG**",
+                    f"{role.mention} already owns the **{existing_flag}** flag on **{MAP_DATA[map_key]['name']}**.",
+                    0xFF0000
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+
+        # Check if flag already taken
         if guild_data.get(flag_key) == "❌":
             embed = self.make_embed(
                 "**ALREADY ASSIGNED**",
