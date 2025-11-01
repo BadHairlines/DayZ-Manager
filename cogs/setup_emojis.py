@@ -50,52 +50,80 @@ EMOJIS = {
 
 
 class SetupEmojis(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def make_embed(self, title, desc, color):
+    def make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
+        """Standard embed builder for emoji setup results."""
         embed = discord.Embed(title=title, description=desc, color=color)
         embed.set_author(name="🚨 Setup Notification 🚨")
-        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        embed.set_footer(
+            text="DayZ Manager",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+        )
         embed.timestamp = discord.utils.utcnow()
         return embed
 
-    @app_commands.command(name="setup-emojis", description="Add all flag and armband emojis to the server.")
+    @app_commands.command(
+        name="setup-emojis",
+        description="Upload all flag and armband emojis to the server."
+    )
     async def setup_emojis(self, interaction: discord.Interaction):
         """Uploads all custom flag/armband emojis to the guild."""
-        await interaction.response.send_message("⚙️ Adding all flag emojis... This may take a minute.", ephemeral=True)
+        await interaction.response.send_message(
+            "⚙️ Uploading all flag emojis — please wait a few moments ⏳",
+            ephemeral=True
+        )
 
-        success = 0
-        fail = 0
+        guild = interaction.guild
+        success, skipped, failed = 0, 0, 0
+        total = len(EMOJIS)
 
         async with aiohttp.ClientSession() as session:
-            for name, url in EMOJIS.items():
+            for idx, (name, url) in enumerate(EMOJIS.items(), start=1):
                 try:
+                    # Skip if emoji already exists
+                    if discord.utils.get(guild.emojis, name=name):
+                        skipped += 1
+                        continue
+
                     async with session.get(url) as resp:
-                        if resp.status == 200:
-                            image_data = await resp.read()
+                        if resp.status != 200:
+                            failed += 1
+                            continue
+                        image_data = await resp.read()
 
-                            # Avoid duplicates
-                            if discord.utils.get(interaction.guild.emojis, name=name):
-                                fail += 1
-                                continue
+                    await guild.create_custom_emoji(name=name, image=image_data)
+                    success += 1
 
-                            await interaction.guild.create_custom_emoji(name=name, image=image_data)
-                            success += 1
-                            await asyncio.sleep(0.5)
-                        else:
-                            fail += 1
+                    # Respect Discord rate limits (50ms–500ms)
+                    await asyncio.sleep(0.5)
+
+                    # Periodic progress update in console
+                    if idx % 10 == 0:
+                        print(f"⏳ Uploaded {idx}/{total} emojis so far...")
+
+                except discord.HTTPException as http_err:
+                    # Handle Discord-side errors like quota exceeded
+                    print(f"⚠️ Discord error on {name}: {http_err}")
+                    failed += 1
                 except Exception as e:
-                    print(f"⚠️ Failed to add {name}: {e}")
-                    fail += 1
+                    print(f"⚠️ Failed to upload {name}: {e}")
+                    failed += 1
 
+        # 🟢 Summary
         embed = self.make_embed(
-            "__EMOJIS ADDED__",
-            f"✅ **{success} emojis added successfully!**\n❌ **{fail} failed (duplicates or quota limits).**",
+            "__EMOJI SETUP COMPLETE__",
+            (
+                f"✅ **{success} emojis uploaded successfully.**\n"
+                f"⚪ **{skipped} already existed.**\n"
+                f"❌ **{failed} failed due to errors or quota limits.**"
+            ),
             0x00FF00 if success > 0 else 0xFF0000
         )
+
         await interaction.followup.send(embed=embed)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(SetupEmojis(bot))
