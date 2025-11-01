@@ -183,3 +183,53 @@ async def log_action(guild: discord.Guild, map_key: str, message: str):
         await log_channel.send(message)
     except Exception as e:
         print(f"⚠️ Failed to send log message for {guild.name} ({map_key}): {e}")
+
+
+# ======================================================
+# 🧹 Auto-Cleanup of Deleted Roles
+# ======================================================
+async def cleanup_deleted_roles(guild: discord.Guild):
+    """
+    Checks all flags assigned to roles that no longer exist in the guild.
+    Automatically resets those flags back to ✅ and logs each cleanup action.
+    """
+    if not db_pool:
+        print("⚠️ Database not initialized. Skipping cleanup.")
+        return
+
+    guild_id = str(guild.id)
+    cleaned_count = 0
+
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT map, flag, role_id FROM flags
+            WHERE guild_id = $1 AND role_id IS NOT NULL;
+        """, guild_id)
+
+        if not rows:
+            return
+
+        for row in rows:
+            map_key = row["map"]
+            flag = row["flag"]
+            role_id = row["role_id"]
+
+            if not guild.get_role(int(role_id)):  # Role deleted from server
+                await conn.execute("""
+                    UPDATE flags
+                    SET status = '✅', role_id = NULL
+                    WHERE guild_id = $1 AND map = $2 AND flag = $3;
+                """, guild_id, map_key, flag)
+
+                cleaned_count += 1
+                print(f"🧹 Cleaned up deleted role {role_id} for flag {flag} ({map_key})")
+
+                # 🪵 Log the cleanup in the map's log channel (if available)
+                await log_action(
+                    guild,
+                    map_key,
+                    f"🧹 **Auto-Cleanup:** `{flag}` reset to ✅ — deleted role <@&{role_id}> was removed from the server."
+                )
+
+    if cleaned_count > 0:
+        print(f"✅ Auto-Cleanup complete: {cleaned_count} removed in {guild.name}")
