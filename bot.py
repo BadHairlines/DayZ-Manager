@@ -8,7 +8,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-
 # === Load server data ===
 load_data()
 
@@ -22,7 +21,13 @@ async def on_ready():
 
 async def load_cogs():
     """Load bot cogs dynamically."""
-    for cog in ["cogs.setup", "cogs.flags"]:
+    cogs = [
+        "cogs.setup",
+        "cogs.flags",
+        "cogs.assign"   # ✅ Added assign cog
+    ]
+
+    for cog in cogs:
         try:
             await bot.load_extension(cog)
             print(f"✅ Loaded {cog}")
