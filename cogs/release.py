@@ -13,32 +13,56 @@ class Release(commands.Cog):
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         return embed
 
+    # ===============================
+    # Autocomplete for flags
+    # ===============================
+    async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete flag names dynamically."""
+        return [
+            app_commands.Choice(name=flag, value=flag)
+            for flag in FLAGS if current.lower() in flag.lower()
+        ][:25]  # limit to 25 results
+
     @app_commands.command(name="release", description="Release a flag back to ✅ for a specific map.")
     @app_commands.describe(
         selected_map="Select the map (Livonia, Chernarus, Sakhal)",
-        flag="Enter the flag name (case-sensitive)"
+        flag="Select the flag to release"
     )
     @app_commands.choices(selected_map=[
         app_commands.Choice(name="Livonia", value="livonia"),
         app_commands.Choice(name="Chernarus", value="chernarus"),
         app_commands.Choice(name="Sakhal", value="sakhal"),
     ])
+    @app_commands.autocomplete(flag=flag_autocomplete)
     async def release(self, interaction: discord.Interaction, selected_map: app_commands.Choice[str], flag: str):
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You must be an administrator to use this command.",
+                ephemeral=True
+            )
             return
 
         guild_id = str(interaction.guild.id)
         map_key = selected_map.value
         guild_data = server_vars.get(guild_id, {})
 
+        # Validate map setup
         if not guild_data or map_key not in guild_data:
-            embed = self.make_embed("**NOT SET UP**", f"⚠️ {MAP_DATA[map_key]['name']} hasn’t been set up yet! Run `/setup` first.", 0xFF0000)
+            embed = self.make_embed(
+                "**NOT SET UP**",
+                f"⚠️ {MAP_DATA[map_key]['name']} hasn’t been set up yet! Run `/setup` first.",
+                0xFF0000
+            )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
+        # Validate flag
         if flag not in FLAGS:
-            embed = self.make_embed("**DOESN'T EXIST**", f"The **{flag} Flag** does not exist on **{MAP_DATA[map_key]['name']}**.", 0xFF0000)
+            embed = self.make_embed(
+                "**DOESN'T EXIST**",
+                f"The **{flag} Flag** does not exist on **{MAP_DATA[map_key]['name']}**.",
+                0xFF0000
+            )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
@@ -47,16 +71,21 @@ class Release(commands.Cog):
 
         # Check if already released
         if guild_data.get(flag_key, "✅") == "✅":
-            embed = self.make_embed("**ALREADY RELEASED**", f"The **{flag} Flag** is already free on **{MAP_DATA[map_key]['name']}**.", 0xFF0000)
+            embed = self.make_embed(
+                "**ALREADY RELEASED**",
+                f"The **{flag} Flag** is already free on **{MAP_DATA[map_key]['name']}**.",
+                0xFF0000
+            )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Release flag
+        # Release the flag
         guild_data[flag_key] = "✅"
         guild_data.pop(role_key, None)
         await save_data()
 
-        embed = self.make_embed("**RELEASED**",
+        embed = self.make_embed(
+            "**RELEASED**",
             f"The **{flag} Flag** has been released and is now ✅ available again on **{MAP_DATA[map_key]['name']}**.",
             0x00FF00
         )
