@@ -2,6 +2,7 @@ import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from cogs.utils import FLAGS, MAP_DATA, set_flag
+import asyncio
 
 
 class Setup(commands.Cog):
@@ -21,13 +22,21 @@ class Setup(commands.Cog):
         map_key = selected_map.value
         map_info = MAP_DATA[map_key]
 
-        # ✅ Initialize all flags for this map in the DB
+        # ✅ Immediately acknowledge and show progress message
+        await interaction.response.send_message(
+            f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
+            ephemeral=True
+        )
+
+        # ✅ Setup flags in DB
         for flag in FLAGS:
             await set_flag(guild_id, map_key, flag, "✅", None)
+            await asyncio.sleep(0.05)  # small delay keeps things smoother
 
+        # ✅ Create success embed
         embed = Embed(
             title="__SETUP COMPLETE__",
-            description=f"**{map_info['name']}** system is now online ✅.\n\nAll flags have been initialized in the database.",
+            description=f"✅ **{map_info['name']}** setup finished successfully.\n\nAll flags have been initialized in the database.",
             color=0x00FF00
         )
         embed.set_image(url=map_info["image"])
@@ -38,7 +47,8 @@ class Setup(commands.Cog):
         )
         embed.timestamp = discord.utils.utcnow()
 
-        await interaction.response.send_message(embed=embed)
+        # ✅ Edit the “setting up” message with final embed
+        await interaction.edit_original_response(content=None, embed=embed)
 
     @setup.error
     async def setup_error(self, interaction: Interaction, error):
