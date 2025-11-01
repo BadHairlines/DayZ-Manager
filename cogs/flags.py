@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
-from cogs.utils import MAP_DATA, get_all_flags, create_flag_embed
+from cogs.utils import MAP_DATA, get_all_flags, create_flag_embed, log_action
 
 
 class Flags(commands.Cog):
@@ -20,22 +20,45 @@ class Flags(commands.Cog):
     ])
     async def flags(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
         """Display all flag statuses for the selected map."""
-        guild_id = str(interaction.guild.id)
+        guild = interaction.guild
+        guild_id = str(guild.id)
         map_key = selected_map.value
+        map_info = MAP_DATA[map_key]
 
-        # ✅ Check if any records exist first
+        # ✅ Fetch records
         records = await get_all_flags(guild_id, map_key)
         if not records:
             await interaction.response.send_message(
-                f"🚫 **{MAP_DATA[map_key]['name']}** hasn’t been set up yet or has no data.\n"
+                f"🚫 **{map_info['name']}** hasn’t been set up yet or has no data.\n"
                 f"Run `/setup` first to initialize this map.",
                 ephemeral=True
+            )
+
+            # 🪵 Structured log for missing data
+            await log_action(
+                guild,
+                map_key,
+                title="Flags View Failed",
+                description=f"🚫 {interaction.user.mention} tried to view **{map_info['name']}**, but it has not been set up yet.",
+                color=0xE74C3C
             )
             return
 
         # ✅ Use centralized embed builder
         embed = await create_flag_embed(guild_id, map_key)
         await interaction.response.send_message(embed=embed)
+
+        # 🪵 Structured view log
+        await log_action(
+            guild,
+            map_key,
+            title="Flags Viewed",
+            description=(
+                f"👁️ {interaction.user.mention} viewed all flags for **{map_info['name']}**.\n"
+                f"Displayed {len(records)} total flags in live status."
+            ),
+            color=0x3498DB
+        )
 
 
 async def setup(bot: commands.Bot):
