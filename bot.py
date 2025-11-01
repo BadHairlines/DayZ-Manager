@@ -33,7 +33,8 @@ async def load_cogs():
         "cogs.setup",
         "cogs.flags",
         "cogs.assign",
-        "cogs.release"
+        "cogs.release",
+        "cogs.reset"
     ]
 
     for cog in cogs:
