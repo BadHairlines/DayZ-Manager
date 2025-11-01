@@ -69,42 +69,52 @@ class Reset(commands.Cog):
     ])
     async def reset(self, interaction: discord.Interaction, selected_map: app_commands.Choice[str]):
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+            await interaction.response.send_message("❌ This command is for admins ONLY!", ephemeral=True)
             return
 
         guild = interaction.guild
         guild_id = str(guild.id)
         map_key = selected_map.value
+        map_info = MAP_DATA[map_key]
+
+        # 🟡 Step 1: Send temporary loading message like /setup
+        await interaction.response.send_message(
+            f"🧹 Resetting **{map_info['name']}** flags... please wait ⏳",
+            ephemeral=True
+        )
 
         try:
-            # Reset all flags for this map
+            # 🟢 Step 2: Reset all flags in DB
             await reset_map_flags(guild_id, map_key)
-        except asyncpg.PostgresError as e:
-            embed = self.make_embed("❌ Database Error", f"Could not reset flags:\n```{e}```", 0xFF0000)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
+            await asyncio.sleep(1)  # tiny delay for realism
 
-        # Send initial "in progress" embed
-        progress_embed = self.make_embed(
-            "**RESET COMPLETE**",
-            f"✅ All flags for **{MAP_DATA[map_key]['name']}** have been reset to ✅ and all role assignments cleared.\n\n"
-            f"🧭 Updating flag display...",
-            0x00FF00
-        )
-        await interaction.response.send_message(embed=progress_embed)
+            # 🟢 Step 3: Update the flag display embed
+            await self.update_flag_message(guild, guild_id, map_key)
 
-        # Update the main flag display
-        await self.update_flag_message(guild, guild_id, map_key)
+            # 🟢 Step 4: Create final success embed
+            embed = discord.Embed(
+                title="__RESET COMPLETE__",
+                description=(
+                    f"✅ **{map_info['name']}** flags successfully reset.\n\n"
+                    f"All flags are now marked as ✅ and the live display has been refreshed."
+                ),
+                color=0x00FF00
+            )
+            embed.set_image(url=map_info["image"])
+            embed.set_author(name="🧹 Reset Notification 🧹")
+            embed.set_footer(
+                text="DayZ Manager",
+                icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+            )
+            embed.timestamp = discord.utils.utcnow()
 
-        # Wait a couple seconds, then edit the original embed to show final status
-        await asyncio.sleep(3)
+            # 🟢 Step 5: Edit original message with completion embed
+            await interaction.edit_original_response(content=None, embed=embed)
 
-        final_embed = self.make_embed(
-            "**RESET COMPLETE**",
-            f"✅ All flags for **{MAP_DATA[map_key]['name']}** have been fully reset and display updated successfully.",
-            0x86DC3D
-        )
-        await interaction.edit_original_response(embed=final_embed)
+        except Exception as e:
+            await interaction.edit_original_response(
+                content=f"❌ Reset failed for **{map_info['name']}**:\n```{e}```"
+            )
 
 async def setup(bot):
     await bot.add_cog(Reset(bot))
