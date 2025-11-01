@@ -1,16 +1,16 @@
+import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
-from cogs.utils import server_vars, FLAGS, MAP_DATA, save_data
-import discord
+from cogs.utils import FLAGS, MAP_DATA, set_flag
 
 
 class Setup(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="setup", description="Setup the DayZ map system")
+    @app_commands.command(name="setup", description="Setup a map and initialize all flags in the database.")
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.describe(selected_map="Select the map to setup")
+    @app_commands.describe(selected_map="Select the map to setup (Livonia, Chernarus, Sakhal)")
     @app_commands.choices(selected_map=[
         app_commands.Choice(name="Livonia", value="livonia"),
         app_commands.Choice(name="Chernarus", value="chernarus"),
@@ -18,22 +18,16 @@ class Setup(commands.Cog):
     ])
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
         guild_id = str(interaction.guild.id)
-        selected_key = selected_map.value
-        map_info = MAP_DATA[selected_key]
+        map_key = selected_map.value
+        map_info = MAP_DATA[map_key]
 
-        guild_data = server_vars.setdefault(guild_id, {})
-
-        # Create default flag entries
-        prefix = f"{selected_key}_"
+        # ✅ Initialize all flags for this map in the DB
         for flag in FLAGS:
-            guild_data[f"{prefix}{flag}"] = "✅"
-        guild_data[selected_key] = map_info["name"]
-
-        await save_data()
+            await set_flag(guild_id, map_key, flag, "✅", None)
 
         embed = Embed(
             title="__SETUP COMPLETE__",
-            description=f"**{map_info['name']}** system is now online ✅.",
+            description=f"**{map_info['name']}** system is now online ✅.\n\nAll flags have been initialized in the database.",
             color=0x00FF00
         )
         embed.set_image(url=map_info["image"])
