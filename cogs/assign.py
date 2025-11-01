@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import json
 import os
@@ -30,31 +31,34 @@ class Assign(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.has_permissions(administrator=True)
-    @commands.command(name="assign")
-    async def assign(self, ctx, map: str = None, flag: str = None, role: discord.Role = None):
-        """Assign a flag to a role for a specific map."""
-        if not map or not flag or not role:
-            return await ctx.send("Usage: `!assign <map> <flag> <@role>`")
+    def make_embed(self, title, desc, color):
+        embed = discord.Embed(title=title, description=desc, color=color)
+        embed.set_author(name="🪧 Assign Notification 🪧")
+        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        return embed
+
+    @app_commands.command(name="assign", description="Assign a flag to a role for a specific map.")
+    @app_commands.describe(map="The map (livonia, chernarus, sakhal)", flag="The flag to assign", role="The role to assign the flag to")
+    async def assign(self, interaction: discord.Interaction, map: str, flag: str, role: discord.Role):
+        # Only allow admins
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+            return
 
         map = map.lower()
         flag = flag.strip()
 
-        def make_embed(title, desc, color):
-            embed = discord.Embed(title=title, description=desc, color=color)
-            embed.set_author(name="🪧 Assign Notification 🪧")
-            embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
-            return embed
-
         # Invalid map check
         if map not in VALID_MAPS:
-            embed = make_embed("**ERROR**", "Invalid map specified. Please use `livonia`, `chernarus`, or `sakhal`.", 0xFF0000)
-            return await ctx.send(embed=embed, delete_after=15)
+            embed = self.make_embed("**ERROR**", "Invalid map specified. Please use `livonia`, `chernarus`, or `sakhal`.", 0xFF0000)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
         # Invalid flag check
         if flag not in VALID_FLAGS:
-            embed = make_embed("**DOESN'T EXIST**", f"The **{flag} Flag** does not exist on **{map.title()}** lol.", 0xFF0000)
-            return await ctx.send(embed=embed, delete_after=15)
+            embed = self.make_embed("**DOESN'T EXIST**", f"The **{flag} Flag** does not exist on **{map.title()}** lol.", 0xFF0000)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
         # Ensure structure exists
         if map not in data:
@@ -64,18 +68,19 @@ class Assign(commands.Cog):
 
         # Already assigned?
         if data[map][flag]["assigned"]:
-            embed = make_embed("**ALREADY ASSIGNED**", f"The **{flag} Flag** is already assigned on **{map.title()}**.", 0xFF0000)
-            return await ctx.send(embed=embed, delete_after=15)
+            embed = self.make_embed("**ALREADY ASSIGNED**", f"The **{flag} Flag** is already assigned on **{map.title()}**.", 0xFF0000)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
         # Assign
         data[map][flag] = {"assigned": True, "role_id": role.id}
         save_data(data)
 
-        embed = make_embed("**ASSIGNED**",
+        embed = self.make_embed("**ASSIGNED**",
             f"The **{flag} Flag** has been marked as ❌ on **{map.title()}** and assigned to {role.mention}.",
             0x86DC3D
         )
-        await ctx.send(embed=embed, delete_after=15)
+        await interaction.response.send_message(embed=embed, ephemeral=False)
 
 async def setup(bot):
     await bot.add_cog(Assign(bot))
