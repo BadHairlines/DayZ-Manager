@@ -17,14 +17,15 @@ class MentionCategory(commands.Cog):
         text_channels = [ch for ch in category.channels if isinstance(ch, discord.TextChannel)][2:]
 
         if not text_channels:
-            await interaction.response.send_message(f"⚠️ No text channels found in **{category.name}** (after skipping first two).", ephemeral=True)
+            await interaction.response.send_message(
+                f"⚠️ No text channels found in **{category.name}** (after skipping first two).",
+                ephemeral=True
+            )
             return
 
-        # Put each mention on a new line
+        # Just list the mentions (no extra text)
         mentions = "\n".join([ch.mention for ch in text_channels])
-        message = f"📢 **Channels in {category.name}:**\n{mentions}"
-
-        await interaction.response.send_message(message)
+        await interaction.response.send_message(mentions)
 
 async def setup(bot):
     await bot.add_cog(MentionCategory(bot))
