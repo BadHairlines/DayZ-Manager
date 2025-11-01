@@ -163,12 +163,18 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
 
 # ======================================================
-# 🪵 Shared Logging Function (Embed Version)
+# 🪵 Shared Logging Function (Structured Embed Version)
 # ======================================================
-async def log_action(guild: discord.Guild, map_key: str, message: str):
+async def log_action(
+    guild: discord.Guild,
+    map_key: str,
+    title: str = "Event Log",
+    description: str = "",
+    color: int | None = None
+):
     """
-    Send a log message as an embed to the map's assigned log channel.
-    Automatically formats messages with color and timestamp.
+    Sends a rich embed log to the map's assigned log channel.
+    Supports structured title, description, and dynamic color coding.
     """
     guild_id = str(guild.id)
     async with db_pool.acquire() as conn:
@@ -186,21 +192,22 @@ async def log_action(guild: discord.Guild, map_key: str, message: str):
         print(f"⚠️ Log channel deleted or invalid for {guild.name} ({map_key})")
         return
 
-    # 🟩 Pick color based on context
-    lower_msg = message.lower()
-    if "assigned" in lower_msg or "released" in lower_msg:
-        color = 0x2ECC71  # green
-    elif "cleanup" in lower_msg:
-        color = 0x95A5A6  # gray
-    elif "failed" in lower_msg or "error" in lower_msg:
-        color = 0xE74C3C  # red
-    else:
-        color = 0xF1C40F  # yellow (warning/info)
+    # 🎨 Auto-color based on keywords if not manually provided
+    if color is None:
+        text = f"{title} {description}".lower()
+        if "assign" in text or "release" in text or "setup complete" in text:
+            color = 0x2ECC71  # green
+        elif "cleanup" in text:
+            color = 0x95A5A6  # gray
+        elif "fail" in text or "error" in text:
+            color = 0xE74C3C  # red
+        else:
+            color = 0xF1C40F  # yellow (info/warning)
 
     # 🧱 Build embed
     embed = discord.Embed(
-        title=f"🪵 {MAP_DATA[map_key]['name']} Log",
-        description=message,
+        title=f"🪵 {MAP_DATA[map_key]['name']} | {title}",
+        description=description,
         color=color
     )
     embed.set_thumbnail(url=MAP_DATA[map_key]["image"])
@@ -255,7 +262,8 @@ async def cleanup_deleted_roles(guild: discord.Guild):
                 await log_action(
                     guild,
                     map_key,
-                    f"🧹 **Auto-Cleanup:** `{flag}` reset to ✅ — deleted role <@&{role_id}> was removed."
+                    title="Auto-Cleanup",
+                    description=f"🧹 `{flag}` reset to ✅ — deleted role <@&{role_id}> was removed."
                 )
 
     if cleaned_count > 0:
