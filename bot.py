@@ -36,7 +36,8 @@ async def load_cogs():
         "cogs.release",
         "cogs.reset",
         "cogs.factions",
-        "cogs.activity_check"
+        "cogs.activity_check",
+     "cogs.mention_category"
     ]
 
     for cog in cogs:
