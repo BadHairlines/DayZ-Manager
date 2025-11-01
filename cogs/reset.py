@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from cogs.utils import (
-    reset_map_flags, MAP_DATA, db_pool, create_flag_embed
+    reset_map_flags, MAP_DATA, db_pool, create_flag_embed, log_action
 )
 import asyncio
 
@@ -70,21 +70,21 @@ class Reset(commands.Cog):
         map_key = selected_map.value
         map_info = MAP_DATA[map_key]
 
-        # 🟡 Step 1: Initial feedback
+        # 🟡 Step 1: Notify start
         await interaction.response.send_message(
             f"🧹 Resetting **{map_info['name']}** flags... please wait ⏳",
             ephemeral=True
         )
 
         try:
-            # 🟢 Step 2: Reset all flags in the database
+            # 🟢 Step 2: Reset flags in DB
             await reset_map_flags(guild_id, map_key)
             await asyncio.sleep(1)
 
-            # 🟢 Step 3: Refresh the live flag message
+            # 🟢 Step 3: Refresh live message
             await self.update_flag_message(guild, guild_id, map_key)
 
-            # 🟢 Step 4: Send completion embed
+            # 🟢 Step 4: Build success embed
             embed = discord.Embed(
                 title="__RESET COMPLETE__",
                 description=(
@@ -103,9 +103,24 @@ class Reset(commands.Cog):
 
             await interaction.edit_original_response(content=None, embed=embed)
 
+            # 🪵 Step 5: Log reset action
+            await log_action(
+                guild,
+                map_key,
+                f"🧹 **Map Reset:** All flags reset by {interaction.user.mention} "
+                f"on **{MAP_DATA[map_key]['name']}**"
+            )
+
         except Exception as e:
             await interaction.edit_original_response(
                 content=f"❌ Reset failed for **{map_info['name']}**:\n```{e}```"
+            )
+            # 🪵 Log failure
+            await log_action(
+                guild,
+                map_key,
+                f"❌ **Reset Failed:** Attempt by {interaction.user.mention} on "
+                f"**{MAP_DATA[map_key]['name']}** — Error: `{e}`"
             )
 
 
