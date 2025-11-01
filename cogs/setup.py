@@ -60,6 +60,7 @@ class Setup(commands.Cog):
 
         try:
             async with db_pool.acquire() as conn:
+                # ✅ Properly closed triple quotes here
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS flag_messages (
                         guild_id TEXT NOT NULL,
@@ -69,7 +70,10 @@ class Setup(commands.Cog):
                         PRIMARY KEY (guild_id, map)
                     );
                 """)
-                row = await conn.fetchrow("SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2", guild_id, map_key)
+                row = await conn.fetchrow(
+                    "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                    guild_id, map_key
+                )
 
             # ✅ Reuse or create the channel
             existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
@@ -80,16 +84,18 @@ class Setup(commands.Cog):
                     name=channel_name,
                     reason=f"Auto-created for {map_info['name']} setup"
                 )
-                await setup_channel.send(f"📜 This channel displays flag ownership for **{map_info['name']}**.")
+                await setup_channel.send(
+                    f"📜 This channel displays flag ownership for **{map_info['name']}**."
+                )
 
-            # ✅ Initialize flags in DB
+            # ✅ Initialize flags
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
                 await asyncio.sleep(0.05)
 
             embed = await self.create_flag_embed(guild_id, map_key)
 
-            # ✅ If a previous flag message exists, update it
+            # ✅ Update or recreate message
             if row:
                 try:
                     channel = guild.get_channel(int(row["channel_id"]))
@@ -103,7 +109,7 @@ class Setup(commands.Cog):
                 msg = await setup_channel.send(embed=embed)
                 msg_id = msg.id
 
-            # ✅ Store message info in DB
+            # ✅ Store message info
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
@@ -112,7 +118,7 @@ class Setup(commands.Cog):
                     DO UPDATE SET channel_id = EXCLUDED.channel_id, message_id = EXCLUDED.message_id;
                 """, guild_id, map_key, str(setup_channel.id), str(msg_id))
 
-            # ✅ Final success message
+            # ✅ Success response
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
