@@ -14,7 +14,6 @@ load_data()
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     print("------")
 
@@ -24,7 +23,7 @@ async def load_cogs():
     cogs = [
         "cogs.setup",
         "cogs.flags",
-        "cogs.assign"   # ✅ Added assign cog
+        "cogs.assign"  # ✅ Added assign cog
     ]
 
     for cog in cogs:
@@ -33,6 +32,13 @@ async def load_cogs():
             print(f"✅ Loaded {cog}")
         except Exception as e:
             print(f"❌ Failed to load {cog}: {e}")
+
+    # ✅ Moved sync here so all slash commands (including /assign) register
+    try:
+        await bot.tree.sync()
+        print("✅ Synced all slash commands with Discord.")
+    except Exception as e:
+        print(f"⚠️ Failed to sync slash commands: {e}")
 
 
 async def main():
