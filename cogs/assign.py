@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs.utils import server_vars, save_data, FLAGS, MAP_DATA
+from cogs.utils import FLAGS, MAP_DATA, set_flag, get_all_flags
 
 class Assign(commands.Cog):
     def __init__(self, bot):
@@ -14,7 +14,6 @@ class Assign(commands.Cog):
         return embed
 
     async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
-        """Autocomplete list of flag names."""
         return [
             app_commands.Choice(name=flag, value=flag)
             for flag in FLAGS if current.lower() in flag.lower()
@@ -39,57 +38,32 @@ class Assign(commands.Cog):
 
         guild_id = str(interaction.guild.id)
         map_key = selected_map.value
-        guild_data = server_vars.setdefault(guild_id, {})
 
-        # Validate map setup
-        if map_key not in guild_data:
-            embed = self.make_embed(
-                "**NOT SET UP**",
-                f"⚠️ {MAP_DATA[map_key]['name']} hasn’t been set up yet! Run `/setup` first.",
-                0xFF0000
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        # Validate flag
-        if flag not in FLAGS:
-            embed = self.make_embed(
-                "**DOESN'T EXIST**",
-                f"The **{flag} Flag** does not exist on **{MAP_DATA[map_key]['name']}**.",
-                0xFF0000
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        flag_key = f"{map_key}_{flag}"
-        role_key = f"{flag_key}_role"
-
-        # ✅ Prevent assigning multiple flags to the same role
-        for existing_flag in FLAGS:
-            existing_role_key = f"{map_key}_{existing_flag}_role"
-            if guild_data.get(existing_role_key) == role.id:
+        # ✅ Check if role already owns a flag on this map
+        existing_flags = await get_all_flags(guild_id, map_key)
+        for record in existing_flags:
+            if record["role_id"] == str(role.id):
                 embed = self.make_embed(
                     "**ALREADY HAS A FLAG**",
-                    f"{role.mention} already owns the **{existing_flag}** flag on **{MAP_DATA[map_key]['name']}**.",
+                    f"{role.mention} already owns the **{record['flag']}** flag on **{MAP_DATA[map_key]['name']}**.",
                     0xFF0000
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
-        # Check if flag already taken
-        if guild_data.get(flag_key) == "❌":
-            embed = self.make_embed(
-                "**ALREADY ASSIGNED**",
-                f"The **{flag} Flag** is already assigned on **{MAP_DATA[map_key]['name']}**.",
-                0xFF0000
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
+        # ✅ Check if flag already assigned
+        for record in existing_flags:
+            if record["flag"] == flag and record["status"] == "❌":
+                embed = self.make_embed(
+                    "**ALREADY ASSIGNED**",
+                    f"The **{flag} Flag** is already assigned on **{MAP_DATA[map_key]['name']}**.",
+                    0xFF0000
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
 
-        # Assign flag
-        guild_data[flag_key] = "❌"
-        guild_data[role_key] = role.id
-        await save_data()
+        # ✅ Assign the flag in the database
+        await set_flag(guild_id, map_key, flag, "❌", str(role.id))
 
         embed = self.make_embed(
             "**ASSIGNED**",
