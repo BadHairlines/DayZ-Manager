@@ -10,7 +10,7 @@ class FlagManageView(discord.ui.View):
     """Interactive management buttons for flag control."""
 
     def __init__(self, guild: discord.Guild, map_key: str, flag: str, bot: commands.Bot):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)  # ✅ Persistent view — no timeout
         self.guild = guild
         self.map_key = map_key
         self.flag = flag
