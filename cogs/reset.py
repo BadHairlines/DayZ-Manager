@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.helpers.base_cog import BaseCog
 from cogs.helpers.decorators import admin_only, MAP_CHOICES
-from cogs.utils import reset_map_flags, MAP_DATA, log_action
+from cogs.utils import reset_map_flags, MAP_DATA, log_action, db_pool
 import asyncio
 
 
@@ -13,7 +13,7 @@ class Reset(commands.Cog, BaseCog):
 
     @app_commands.command(
         name="reset",
-        description="Reset all flags for a selected map back to ✅."
+        description="Reset all flags for a selected map back to ✅ and clear faction claims."
     )
     @app_commands.choices(selected_map=MAP_CHOICES)
     @admin_only()
@@ -39,14 +39,21 @@ class Reset(commands.Cog, BaseCog):
             await reset_map_flags(guild_id, map_key)
             await asyncio.sleep(1)
 
-            # 🟢 Step 2: Refresh live message
+            # 🟢 Step 2: Clear claimed_flag from all factions on this map
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND map=$2",
+                    guild_id, map_key
+                )
+
+            # 🟢 Step 3: Refresh live message
             await self.update_flag_message(guild, guild_id, map_key)
 
-            # 🟢 Step 3: Success embed
+            # 🟢 Step 4: Success embed
             embed = self.make_embed(
                 "__RESET COMPLETE__",
                 f"✅ **{map_info['name']}** flags successfully reset.\n\n"
-                f"All flags are now marked as ✅ and the live display has been refreshed.",
+                f"All flags are now marked as ✅ and any faction flag claims were cleared.",
                 0x2ECC71,
                 "🧹",
                 "Reset Notification"
@@ -56,14 +63,14 @@ class Reset(commands.Cog, BaseCog):
 
             await interaction.edit_original_response(content=None, embed=embed)
 
-            # 🪵 Step 4: Structured log
+            # 🪵 Step 5: Structured log
             await log_action(
                 guild,
                 map_key,
                 title="Map Reset Complete",
                 description=(
                     f"🧹 **All flags reset** on **{map_info['name']}** by {interaction.user.mention}.\n"
-                    "All flags have been restored to ✅ and the live map view was refreshed."
+                    "All flags have been restored to ✅ and all faction flag claims were cleared."
                 ),
                 color=0x2ECC71
             )
