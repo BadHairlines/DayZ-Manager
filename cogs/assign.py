@@ -2,194 +2,28 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from cogs.helpers.base_cog import BaseCog
-from cogs.helpers.decorators import admin_only, MAP_CHOICES
-from cogs.utils import (
-    FLAGS,
-    MAP_DATA,
-    set_flag,
-    get_all_flags,
-    log_action,
-    release_flag,
-    create_flag_embed,
-    db_pool
-)
-
-
-class FlagManageView(discord.ui.View):
-    """Interactive management buttons for flag control."""
-
-    def __init__(self, guild: discord.Guild, map_key: str, flag: str, bot: commands.Bot):
-        super().__init__(timeout=None)  # ✅ Persistent view — no timeout
-        self.guild = guild
-        self.map_key = map_key
-        self.flag = flag
-        self.bot = bot
-
-    async def update_flag_display(self):
-        """Refresh the live flag embed after changes."""
-        guild_id = str(self.guild.id)
-        embed = await create_flag_embed(guild_id, self.map_key)
-
-        async with db_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
-                guild_id, self.map_key
-            )
-
-        if not row:
-            return
-
-        channel = self.guild.get_channel(int(row["channel_id"]))
-        if not channel:
-            return
-
-        try:
-            msg = await channel.fetch_message(int(row["message_id"]))
-            await msg.edit(embed=embed)
-        except Exception as e:
-            print(f"⚠️ Failed to update flag message: {e}")
-
-    # ================================================
-    # 🔁 Reassign Button
-    # ================================================
-    @discord.ui.button(label="🔁 Reassign", style=discord.ButtonStyle.primary)
-    async def reassign_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Reassign flag to another role using a dropdown menu."""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Admins only.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        options = [
-            discord.SelectOption(label=role.name, value=str(role.id))
-            for role in self.guild.roles
-            if not role.is_default() and not role.is_bot_managed() and role.name != "@everyone"
-        ][:25]
-
-        select = discord.ui.Select(placeholder="Select new role...", options=options)
-
-        async def select_callback(inter: discord.Interaction):
-            await inter.response.defer(ephemeral=True)
-
-            new_role = self.guild.get_role(int(select.values[0]))
-            guild_id = str(self.guild.id)
-
-            # Prevent duplicate ownership
-            existing_flags = await get_all_flags(guild_id, self.map_key)
-            for record in existing_flags:
-                if record["role_id"] == str(new_role.id):
-                    await inter.followup.send(
-                        f"❌ {new_role.mention} already owns **{record['flag']}** on this map.",
-                        ephemeral=True
-                    )
-                    return
-
-            # Reassign in DB
-            await set_flag(guild_id, self.map_key, self.flag, "❌", str(new_role.id))
-
-            # 🔄 Sync with faction table
-            async with db_pool.acquire() as conn:
-                # Clear old owners
-                await conn.execute(
-                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2",
-                    guild_id, self.flag
-                )
-                # Assign to new faction if role matches
-                await conn.execute(
-                    "UPDATE factions SET claimed_flag=$1 WHERE guild_id=$2 AND role_id=$3",
-                    self.flag, guild_id, str(new_role.id)
-                )
-
-            # Refresh flag display
-            await self.update_flag_display()
-
-            await log_action(
-                self.guild,
-                self.map_key,
-                title="Flag Reassigned (UI)",
-                description=f"🔁 **{self.flag}** → {new_role.mention}\nChanged by {inter.user.mention}",
-                color=0x3498DB
-            )
-
-            await inter.followup.send(
-                f"🔁 **{self.flag}** successfully reassigned to {new_role.mention}.",
-                ephemeral=True
-            )
-
-        select.callback = select_callback
-        view = discord.ui.View()
-        view.add_item(select)
-        await interaction.followup.send("Select a new role:", view=view, ephemeral=True)
-
-    # ================================================
-    # 🏳 Release Button
-    # ================================================
-    @discord.ui.button(label="🏳 Release", style=discord.ButtonStyle.secondary)
-    async def release_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Release the flag back to ✅ available."""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Admins only.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        guild_id = str(self.guild.id)
-        await release_flag(guild_id, self.map_key, self.flag)
-
-        # 🔄 Sync with faction table
-        async with db_pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2",
-                guild_id, self.flag
-            )
-
-        await self.update_flag_display()
-
-        await log_action(
-            self.guild,
-            self.map_key,
-            title="Flag Released (UI)",
-            description=f"🏳️ **{self.flag}** released by {interaction.user.mention}",
-            color=0x2ECC71
-        )
-
-        await interaction.followup.send(f"✅ **{self.flag}** released successfully!", ephemeral=True)
-
-    # ================================================
-    # ❌ Close Button
-    # ================================================
-    @discord.ui.button(label="❌ Close", style=discord.ButtonStyle.danger)
-    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Remove the management view."""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Admins only.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        try:
-            await interaction.message.delete()
-        except Exception:
-            pass
-
-        await interaction.followup.send("🧹 Closed flag management panel.", ephemeral=True)
+from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
+from cogs import utils
+import asyncio
 
 
 class Assign(commands.Cog, BaseCog):
+    """Assign a flag to a faction or role."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
-        """Autocomplete for flag names."""
-        return [
-            app_commands.Choice(name=flag, value=flag)
-            for flag in FLAGS if current.lower() in flag.lower()
-        ][:25]
-
-    @app_commands.command(name="assign", description="Assign a flag to a role for a specific map.")
-    @app_commands.choices(selected_map=MAP_CHOICES)
-    @app_commands.autocomplete(flag=flag_autocomplete)
+    @app_commands.command(
+        name="assign",
+        description="Assign a flag to a specific faction or role for a chosen map."
+    )
     @admin_only()
+    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.describe(
+        selected_map="Select which map this flag belongs to",
+        flag="Enter the flag name to assign (e.g. Wolf, APA, NAPA)",
+        role="Select the role or faction to assign the flag to"
+    )
     async def assign(
         self,
         interaction: discord.Interaction,
@@ -197,98 +31,83 @@ class Assign(commands.Cog, BaseCog):
         flag: str,
         role: discord.Role
     ):
-        """Assigns a flag to a specific role."""
+        await interaction.response.defer(thinking=True)
+
         guild = interaction.guild
         guild_id = str(guild.id)
-        map_key = selected_map.value
-        map_name = MAP_DATA[map_key]["name"]
+        map_key = normalize_map(selected_map)
 
-        # ✅ Fetch all flags for this map
-        existing_flags = await get_all_flags(guild_id, map_key)
-        db_flags = {r["flag"]: r for r in existing_flags}
+        # ✅ Make sure DB is ready
+        if utils.db_pool is None:
+            return await interaction.followup.send("❌ Database not initialized. Please restart the bot.", ephemeral=True)
 
-        # 🚫 Check if this flag is already taken
-        if flag in db_flags and db_flags[flag]["status"] == "❌" and db_flags[flag]["role_id"]:
-            current_owner = db_flags[flag]["role_id"]
-            embed = self.make_embed(
-                "**FLAG ALREADY CLAIMED**",
-                f"❌ The **{flag}** flag on **{map_name}** is already assigned to <@&{current_owner}>.",
-                0xE74C3C,
-                "🪧",
-                "Assign Notification"
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            await log_action(
-                guild,
-                map_key,
-                title="Assign Attempt Failed",
-                description=f"⚠️ {interaction.user.mention} tried to assign **{flag}**, "
-                            f"but it’s already owned by <@&{current_owner}>.",
-                color=0xE74C3C
-            )
-            return
-
-        # 🚫 Check if this role already owns another flag
-        for record in existing_flags:
-            if record["role_id"] == str(role.id):
-                embed = self.make_embed(
-                    "**ROLE ALREADY HAS A FLAG**",
-                    f"{role.mention} already owns the **{record['flag']}** flag on **{map_name}**.",
-                    0xF1C40F,
-                    "🪧",
-                    "Assign Notification"
-                )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-                await log_action(
-                    guild,
-                    map_key,
-                    title="Duplicate Flag Attempt",
-                    description=f"⚠️ {interaction.user.mention} tried to assign another flag "
-                                f"to {role.mention} (already owns **{record['flag']}**).",
-                    color=0xF1C40F
-                )
-                return
-
-        # ✅ Assign the flag
-        await set_flag(guild_id, map_key, flag, "❌", str(role.id))
-
-        # 🔄 Sync faction table
-        async with db_pool.acquire() as conn:
-            # Clear flag from old owners
-            await conn.execute(
-                "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2",
-                guild_id, flag
-            )
-            # Assign to new faction if role exists in DB
-            await conn.execute(
-                "UPDATE factions SET claimed_flag=$1 WHERE guild_id=$2 AND role_id=$3",
-                flag, guild_id, str(role.id)
+        # ✅ Validate flag exists
+        if flag not in utils.FLAGS:
+            return await interaction.followup.send(
+                f"🚫 Invalid flag name. Must be one of:\n`{', '.join(utils.FLAGS)}`",
+                ephemeral=True
             )
 
-        # ✅ Success embed
-        embed = self.make_embed(
-            "**FLAG ASSIGNED**",
-            f"✅ The **{flag}** flag has been marked as ❌ and assigned to {role.mention} on **{map_name}**.",
-            0x2ECC71,
-            "🪧",
-            "Assign Notification"
-        )
+        # ✅ Check if already assigned
+        flag_row = await utils.get_flag(guild_id, map_key, flag)
+        if flag_row and flag_row["status"] == "❌":
+            current_owner = flag_row["role_id"]
+            return await interaction.followup.send(
+                f"⚠️ Flag `{flag}` is already owned by <@&{current_owner}>.",
+                ephemeral=True
+            )
 
-        # ✅ Send message with management view
-        view = FlagManageView(guild, map_key, flag, self.bot)
-        await interaction.response.send_message(embed=embed, view=view)
+        # ✅ Assign flag in DB
+        await utils.set_flag(guild_id, map_key, flag, "❌", str(role.id))
 
-        # 🔁 Update live display
-        await self.update_flag_message(guild, guild_id, map_key)
+        # ✅ Try syncing with faction if exists
+        faction = await utils.get_faction_by_flag(guild_id, flag)
+        if not faction:
+            async with utils.db_pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE factions
+                    SET claimed_flag=$1
+                    WHERE guild_id=$2 AND role_id=$3 AND map=$4
+                """, flag, guild_id, str(role.id), map_key)
 
-        # 🪵 Structured log for assignment
-        await log_action(
+        # ✅ Update flag display message
+        try:
+            await self.update_flag_message(guild, guild_id, map_key)
+        except Exception as e:
+            print(f"⚠️ Failed to update flag embed for {flag}: {e}")
+
+        # ✅ Log action
+        await utils.log_action(
             guild,
             map_key,
             title="Flag Assigned",
-            description=f"🪧 **{flag}** → {role.mention}\nAssigned by {interaction.user.mention}",
+            description=f"🏴 Flag `{flag}` assigned to {role.mention} by {interaction.user.mention}.",
             color=0x2ECC71
         )
+
+        # ✅ Faction log entry (if linked)
+        await utils.log_faction_action(
+            guild,
+            action="Flag Assigned",
+            faction_name=role.name,
+            user=interaction.user,
+            details=f"Flag `{flag}` claimed on map `{map_key.title()}`."
+        )
+
+        # ✅ Confirmation Embed
+        embed = self.make_embed(
+            title="✅ Flag Assigned",
+            desc=(
+                f"🏳️ **Flag:** `{flag}`\n"
+                f"🗺️ **Map:** `{map_key.title()}`\n"
+                f"🎭 **Assigned to:** {role.mention}\n"
+                f"👤 **By:** {interaction.user.mention}"
+            ),
+            color=0x2ECC71,
+            author_icon="🏴",
+            author_name="Flag Assignment"
+        )
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
