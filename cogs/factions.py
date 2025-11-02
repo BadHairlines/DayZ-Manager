@@ -2,10 +2,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-from cogs.utils import db_pool  # ✅ use shared DB connection
+from cogs.utils import db_pool  # ✅ shared DB connection
 
 # ==============================
-# 🌍 Console Maps
+# 🌍 Map Choices
 # ==============================
 MAP_CHOICES = [
     app_commands.Choice(name="Livonia", value="Livonia"),
@@ -13,7 +13,7 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
-# 🎨 Color choices
+# 🎨 Color Choices
 COLOR_CHOICES = [
     app_commands.Choice(name="Red ❤️", value="#FF0000"),
     app_commands.Choice(name="Orange 🧡", value="#FFA500"),
@@ -35,14 +35,12 @@ class Factions(commands.Cog):
         self.bot = bot
 
     # ==============================
-    # 🧱 Database Setup
+    # 🧱 Ensure Table
     # ==============================
     async def ensure_table(self):
-        """Ensures the factions table exists."""
         if db_pool is None:
-            print("⚠️ Warning: db_pool not initialized — skipping table creation.")
+            print("⚠️ db_pool not initialized — skipping faction table creation.")
             return
-
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS factions (
@@ -61,7 +59,7 @@ class Factions(commands.Cog):
             """)
 
     # ==============================
-    # 📦 Utility Embed Builder
+    # 🧩 Utility
     # ==============================
     def make_embed(self, title, desc, color=0x2ECC71):
         embed = discord.Embed(title=title, description=desc, color=color)
@@ -73,17 +71,14 @@ class Factions(commands.Cog):
         return embed
 
     # =======================================
-    # /create-faction
+    # 🏗️ /create-faction
     # =======================================
-    @app_commands.command(
-        name="create-faction",
-        description="Create a faction (role, channel, and assign members)."
-    )
+    @app_commands.command(name="create-faction", description="Create a faction with a role, channel, and members.")
     @app_commands.choices(map=MAP_CHOICES, color=COLOR_CHOICES)
     @app_commands.describe(
         name="Faction name",
-        map="Select which map this faction belongs to",
-        color="Select faction color",
+        map="Select the map this faction belongs to",
+        color="Faction color",
         leader="Faction leader",
         member1="Faction member #1",
         member2="Faction member #2",
@@ -100,38 +95,37 @@ class Factions(commands.Cog):
         member2: discord.Member | None = None,
         member3: discord.Member | None = None
     ):
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=False)
         await self.ensure_table()
 
         if not interaction.user.guild_permissions.administrator:
-            await interaction.followup.send("❌ You must be an **Admin** to use this command!", ephemeral=True)
+            await interaction.followup.send("❌ You must be an **Admin** to use this command.", ephemeral=True)
             return
 
         guild = interaction.guild
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
-        # 🧩 Prevent duplicates
-        if db_pool:
-            async with db_pool.acquire() as conn:
-                existing = await conn.fetchrow(
-                    "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
-                    str(guild.id), name
-                )
-                if existing:
-                    await interaction.followup.send(
-                        f"⚠️ Faction **{name}** already exists on {existing['map']}!",
-                        ephemeral=True
-                    )
-                    return
+        # Prevent duplicates
+        async with db_pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
+                str(guild.id), name
+            )
+        if existing:
+            await interaction.followup.send(
+                f"⚠️ Faction **{name}** already exists on {existing['map']}!",
+                ephemeral=True
+            )
+            return
 
-        # 🗂️ Ensure category exists
+        # Category
         category_name = f"{map.value} Factions Hub"
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             category = await guild.create_category(category_name)
             print(f"📁 Created category: {category_name}")
 
-        # 🎭 Create faction role
+        # Role
         role = await guild.create_role(name=name, color=role_color, mentionable=True)
         divider = discord.utils.get(guild.roles, name="────────── Factions ──────────")
         if divider:
@@ -140,73 +134,41 @@ class Factions(commands.Cog):
             except Exception:
                 pass
 
-        # 📢 Create faction channel
-        channel_name = name.lower().replace(" ", "-")
+        # Channel
         channel = await guild.create_text_channel(
-            channel_name,
+            name.lower().replace(" ", "-"),
             category=category,
             topic=f"Private HQ for the {name} faction on {map.value}."
         )
-
-        # 🔐 Permissions
-        await channel.set_permissions(role,
-            read_messages=True,
-            send_messages=True,
-            read_message_history=True,
-            add_reactions=True,
-            attach_files=True,
-            embed_links=True,
-            use_application_commands=True
-        )
+        await channel.set_permissions(role, read_messages=True, send_messages=True)
         await channel.set_permissions(guild.default_role, read_messages=False)
 
-        # 👥 Assign members and leader
+        # Assign roles
         members = [m for m in [leader, member1, member2, member3] if m]
-        for member in members:
+        for m in members:
             try:
-                await member.add_roles(role)
+                await m.add_roles(role)
             except Exception as e:
-                print(f"⚠️ Failed to assign role to {member}: {e}")
+                print(f"⚠️ Could not assign role to {m}: {e}")
 
-        # 💾 Save faction to database
-        if db_pool:
-            async with db_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                """, str(guild.id), map.value, name, str(role.id), str(channel.id),
-                    str(leader.id), [str(m.id) for m in members], color.value)
+        # Save DB
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            """, str(guild.id), map.value, name, str(role.id), str(channel.id),
+                str(leader.id), [str(m.id) for m in members], color.value)
 
-        # 🏠 Welcome Embed
-        members_list = "\n".join([m.mention for m in members]) if len(members) > 1 else "*No members listed*"
-        welcome_embed = discord.Embed(
-            title=f"🎖️ Welcome to {name}",
-            description=(
-                f"Welcome to your **{map.value} HQ**, {role.mention}!\n\n"
-                f"👑 **Leader:** {leader.mention}\n"
-                f"👥 **Members:**\n{members_list}\n\n"
-                f"🎨 **Faction Color:** `{color.name}`\n"
-                "This is your private faction base for communication and coordination. ⚔️"
-            ),
-            color=role_color
-        )
-        welcome_embed.set_footer(
-            text=f"{map.value} • Faction HQ",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-        )
-        await channel.send(embed=welcome_embed)
-
-        # ✅ Admin Confirmation
-        admin_members_list = "\n".join([m.mention for m in members]) if len(members) > 1 else "*No members*"
+        members_txt = "\n".join([m.mention for m in members])
         embed = self.make_embed(
             "__Faction Created__",
             f"""
-> 🗺️ **Map:** `{map.value}`  
-> 🏠 **Channel:** {channel.mention}  
-> 🎭 **Role:** {role.mention}  
-> 🎨 **Color:** `{color.name}`  
-> 👑 **Leader:** {leader.mention}  
-> 👥 **Members:**\n{admin_members_list}  
+> 🗺️ **Map:** `{map.value}`
+> 🎭 **Role:** {role.mention}
+> 🏠 **Channel:** {channel.mention}
+> 👑 **Leader:** {leader.mention}
+> 👥 **Members:**\n{members_txt}
+> 🎨 **Color:** `{color.name}`
 > 🕓 **Created:** <t:{int(datetime.utcnow().timestamp())}:f>
             """,
             role_color.value
@@ -216,71 +178,41 @@ class Factions(commands.Cog):
     # =======================================
     # 🗑️ /delete-faction
     # =======================================
-    @app_commands.command(name="delete-faction", description="Delete a faction’s role, channel, and database record.")
-    @app_commands.describe(name="Faction name to delete")
+    @app_commands.command(name="delete-faction", description="Delete a faction and remove from DB.")
+    @app_commands.describe(name="Name of the faction to delete")
     async def delete_faction(self, interaction: discord.Interaction, name: str):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Admin or higher only!", ephemeral=True)
+            await interaction.followup.send("❌ Admin only!", ephemeral=True)
             return
 
         await self.ensure_table()
         guild = interaction.guild
 
-        faction = None
         async with db_pool.acquire() as conn:
             faction = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 str(guild.id), name
             )
-
         if not faction:
-            await interaction.response.send_message(f"❌ No faction named `{name}` found.", ephemeral=True)
+            await interaction.followup.send(f"❌ Faction `{name}` not found.", ephemeral=True)
             return
 
-        # Confirm deletion
-        view = discord.ui.View()
+        # Try deleting
+        try:
+            if (ch := guild.get_channel(int(faction["channel_id"]))):
+                await ch.delete()
+            if (r := guild.get_role(int(faction["role_id"]))):
+                await r.delete()
+        except Exception as e:
+            print(f"⚠️ Failed to delete role/channel: {e}")
 
-        async def confirm(inter: discord.Interaction):
-            await inter.response.defer()
-            channel = guild.get_channel(int(faction["channel_id"]))
-            role = guild.get_role(int(faction["role_id"]))
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
+                               str(guild.id), name)
 
-            try:
-                if channel:
-                    await channel.delete()
-                if role:
-                    await role.delete()
-            except Exception as e:
-                print(f"⚠️ Cleanup issue: {e}")
-
-            async with db_pool.acquire() as conn:
-                await conn.execute(
-                    "DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
-                    str(guild.id), name
-                )
-
-            embed = self.make_embed(
-                "__Faction Deleted__",
-                f"> ✅ Faction **{name}** successfully removed from Discord and database.",
-                0xE74C3C
-            )
-            await inter.followup.send(embed=embed, ephemeral=True)
-            view.stop()
-
-        async def cancel(inter: discord.Interaction):
-            await inter.response.send_message("❌ Deletion cancelled.", ephemeral=True)
-            view.stop()
-
-        confirm_btn = discord.ui.Button(label="Confirm", style=discord.ButtonStyle.danger)
-        cancel_btn = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
-        confirm_btn.callback = confirm
-        cancel_btn.callback = cancel
-        view.add_item(confirm_btn)
-        view.add_item(cancel_btn)
-
-        await interaction.response.send_message(
-            f"⚠️ Are you sure you want to delete faction **{name}**?",
-            view=view,
+        await interaction.followup.send(
+            embed=self.make_embed("✅ Faction Deleted", f"Faction **{name}** removed successfully.", 0xE74C3C),
             ephemeral=True
         )
 
@@ -288,95 +220,73 @@ class Factions(commands.Cog):
     # ➕ /add-member
     # =======================================
     @app_commands.command(name="add-member", description="Add a member to a faction.")
-    @app_commands.describe(faction_name="Name of the faction", member="Member to add")
     async def add_member(self, interaction: discord.Interaction, faction_name: str, member: discord.Member):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Only admins can add members to factions.", ephemeral=True)
+            await interaction.followup.send("❌ Only admins can add members.", ephemeral=True)
             return
 
         await self.ensure_table()
         guild = interaction.guild
-
         async with db_pool.acquire() as conn:
             faction = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 str(guild.id), faction_name
             )
+        if not faction:
+            await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
+            return
 
-            if not faction:
-                await interaction.response.send_message(f"❌ No faction named `{faction_name}` found.", ephemeral=True)
-                return
+        members = faction["member_ids"] or []
+        if str(member.id) in members:
+            await interaction.followup.send(f"⚠️ {member.mention} is already in `{faction_name}`.", ephemeral=True)
+            return
 
-            member_ids = faction["member_ids"] or []
-            if str(member.id) in member_ids:
-                await interaction.response.send_message(f"⚠️ {member.mention} is already in `{faction_name}`.", ephemeral=True)
-                return
+        members.append(str(member.id))
+        async with db_pool.acquire() as conn:
+            await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
-            member_ids.append(str(member.id))
-            await conn.execute(
-                "UPDATE factions SET member_ids=$1 WHERE id=$2",
-                member_ids, faction["id"]
-            )
+        if (role := guild.get_role(int(faction["role_id"]))):
+            await member.add_roles(role)
 
-        role = guild.get_role(int(faction["role_id"]))
-        if role:
-            try:
-                await member.add_roles(role)
-            except Exception as e:
-                print(f"⚠️ Failed to assign role: {e}")
-
-        embed = self.make_embed(
-            "✅ Member Added",
-            f"👥 **{member.mention}** has been added to **{faction_name}**.\n\n🏠 Channel: <#{faction['channel_id']}>"
-        )
-        await interaction.response.send_message(embed=embed)
+        embed = self.make_embed("✅ Member Added", f"👥 {member.mention} added to **{faction_name}**.")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # =======================================
     # ➖ /remove-member
     # =======================================
     @app_commands.command(name="remove-member", description="Remove a member from a faction.")
-    @app_commands.describe(faction_name="Name of the faction", member="Member to remove")
     async def remove_member(self, interaction: discord.Interaction, faction_name: str, member: discord.Member):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Only admins can remove members from factions.", ephemeral=True)
+            await interaction.followup.send("❌ Only admins can remove members.", ephemeral=True)
             return
 
         await self.ensure_table()
         guild = interaction.guild
-
         async with db_pool.acquire() as conn:
             faction = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 str(guild.id), faction_name
             )
+        if not faction:
+            await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
+            return
 
-            if not faction:
-                await interaction.response.send_message(f"❌ No faction named `{faction_name}` found.", ephemeral=True)
-                return
+        members = faction["member_ids"] or []
+        if str(member.id) not in members:
+            await interaction.followup.send(f"⚠️ {member.mention} is not in `{faction_name}`.", ephemeral=True)
+            return
 
-            member_ids = faction["member_ids"] or []
-            if str(member.id) not in member_ids:
-                await interaction.response.send_message(f"⚠️ {member.mention} is not in `{faction_name}`.", ephemeral=True)
-                return
+        members.remove(str(member.id))
+        async with db_pool.acquire() as conn:
+            await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
-            member_ids.remove(str(member.id))
-            await conn.execute(
-                "UPDATE factions SET member_ids=$1 WHERE id=$2",
-                member_ids, faction["id"]
-            )
+        if (role := guild.get_role(int(faction["role_id"]))):
+            await member.remove_roles(role)
 
-        role = guild.get_role(int(faction["role_id"]))
-        if role:
-            try:
-                await member.remove_roles(role)
-            except Exception as e:
-                print(f"⚠️ Failed to remove role: {e}")
-
-        embed = self.make_embed(
-            "✅ Member Removed",
-            f"👋 **{member.mention}** has been removed from **{faction_name}**."
-        )
-        await interaction.response.send_message(embed=embed)
+        embed = self.make_embed("✅ Member Removed", f"👋 {member.mention} removed from **{faction_name}**.")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot):
