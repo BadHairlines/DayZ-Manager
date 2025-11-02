@@ -62,7 +62,7 @@ class Factions(commands.Cog):
         member2: discord.Member | None = None,
         member3: discord.Member | None = None
     ):
-        # ✅ Defer so Discord knows we're working
+        # ✅ Defer early to prevent timeout
         await interaction.response.defer(thinking=True)
 
         # Admin check
@@ -111,17 +111,16 @@ class Factions(commands.Cog):
                 print(f"⚠️ Failed to assign role to {member}: {e}")
 
         # 🏠 Faction welcome message
-        member_mentions = " ".join([m.mention for m in members])
+        members_list = "\n".join([m.mention for m in members]) if len(members) > 1 else "*No members listed*"
         welcome_embed = discord.Embed(
             title=f"🎖️ Welcome to {name}",
             description=(
                 f"Welcome to your **{map.value} HQ**, {role.mention}!\n\n"
                 f"👑 **Leader:** {leader.mention}\n"
-                f"👥 **Members:** {member_mentions if len(members) > 1 else '*No members listed*'}\n\n"
+                f"👥 **Members:**\n{members_list}\n\n"
                 "This is your private faction base for communication and coordination.\n"
                 "Stay active to maintain your faction’s presence on the server! ⚔️\n\n"
-                f"**Faction Color:** `{color.name}`\n"
-                "Use `/activity-check` to keep your team active."
+                f"**Faction Color:** `{color.name}`"
             ),
             color=role_color
         )
@@ -129,6 +128,7 @@ class Factions(commands.Cog):
         await channel.send(embed=welcome_embed)
 
         # ✅ Confirmation to Admin
+        admin_members_list = "\n".join([m.mention for m in members]) if len(members) > 1 else "*No members*"
         embed = self.make_embed(
             "__Faction Created__",
             f"""
@@ -137,7 +137,7 @@ class Factions(commands.Cog):
 > 🎭 **Role:** {role.mention}  
 > 🎨 **Color:** `{color.name}`  
 > 👑 **Leader:** {leader.mention}  
-> 👥 **Members:** {member_mentions if len(members) > 1 else '*No members*'}
+> 👥 **Members:**\n{admin_members_list}
 
 **Permissions Granted:**
 ✅ View Channel  
