@@ -103,11 +103,28 @@ async def init_db():
             """)
             print("✅ Factions table verified successfully.")
 
+            # ==========================
+            # 📜 Faction Logs Table
+            # ==========================
+            print("⚙️ Creating or verifying faction_logs table...")
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS faction_logs (
+                    id BIGSERIAL PRIMARY KEY,
+                    guild_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    faction_name TEXT,
+                    user_id TEXT,
+                    details TEXT,
+                    timestamp TIMESTAMP DEFAULT NOW()
+                );
+            """)
+            print("✅ Faction logs table verified successfully.")
+
         except Exception as e:
             print(f"❌ Database migration error: {e}")
             raise
 
-    print("✅ Connected to PostgreSQL and ensured all tables/columns exist (Flags + Factions).")
+    print("✅ Connected to PostgreSQL and ensured all tables/columns exist (Flags + Factions + Logs).")
 
 
 # ======================================================
@@ -194,7 +211,7 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
 
 # ======================================================
-# 🪵 Structured Logging
+# 🪵 Structured Logging (Flag System)
 # ======================================================
 async def log_action(guild: discord.Guild, map_key: str, title="Event Log", description="", color=None):
     require_db()
@@ -241,6 +258,67 @@ async def log_action(guild: discord.Guild, map_key: str, title="Event Log", desc
         await log_channel.send(embed=embed)
     except Exception as e:
         print(f"⚠️ Failed to send embed log for {guild.name} ({map_key}): {e}")
+
+
+# ======================================================
+# 📜 Faction Logging System
+# ======================================================
+async def log_faction_action(
+    guild: discord.Guild,
+    action: str,
+    faction_name: str | None = None,
+    user: discord.Member | None = None,
+    details: str | None = None
+):
+    """Store faction actions in DB and send embed to #faction-logs."""
+    if db_pool is None:
+        print("⚠️ Skipping faction log — DB not ready.")
+        return
+
+    # 🧠 Save to database
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO faction_logs (guild_id, action, faction_name, user_id, details)
+            VALUES ($1, $2, $3, $4, $5)
+        """, str(guild.id), action, faction_name, str(user.id) if user else None, details)
+
+    # 🧾 Send embed to #faction-logs
+    log_channel = discord.utils.get(guild.text_channels, name="faction-logs")
+    if not log_channel:
+        try:
+            log_channel = await guild.create_text_channel("faction-logs", reason="Faction logging channel auto-created.")
+            print(f"🆕 Created #faction-logs channel in {guild.name}")
+        except Exception as e:
+            print(f"⚠️ Could not create #faction-logs in {guild.name}: {e}")
+            return
+
+    color_map = {
+        "create": 0x2ECC71,  # green
+        "delete": 0xE74C3C,  # red
+        "add": 0x3498DB,     # blue
+        "remove": 0xE67E22,  # orange
+    }
+    color = next((v for k, v in color_map.items() if k in action.lower()), 0x95A5A6)
+
+    embed = discord.Embed(
+        title=f"📜 Faction Log — {action}",
+        description=(
+            f"**Faction:** `{faction_name}`\n"
+            f"**User:** {user.mention if user else '*System*'}\n"
+            f"**Details:** {details or '*No details provided.*'}"
+        ),
+        color=color,
+        timestamp=discord.utils.utcnow()
+    )
+    embed.set_footer(
+        text="DayZ Manager • Faction Logs",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
+
+    try:
+        await log_channel.send(embed=embed)
+    except Exception as e:
+        print(f"⚠️ Failed to send faction log to {guild.name}: {e}")
 
 
 # ======================================================
