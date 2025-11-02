@@ -18,10 +18,19 @@ MAP_CHOICES = [
 # 🎨 Color Choices
 COLOR_CHOICES = [
     app_commands.Choice(name="Red ❤️", value="#FF0000"),
-    app_commands.Choice(name="Blue 💙", value="#0000FF"),
+    app_commands.Choice(name="Orange 🧡", value="#FFA500"),
+    app_commands.Choice(name="Yellow 💛", value="#FFFF00"),
     app_commands.Choice(name="Green 💚", value="#00FF00"),
+    app_commands.Choice(name="Blue 💙", value="#0000FF"),
+    app_commands.Choice(name="Purple 💜", value="#800080"),
+    app_commands.Choice(name="Pink 💖", value="#FF69B4"),
+    app_commands.Choice(name="Cyan 💎", value="#00FFFF"),
+    app_commands.Choice(name="White 🤍", value="#FFFFFF"),
     app_commands.Choice(name="Black 🖤", value="#000000"),
+    app_commands.Choice(name="Grey ⚙️", value="#808080"),
+    app_commands.Choice(name="Brown 🤎", value="#8B4513"),
 ]
+
 
 
 class FactionCreate(commands.Cog):
