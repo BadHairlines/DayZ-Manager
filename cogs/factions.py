@@ -62,9 +62,12 @@ class Factions(commands.Cog):
         member2: discord.Member | None = None,
         member3: discord.Member | None = None
     ):
-        # Permission check
+        # ✅ Defer so Discord knows we're working
+        await interaction.response.defer(thinking=True)
+
+        # Admin check
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ You must be an **Admin** to use this command!", ephemeral=True)
+            await interaction.followup.send("❌ You must be an **Admin** to use this command!", ephemeral=True)
             return
 
         guild = interaction.guild
@@ -80,8 +83,9 @@ class Factions(commands.Cog):
 
         # 🎭 Create faction role + private channel
         role = await guild.create_role(name=name, color=role_color, mentionable=True)
+        channel_name = name.lower().replace(" ", "-")
         channel = await guild.create_text_channel(
-            name.lower().replace(" ", "-"),
+            channel_name,
             category=category,
             topic=f"Private HQ for the {name} faction on {map.value}."
         )
@@ -148,7 +152,7 @@ class Factions(commands.Cog):
             role_color.value
         )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     # =======================================
     # /delete-faction
