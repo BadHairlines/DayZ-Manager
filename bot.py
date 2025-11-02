@@ -3,6 +3,8 @@ import asyncio
 import logging
 import discord
 from discord.ext import commands
+
+# 🧩 Import database tools & utils
 from cogs.utils import init_db, cleanup_deleted_roles, db_pool
 from cogs.assign import FlagManageView  # ✅ persistent view class
 
@@ -23,7 +25,7 @@ intents.message_content = True
 intents.guilds = True
 intents.guild_messages = True
 intents.guild_reactions = True
-intents.members = True
+intents.members = True  # ✅ needed for role/membership checks
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.synced = False
@@ -47,6 +49,12 @@ async def on_ready():
     else:
         logging.info("⏭️ Slash commands already synced, skipping.")
 
+    # ✅ Confirm database is connected
+    if db_pool is None:
+        logging.error("❌ Database not connected! Factions and Flags will not save data.")
+    else:
+        logging.info("🗄️ Database connection verified.")
+
     # ✅ Auto-cleanup deleted roles
     try:
         for guild in bot.guilds:
@@ -63,6 +71,8 @@ async def on_ready():
 # 🔧 Dynamic Cog Loader
 # =========================
 async def load_cogs():
+    """Auto-load all cogs except utils.py and helpers."""
+    loaded = 0
     for root, _, files in os.walk("cogs"):
         if "helpers" in root:
             continue
@@ -72,8 +82,10 @@ async def load_cogs():
                 try:
                     await bot.load_extension(cog_path)
                     logging.info(f"✅ Loaded cog: {cog_path}")
+                    loaded += 1
                 except Exception as e:
                     logging.error(f"❌ Failed to load {cog_path}: {e}")
+    logging.info(f"📦 Total cogs loaded: {loaded}")
 
 
 # =========================
@@ -81,9 +93,8 @@ async def load_cogs():
 # =========================
 async def register_persistent_views(bot: commands.Bot):
     """Re-register all FlagManageView UIs after restart."""
-    from cogs.utils import db_pool  # make sure we use the global one
+    from cogs.utils import db_pool  # ✅ ensure global pool reference
 
-    # Defensive check to avoid NoneType errors
     if db_pool is None:
         logging.warning("⚠️ Database not initialized yet. Skipping persistent view registration.")
         return
@@ -114,12 +125,21 @@ async def register_persistent_views(bot: commands.Bot):
 # 🧩 Main Async Runner
 # =========================
 async def main():
-    await asyncio.sleep(5)
-    async with bot:
-        await init_db()  # ✅ must be first to create db_pool
-        await load_cogs()
-        await register_persistent_views(bot)  # ✅ now safe to call
+    await asyncio.sleep(5)  # Small delay to ensure environment is ready
 
+    async with bot:
+        # ✅ Initialize DB before anything else
+        await init_db()
+        if db_pool is None:
+            raise RuntimeError("❌ Database initialization failed — stopping startup.")
+
+        # ✅ Load all bot modules
+        await load_cogs()
+
+        # ✅ Register persistent UI views (FlagManageView)
+        await register_persistent_views(bot)
+
+        # ✅ Start the bot
         token = os.getenv("DISCORD_TOKEN")
         if not token:
             raise RuntimeError("❌ DISCORD_TOKEN not set in environment variables.")
