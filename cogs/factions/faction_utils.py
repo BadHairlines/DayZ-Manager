@@ -23,11 +23,16 @@ async def ensure_faction_table():
                 leader_id TEXT NOT NULL,
                 member_ids TEXT[],
                 color TEXT,
+                claimed_flag TEXT,              -- ✅ NEW COLUMN: stores flag assigned at creation
                 created_at TIMESTAMP DEFAULT NOW(),
                 UNIQUE (guild_id, faction_name)
             );
         """)
-    print("✅ Verified factions table exists.")
+        # Ensure column exists for older tables
+        await conn.execute("""
+            ALTER TABLE factions ADD COLUMN IF NOT EXISTS claimed_flag TEXT;
+        """)
+    print("✅ Verified factions table exists (with claimed_flag column).")
 
 
 # ======================================================
