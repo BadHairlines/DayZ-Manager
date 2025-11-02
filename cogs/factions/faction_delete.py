@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs import utils  # ✅ Use full utils module for shared DB pool
+from cogs import utils  # ✅ Shared DB + log_faction_action
 from .faction_utils import ensure_faction_table, make_embed
 
 
@@ -62,6 +62,15 @@ class FactionDelete(commands.Cog):
                 "DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
                 str(guild.id), name
             )
+
+        # 🧾 Log the deletion
+        await utils.log_faction_action(
+            guild,
+            action="Faction Deleted",
+            faction_name=name,
+            user=interaction.user,
+            details=f"Faction `{name}` was deleted by {interaction.user.mention}."
+        )
 
         # ✅ Confirmation to admin
         confirm_embed = make_embed(
