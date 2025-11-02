@@ -1,114 +1,112 @@
-import discord
-from discord import app_commands
+import discord, asyncio
+from discord import app_commands, Interaction, Embed
 from discord.ext import commands
-from cogs.helpers.base_cog import BaseCog
+from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-from cogs import utils
-import asyncio
 
-
-class Assign(commands.Cog, BaseCog):
-    """Assign a flag to a faction or role."""
-
+class Setup(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(
-        name="assign",
-        description="Assign a flag to a specific faction or role for a chosen map."
-    )
+    @app_commands.command(name="setup", description="Setup or refresh a map and initialize all flags in the database.")
     @admin_only()
+    @app_commands.describe(selected_map="Select the map to setup (Livonia, Chernarus, Sakhal)")
     @app_commands.choices(selected_map=MAP_CHOICES)
-    @app_commands.describe(
-        selected_map="Select which map this flag belongs to",
-        flag="Enter the flag name to assign (e.g. Wolf, APA, NAPA)",
-        role="Select the role or faction to assign the flag to"
-    )
-    async def assign(
-        self,
-        interaction: discord.Interaction,
-        selected_map: app_commands.Choice[str],
-        flag: str,
-        role: discord.Role
-    ):
-        await interaction.response.defer(thinking=True)
-
+    async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
         guild = interaction.guild
         guild_id = str(guild.id)
         map_key = normalize_map(selected_map)
-
-        # ✅ Make sure DB is ready
-        if utils.db_pool is None:
-            return await interaction.followup.send("❌ Database not initialized. Please restart the bot.", ephemeral=True)
-
-        # ✅ Validate flag exists
-        if flag not in utils.FLAGS:
-            return await interaction.followup.send(
-                f"🚫 Invalid flag name. Must be one of:\n`{', '.join(utils.FLAGS)}`",
-                ephemeral=True
-            )
-
-        # ✅ Check if already assigned
-        flag_row = await utils.get_flag(guild_id, map_key, flag)
-        if flag_row and flag_row["status"] == "❌":
-            current_owner = flag_row["role_id"]
-            return await interaction.followup.send(
-                f"⚠️ Flag `{flag}` is already owned by <@&{current_owner}>.",
-                ephemeral=True
-            )
-
-        # ✅ Assign flag in DB
-        await utils.set_flag(guild_id, map_key, flag, "❌", str(role.id))
-
-        # ✅ Try syncing with faction if exists
-        faction = await utils.get_faction_by_flag(guild_id, flag)
-        if not faction:
-            async with utils.db_pool.acquire() as conn:
-                await conn.execute("""
-                    UPDATE factions
-                    SET claimed_flag=$1
-                    WHERE guild_id=$2 AND role_id=$3 AND map=$4
-                """, flag, guild_id, str(role.id), map_key)
-
-        # ✅ Update flag display message
+        map_info = MAP_DATA[map_key]
+        await interaction.response.send_message(f"Setting up {map_info['name']} flags... please wait", ephemeral=True)
+        if db_pool is None:
+            await interaction.followup.send("Database not initialized. Please restart the bot.")
+            return
         try:
-            await self.update_flag_message(guild, guild_id, map_key)
+            async with db_pool.acquire() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS flag_messages (
+                        guild_id TEXT NOT NULL,
+                        map TEXT NOT NULL,
+                        channel_id TEXT NOT NULL,
+                        message_id TEXT NOT NULL,
+                        log_channel_id TEXT,
+                        PRIMARY KEY (guild_id, map)
+                    );
+                """)
+                row = await conn.fetchrow(
+                    "SELECT channel_id, message_id, log_channel_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                    guild_id, map_key
+                )
+            flag_category_name = f"{map_info['name']} Flags Hub"
+            flag_category = discord.utils.get(guild.categories, name=flag_category_name)
+            if not flag_category:
+                flag_category = await guild.create_category(name=flag_category_name, reason=f"Auto-created category for {map_info['name']} flag setup")
+            flags_channel_name = f"flags-{map_key}"
+            flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
+            if not flags_channel:
+                flags_channel = await guild.create_text_channel(name=flags_channel_name, category=flag_category, reason=f"Auto-created for {map_info['name']} setup")
+                await flags_channel.send(f"This channel displays flag ownership for {map_info['name']}.")
+            log_category_name = "DayZ Manager"
+            manager_category = discord.utils.get(guild.categories, name=log_category_name)
+            if not manager_category:
+                manager_category = await guild.create_category(log_category_name)
+            logs_channel_name = f"{map_key}-flag-logs"
+            log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
+            if not log_channel:
+                log_channel = await guild.create_text_channel(name=logs_channel_name, category=manager_category, reason=f"Log channel for {map_info['name']} flag activity")
+                await log_channel.send(f"Log channel created for {map_info['name']} setup.")
+            for flag in FLAGS:
+                await set_flag(guild_id, map_key, flag, "✅", None)
+                await asyncio.sleep(0.05)
+            embed = await create_flag_embed(guild_id, map_key)
+            msg = None
+            if row:
+                try:
+                    old_channel = guild.get_channel(int(row["channel_id"]))
+                    if old_channel:
+                        msg = await old_channel.fetch_message(int(row["message_id"]))
+                        await msg.edit(embed=embed)
+                except Exception: msg = None
+            if not msg: msg = await flags_channel.send(embed=embed)
+            async with db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (guild_id, map)
+                    DO UPDATE SET
+                        channel_id = EXCLUDED.channel_id,
+                        message_id = EXCLUDED.message_id,
+                        log_channel_id = EXCLUDED.log_channel_id;
+                """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
+            complete_embed = Embed(
+                title="SETUP COMPLETE",
+                description=(
+                    f"{map_info['name']} setup finished successfully.\n\n"
+                    f"Flags channel: {flags_channel.mention}\n"
+                    f"Log channel: {log_channel.mention}\n"
+                    f"Live flag message refreshed automatically."
+                ),
+                color=0x00FF00
+            )
+            complete_embed.set_image(url=map_info["image"])
+            complete_embed.set_author(name="Setup Notification")
+            complete_embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+            complete_embed.timestamp = discord.utils.utcnow()
+            await interaction.edit_original_response(content=None, embed=complete_embed)
+            await log_action(
+                guild,
+                map_key,
+                title="Map Setup Complete",
+                description=(
+                    f"{map_info['name']} setup successfully by {interaction.user.mention}.\n\n"
+                    f"Flags channel: {flags_channel.mention}\n"
+                    f"Logs channel: {log_channel.mention}"
+                ),
+                color=0x2ECC71
+            )
         except Exception as e:
-            print(f"⚠️ Failed to update flag embed for {flag}: {e}")
-
-        # ✅ Log action
-        await utils.log_action(
-            guild,
-            map_key,
-            title="Flag Assigned",
-            description=f"🏴 Flag `{flag}` assigned to {role.mention} by {interaction.user.mention}.",
-            color=0x2ECC71
-        )
-
-        # ✅ Faction log entry (if linked)
-        await utils.log_faction_action(
-            guild,
-            action="Flag Assigned",
-            faction_name=role.name,
-            user=interaction.user,
-            details=f"Flag `{flag}` claimed on map `{map_key.title()}`."
-        )
-
-        # ✅ Confirmation Embed
-        embed = self.make_embed(
-            title="✅ Flag Assigned",
-            desc=(
-                f"🏳️ **Flag:** `{flag}`\n"
-                f"🗺️ **Map:** `{map_key.title()}`\n"
-                f"🎭 **Assigned to:** {role.mention}\n"
-                f"👤 **By:** {interaction.user.mention}"
-            ),
-            color=0x2ECC71,
-            author_icon="🏴",
-            author_name="Flag Assignment"
-        )
-        await interaction.followup.send(embed=embed)
-
+            await interaction.edit_original_response(content=f"Setup failed for {map_info['name']}:\n```{e}```")
+            await log_action(guild, map_key, title="Setup Failed", description=f"Setup failed for {map_info['name']}:\n```{e}```", color=0xE74C3C)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Assign(bot))
+    await bot.add_cog(Setup(bot))
