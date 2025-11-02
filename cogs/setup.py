@@ -14,9 +14,9 @@ class Setup(commands.Cog):
         name="setup",
         description="Setup or refresh a map and initialize all flags in the database."
     )
-    @admin_only()  # ✅ cleaner admin check
+    @admin_only()
     @app_commands.describe(selected_map="Select the map to setup (Livonia, Chernarus, Sakhal)")
-    @app_commands.choices(selected_map=MAP_CHOICES)  # ✅ shared constant
+    @app_commands.choices(selected_map=MAP_CHOICES)
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
         """Initializes all flag data and creates the live flag display for a map."""
         guild = interaction.guild
@@ -67,15 +67,22 @@ class Setup(commands.Cog):
                 )
                 await log_channel.send(f"🗒️ Log channel created for **{map_info['name']}** setup.")
 
-            # ✅ Initialize all flags in DB
+            # ✅ Step 1: Initialize all flags in DB
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
                 await asyncio.sleep(0.05)  # smooth pacing
 
-            # ✅ Create unified flag embed
+            # ✅ Step 2: Clear faction flag claims for this map (important sync!)
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND map=$2",
+                    guild_id, map_key
+                )
+
+            # ✅ Step 3: Create unified flag embed
             embed = await create_flag_embed(guild_id, map_key)
 
-            # ✅ Update or recreate the live message
+            # ✅ Step 4: Update or recreate the live message
             msg = None
             if row:
                 try:
@@ -88,7 +95,7 @@ class Setup(commands.Cog):
             if not msg:
                 msg = await flags_channel.send(embed=embed)
 
-            # ✅ Store or update DB with both flag and log channel IDs
+            # ✅ Step 5: Store or update DB record
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
@@ -100,14 +107,15 @@ class Setup(commands.Cog):
                         log_channel_id = EXCLUDED.log_channel_id;
                 """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-            # ✅ Create success embed
+            # ✅ Step 6: Success embed
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
                     f"✅ **{map_info['name']}** setup finished successfully.\n\n"
                     f"📁 Flags channel: {flags_channel.mention}\n"
                     f"🧭 Log channel: {log_channel.mention}\n"
-                    f"🧾 Live flag message refreshed automatically."
+                    f"🧾 Live flag message refreshed automatically.\n"
+                    f"🧩 All faction flag claims cleared for this map."
                 ),
                 color=0x00FF00
             )
@@ -121,7 +129,7 @@ class Setup(commands.Cog):
 
             await interaction.edit_original_response(content=None, embed=complete_embed)
 
-            # 🪵 Structured embed log entry
+            # 🪵 Structured log entry
             await log_action(
                 guild,
                 map_key,
@@ -129,7 +137,8 @@ class Setup(commands.Cog):
                 description=(
                     f"✅ **{map_info['name']}** setup successfully by {interaction.user.mention}.\n\n"
                     f"📁 Flags channel: {flags_channel.mention}\n"
-                    f"🧭 Logs channel: {log_channel.mention}"
+                    f"🧭 Logs channel: {log_channel.mention}\n"
+                    f"🧩 All faction claims cleared."
                 ),
                 color=0x2ECC71
             )
@@ -139,7 +148,6 @@ class Setup(commands.Cog):
                 content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
             )
 
-            # 🪵 Structured error log
             await log_action(
                 guild,
                 map_key,
