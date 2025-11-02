@@ -12,6 +12,11 @@ class AutoRefresh(commands.Cog):
         """Safely refresh an existing flag message — recreate only if truly missing."""
         guild_id = str(guild.id)
 
+        # ✅ Skip unknown maps
+        if map_key not in MAP_DATA:
+            print(f"⚠️ Skipping unknown map '{map_key}' for {guild.name}")
+            return
+
         # 🧩 Check if this map is even set up
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow(
