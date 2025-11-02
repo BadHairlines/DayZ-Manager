@@ -65,14 +65,14 @@ class Reassign(commands.Cog, BaseCog):
             )
             return
 
-        # 🚫 Check if the new role already owns another flag
-        for record in existing_flags:
-            if record["role_id"] == str(new_role.id):
-                await interaction.response.send_message(
-                    f"❌ {new_role.mention} already owns the **{record['flag']}** flag on **{map_name}**.",
-                    ephemeral=True
-                )
-                return
+        # 🚫 Check if the new role already owns another flag (one-flag rule)
+        existing_flag = await self.role_already_has_flag(guild_id, map_key, str(new_role.id))
+        if existing_flag:
+            await interaction.response.send_message(
+                f"❌ {new_role.mention} already owns the **{existing_flag}** flag on **{map_name}**.",
+                ephemeral=True
+            )
+            return
 
         # ✅ Reassign in DB
         await set_flag(guild_id, map_key, flag, "❌", str(new_role.id))
