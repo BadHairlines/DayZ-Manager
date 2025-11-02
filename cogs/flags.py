@@ -1,6 +1,7 @@
 import discord
-from discord import app_commands, Interaction, Embed
+from discord import app_commands, Interaction
 from discord.ext import commands
+from cogs.helpers.decorators import MAP_CHOICES
 from cogs.utils import MAP_DATA, get_all_flags, create_flag_embed, log_action
 
 
@@ -13,11 +14,7 @@ class Flags(commands.Cog):
         description="View all flags and their status for a specific map."
     )
     @app_commands.describe(selected_map="Select the map to view flags")
-    @app_commands.choices(selected_map=[
-        app_commands.Choice(name="Livonia", value="livonia"),
-        app_commands.Choice(name="Chernarus", value="chernarus"),
-        app_commands.Choice(name="Sakhal", value="sakhal"),
-    ])
+    @app_commands.choices(selected_map=MAP_CHOICES)  # ✅ shared map choices
     async def flags(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
         """Display all flag statuses for the selected map."""
         guild = interaction.guild
@@ -25,7 +22,7 @@ class Flags(commands.Cog):
         map_key = selected_map.value
         map_info = MAP_DATA[map_key]
 
-        # ✅ Fetch records
+        # ✅ Fetch flag records
         records = await get_all_flags(guild_id, map_key)
         if not records:
             await interaction.response.send_message(
@@ -39,7 +36,10 @@ class Flags(commands.Cog):
                 guild,
                 map_key,
                 title="Flags View Failed",
-                description=f"🚫 {interaction.user.mention} tried to view **{map_info['name']}**, but it has not been set up yet.",
+                description=(
+                    f"🚫 {interaction.user.mention} tried to view **{map_info['name']}**, "
+                    "but it has not been set up yet."
+                ),
                 color=0xE74C3C
             )
             return
