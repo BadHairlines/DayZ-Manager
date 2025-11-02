@@ -25,6 +25,7 @@ intents.guild_reactions = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.synced = False  # ✅ prevent multiple slash syncs
 
 
 # =========================
@@ -35,17 +36,22 @@ async def on_ready():
     """Triggered when the bot successfully connects."""
     logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
 
-    # Sync slash commands
-    try:
-        synced = await bot.tree.sync()
-        logging.info(f"✅ Synced {len(synced)} slash commands with Discord.")
-    except Exception as e:
-        logging.error(f"⚠️ Failed to sync slash commands: {e}")
+    # ✅ Sync slash commands only once
+    if not bot.synced:
+        try:
+            synced = await bot.tree.sync()
+            bot.synced = True
+            logging.info(f"✅ Synced {len(synced)} slash commands with Discord.")
+        except Exception as e:
+            logging.error(f"⚠️ Failed to sync slash commands: {e}")
+    else:
+        logging.info("⏭️ Slash commands already synced, skipping.")
 
-    # Auto-cleanup deleted roles
+    # ✅ Auto-cleanup deleted roles
     try:
         for guild in bot.guilds:
             await cleanup_deleted_roles(guild)
+            await asyncio.sleep(1)  # gentle pacing between guilds
         logging.info("🧹 Auto-cleanup complete for all guilds.")
     except Exception as e:
         logging.error(f"⚠️ Auto-cleanup failed: {e}")
@@ -59,9 +65,8 @@ async def on_ready():
 async def load_cogs():
     """Auto-load all valid cogs in the cogs directory (skips helpers)."""
     for root, _, files in os.walk("cogs"):
-        # 🚫 Skip the helpers directory completely
         if "helpers" in root:
-            continue
+            continue  # 🚫 Skip helper modules
 
         for filename in files:
             if filename.endswith(".py") and not filename.startswith("__") and filename not in ["utils.py"]:
@@ -74,18 +79,34 @@ async def load_cogs():
 
 
 # =========================
-# 🧩 Main Async Runner
+# 🧩 Main Async Runner (Rate-limit safe)
 # =========================
 async def main():
+    await asyncio.sleep(5)  # 🕒 grace delay before connecting to Discord
     async with bot:
-        await init_db()  # Connect PostgreSQL
-        await load_cogs()  # Load all cogs
+        await init_db()         # connect PostgreSQL
+        await load_cogs()       # load all cogs
 
         token = os.getenv("DISCORD_TOKEN")
         if not token:
             raise RuntimeError("❌ DISCORD_TOKEN not set in environment variables.")
-        await bot.start(token)
+
+        # 🔁 Smart login retry if rate-limited
+        for attempt in range(3):
+            try:
+                await bot.start(token)
+                break
+            except discord.HTTPException as e:
+                if e.status == 429:
+                    wait_time = 60 * (attempt + 1)
+                    logging.warning(f"⚠️ Rate-limited by Discord. Waiting {wait_time}s before retry...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("🛑 Bot manually stopped.")
