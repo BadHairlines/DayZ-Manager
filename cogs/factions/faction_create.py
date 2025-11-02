@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-from cogs import utils  # ✅ Shared DB and logging functions
+from cogs import utils  # ✅ Shared DB, flag, and logging functions
 from .faction_utils import ensure_faction_table, make_embed
 
 
@@ -39,11 +39,12 @@ class FactionCreate(commands.Cog):
     # ============================================
     # 🏗️ /create-faction
     # ============================================
-    @app_commands.command(name="create-faction", description="Create a faction with a role, channel, and members.")
+    @app_commands.command(name="create-faction", description="Create a faction, assign a flag, and set up its role and HQ.")
     @app_commands.choices(map=MAP_CHOICES, color=COLOR_CHOICES)
     @app_commands.describe(
         name="Name of the faction",
         map="Select which map this faction belongs to",
+        flag="Select the flag this faction will claim",
         color="Choose the faction color",
         leader="Select the faction leader",
         member1="Faction member #1 (optional)",
@@ -55,6 +56,7 @@ class FactionCreate(commands.Cog):
         interaction: discord.Interaction,
         name: str,
         map: app_commands.Choice[str],
+        flag: str,
         color: app_commands.Choice[str],
         leader: discord.Member,
         member1: discord.Member | None = None,
@@ -73,17 +75,33 @@ class FactionCreate(commands.Cog):
         await ensure_faction_table()
 
         guild = interaction.guild
+        guild_id = str(guild.id)
+        map_key = map.value
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
         # 🔍 Prevent duplicates
         async with utils.db_pool.acquire() as conn:
             existing = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
-                str(guild.id), name
+                guild_id, name
             )
         if existing:
             return await interaction.followup.send(
                 f"⚠️ Faction **{name}** already exists on {existing['map']}!",
+                ephemeral=True
+            )
+
+        # 🏳️ Check Flag availability
+        flags = await utils.get_all_flags(guild_id, map_key)
+        flag_data = next((f for f in flags if f["flag"].lower() == flag.lower()), None)
+
+        if not flag_data:
+            return await interaction.followup.send(f"🚫 Flag `{flag}` does not exist on `{map_key}`.", ephemeral=True)
+
+        if flag_data["status"] == "❌":
+            current_owner = flag_data["role_id"]
+            return await interaction.followup.send(
+                f"⚠️ Flag `{flag}` is already owned by <@&{current_owner}>.",
                 ephemeral=True
             )
 
@@ -120,13 +138,31 @@ class FactionCreate(commands.Cog):
             except Exception as e:
                 print(f"⚠️ Failed to assign faction role to {m}: {e}")
 
-        # 💾 Save to database
+        # 💾 Save faction to database
         async with utils.db_pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            """, str(guild.id), map.value, name, str(role.id), str(channel.id),
-                str(leader.id), [str(m.id) for m in members], color.value)
+                INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color, claimed_flag)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            """, guild_id, map.value, name, str(role.id), str(channel.id),
+                str(leader.id), [str(m.id) for m in members], color.value, flag)
+
+        # 🏳️ Assign flag ownership
+        await utils.set_flag(guild_id, map_key, flag, "❌", str(role.id))
+
+        # 🔄 Update flag display
+        try:
+            embed = await utils.create_flag_embed(guild_id, map_key)
+            async with utils.db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                    guild_id, map_key
+                )
+            if row:
+                ch = guild.get_channel(int(row["channel_id"]))
+                msg = await ch.fetch_message(int(row["message_id"]))
+                await msg.edit(embed=embed)
+        except Exception as e:
+            print(f"⚠️ Failed to update flag display: {e}")
 
         # 🎉 Welcome embed inside HQ
         members_list = "\n".join([m.mention for m in members if m.id != leader.id]) or "*No members listed*"
@@ -136,7 +172,8 @@ class FactionCreate(commands.Cog):
                 f"Welcome to your **{map.value} HQ**, {role.mention}! ⚔️\n\n"
                 f"👑 **Leader:** {leader.mention}\n"
                 f"👥 **Members:**\n{members_list}\n\n"
-                f"🎨 **Faction Color:** `{color.name}`\n"
+                f"🏳️ **Claimed Flag:** `{flag}`\n"
+                f"🎨 **Color:** `{color.name}`\n"
                 f"🕓 **Created:** <t:{int(datetime.utcnow().timestamp())}:f>"
             ),
             color=role_color
@@ -154,10 +191,10 @@ class FactionCreate(commands.Cog):
         # 🧾 Log the creation
         await utils.log_faction_action(
             guild,
-            action="Faction Created",
+            action="Faction Created + Flag Claimed",
             faction_name=name,
             user=interaction.user,
-            details=f"Leader: {leader.mention}, Map: {map.value}, Members: {', '.join([m.mention for m in members])}"
+            details=f"Leader: {leader.mention}, Map: {map.value}, Flag: {flag}, Members: {', '.join([m.mention for m in members])}"
         )
 
         # ✅ Admin confirmation embed
@@ -165,6 +202,7 @@ class FactionCreate(commands.Cog):
             "__Faction Created__",
             f"""
 🗺️ **Map:** `{map.value}`
+🏳️ **Flag:** `{flag}`
 🎭 **Role:** {role.mention}
 🏠 **Channel:** {channel.mention}
 👑 **Leader:** {leader.mention}
