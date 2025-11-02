@@ -211,3 +211,17 @@ class ActivityCheck(commands.Cog):
 
         await log_action(
             interaction.guild,
+            category.name,
+            title="Category Activity Check Started",
+            description=f"📢 {interaction.user.mention} launched activity checks for **{category.name}**.",
+            color=0x00BFFF
+        )
+
+        if tasks:
+            await asyncio.gather(*tasks)
+
+        await self.send_leaderboard(interaction.guild, category, results)
+
+
+async def setup(bot):
+    await bot.add_cog(ActivityCheck(bot))
