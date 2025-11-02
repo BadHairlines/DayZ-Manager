@@ -25,8 +25,6 @@ class Setup(commands.Cog):
         guild_id = str(guild.id)
         map_key = normalize_map(selected_map)
         map_info = MAP_DATA[map_key]
-        flags_channel_name = f"flags-{map_key}"
-        logs_channel_name = f"{map_key}-logs"
 
         await interaction.response.send_message(
             f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
@@ -56,28 +54,52 @@ class Setup(commands.Cog):
                     guild_id, map_key
                 )
 
-            # ✅ Create or reuse flag display channel
+            # =======================================================
+            # 🗂️ FLAG CATEGORY — e.g. “Livonia Flags Hub”
+            # =======================================================
+            flag_category_name = f"{map_info['name']} Flags Hub"
+            flag_category = discord.utils.get(guild.categories, name=flag_category_name)
+            if not flag_category:
+                flag_category = await guild.create_category(
+                    name=flag_category_name,
+                    reason=f"Auto-created category for {map_info['name']} flag setup"
+                )
+
+            # ✅ Create or reuse flag display channel under that category
+            flags_channel_name = f"flags-{map_key}"
             flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
             if not flags_channel:
                 flags_channel = await guild.create_text_channel(
                     name=flags_channel_name,
+                    category=flag_category,
                     reason=f"Auto-created for {map_info['name']} setup"
                 )
                 await flags_channel.send(f"📜 This channel displays flag ownership for **{map_info['name']}**.")
 
-            # ✅ Create or reuse log channel
+            # =======================================================
+            # 🧾 LOG CATEGORY — “DayZ Manager”
+            # =======================================================
+            log_category_name = "DayZ Manager"
+            manager_category = discord.utils.get(guild.categories, name=log_category_name)
+            if not manager_category:
+                manager_category = await guild.create_category(log_category_name)
+
+            logs_channel_name = f"{map_key}-flag-logs"
             log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
             if not log_channel:
                 log_channel = await guild.create_text_channel(
                     name=logs_channel_name,
+                    category=manager_category,
                     reason=f"Log channel for {map_info['name']} flag activity"
                 )
                 await log_channel.send(f"🗒️ Log channel created for **{map_info['name']}** setup.")
 
-            # ✅ Initialize all flags in DB
+            # =======================================================
+            # 🏳️ Initialize all flags in DB
+            # =======================================================
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await asyncio.sleep(0.05)  # smooth pacing to avoid DB spam
+                await asyncio.sleep(0.05)
 
             # ✅ Create unified flag embed
             embed = await create_flag_embed(guild_id, map_key)
@@ -91,7 +113,7 @@ class Setup(commands.Cog):
                         msg = await old_channel.fetch_message(int(row["message_id"]))
                         await msg.edit(embed=embed)
                 except Exception:
-                    msg = None  # fallback if fetch fails
+                    msg = None
 
             if not msg:
                 msg = await flags_channel.send(embed=embed)
@@ -108,7 +130,9 @@ class Setup(commands.Cog):
                         log_channel_id = EXCLUDED.log_channel_id;
                 """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-            # ✅ Create success embed
+            # =======================================================
+            # ✅ Setup Complete Embed
+            # =======================================================
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
