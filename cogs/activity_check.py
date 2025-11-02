@@ -3,9 +3,9 @@ from discord import app_commands
 from discord.ext import commands
 import asyncio
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from cogs.utils import log_action, get_all_flags, release_flag, db_pool
+from cogs.utils import log_action
 
 
 class ActivityCheck(commands.Cog):
@@ -15,71 +15,62 @@ class ActivityCheck(commands.Cog):
         self.expiry_hours = 12
         self.emoji = "✅"
 
-    def make_embed(self, role: discord.Role, color, progress=0, complete=False, failed=False):
-        """Builds the embed for the check."""
-        desc = f"> At least **{self.required_reactions}** members of {role.mention} must click {self.emoji} below!"
-
-        if complete:
-            desc = f"✅ **Activity Check Complete!** {role.mention} met the requirement!"
-        elif failed:
-            desc = f"❌ **Activity Check Failed!** Not enough members of {role.mention} responded."
-
-        embed = discord.Embed(title="__**ACTIVITY CHECK**__", description=desc, color=color)
-        if not complete and not failed:
-            embed.add_field(name="Progress", value=f"✅ {progress}/{self.required_reactions} confirmed", inline=False)
-
+    def make_embed(self, name: str, role: discord.Role | None, color: int):
+        """Creates an embed for the activity check."""
+        mention_text = role.mention if role else f"**{name}**"
+        embed = discord.Embed(
+            title="__**ACTIVITY CHECK**__",
+            description=f"> At least **{self.required_reactions}** members of {mention_text} must click {self.emoji} below!",
+            color=color
+        )
+        embed.add_field(name="Progress", value=f"✅ 0/{self.required_reactions} confirmed", inline=False)
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
         return embed
 
-    @app_commands.command(name="activity-check", description="Run activity checks for all factions in a category (map).")
-    @app_commands.describe(
-        category="The category containing all faction channels for this map."
-    )
+    @app_commands.command(name="activity-check", description="Run activity checks for all faction channels in a category (map).")
+    @app_commands.describe(category="Select the category that contains all faction channels.")
     async def activity_check(self, interaction: discord.Interaction, category: discord.CategoryChannel):
-        """Posts activity checks in every faction channel inside the selected category."""
+        """Posts activity checks in every text channel inside the selected category."""
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Admins only!", ephemeral=True)
             return
 
         await interaction.response.defer(thinking=True)
         color = random.randint(0, 0xFFFFFF)
-        guild = interaction.guild
-        guild_id = str(guild.id)
         sent_count = 0
 
-        # Iterate through each channel inside the category
         for channel in category.text_channels:
             try:
                 # Try to match a faction role name to the channel name
                 matched_role = discord.utils.find(
                     lambda r: r.name.lower().replace(" ", "-") in channel.name.lower(),
-                    guild.roles
+                    interaction.guild.roles
                 )
-                if not matched_role:
-                    continue
 
-                # Create and send the embed
-                embed = self.make_embed(matched_role, color)
-                msg = await channel.send(content=matched_role.mention, embed=embed)
+                embed = self.make_embed(channel.name, matched_role, color)
+                content = matched_role.mention if matched_role else None
+                msg = await channel.send(content=content, embed=embed)
                 await msg.add_reaction(self.emoji)
                 sent_count += 1
                 await asyncio.sleep(1)
 
+            except discord.Forbidden:
+                print(f"⚠️ No permission to send messages in {channel.name}.")
             except Exception as e:
                 print(f"⚠️ Failed to post in {channel.name}: {e}")
 
         await interaction.followup.send(
-            f"✅ Sent activity checks to **{sent_count}** faction channels in **{category.name}**!",
+            f"✅ Sent activity checks to **{sent_count}** channels in **{category.name}**!",
             ephemeral=True
         )
 
-        # 🪵 Log the launch of category-wide checks
+        # Log the operation
         await log_action(
-            guild,
+            interaction.guild,
             category.name,
             title="Category Activity Check Started",
-            description=f"📢 {interaction.user.mention} launched activity checks for **{category.name}**.",
+            description=f"📢 {interaction.user.mention} launched activity checks in **{category.name}**.",
             color=0x00BFFF
         )
 
