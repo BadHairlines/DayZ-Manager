@@ -37,6 +37,11 @@ class Factions(commands.Cog):
     # 🧱 Database Setup
     # ==============================
     async def ensure_table(self):
+        """Safely ensure the factions table exists."""
+        if not hasattr(self.bot, "db_pool"):
+            print("⚠️ Warning: bot.db_pool not initialized — skipping table creation.")
+            return
+
         async with self.bot.db_pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS factions (
@@ -70,6 +75,7 @@ class Factions(commands.Cog):
     # /create-faction
     # =======================================
     @app_commands.command(name="create-faction", description="Create a faction (role, channel, and assign members).")
+    @app_commands.choices(map=MAP_CHOICES, color=COLOR_CHOICES)
     @app_commands.describe(
         name="Faction name",
         map="Select which map this faction belongs to",
@@ -83,8 +89,8 @@ class Factions(commands.Cog):
         self,
         interaction: discord.Interaction,
         name: str,
-        map: str,
-        color: str,
+        map: app_commands.Choice[str],
+        color: app_commands.Choice[str],
         leader: discord.Member,
         member1: discord.Member | None = None,
         member2: discord.Member | None = None,
@@ -98,20 +104,24 @@ class Factions(commands.Cog):
             await interaction.followup.send("❌ You must be an **Admin** to use this command!", ephemeral=True)
             return
 
-        role_color = discord.Color(int(color.strip("#"), 16))
+        role_color = discord.Color(int(color.value.strip("#"), 16))
 
         # 🧩 Check for duplicates in database
-        async with self.bot.db_pool.acquire() as conn:
-            existing = await conn.fetchrow(
-                "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
-                str(guild.id), name
-            )
-            if existing:
-                await interaction.followup.send(f"⚠️ Faction **{name}** already exists on {existing['map']}!", ephemeral=True)
-                return
+        if hasattr(self.bot, "db_pool"):
+            async with self.bot.db_pool.acquire() as conn:
+                existing = await conn.fetchrow(
+                    "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
+                    str(guild.id), name
+                )
+                if existing:
+                    await interaction.followup.send(
+                        f"⚠️ Faction **{name}** already exists on {existing['map']}!",
+                        ephemeral=True
+                    )
+                    return
 
         # 🗂️ Create or find category
-        category_name = f"{map} Factions Hub"
+        category_name = f"{map.value} Factions Hub"
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             category = await guild.create_category(category_name)
@@ -130,7 +140,7 @@ class Factions(commands.Cog):
         channel = await guild.create_text_channel(
             channel_name,
             category=category,
-            topic=f"Private HQ for the {name} faction on {map}."
+            topic=f"Private HQ for the {name} faction on {map.value}."
         )
 
         # 🔐 Set permissions
@@ -153,29 +163,30 @@ class Factions(commands.Cog):
             except Exception as e:
                 print(f"⚠️ Failed to assign role to {member}: {e}")
 
-        # 💾 Save to database
-        async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            """, str(guild.id), map, name, str(role.id), str(channel.id),
-                 str(leader.id), [str(m.id) for m in members], color)
+        # 💾 Save to database (if pool exists)
+        if hasattr(self.bot, "db_pool"):
+            async with self.bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """, str(guild.id), map.value, name, str(role.id), str(channel.id),
+                    str(leader.id), [str(m.id) for m in members], color.value)
 
         # 🏠 Faction Welcome Embed
         members_list = "\n".join([m.mention for m in members]) if len(members) > 1 else "*No members listed*"
         welcome_embed = discord.Embed(
             title=f"🎖️ Welcome to {name}",
             description=(
-                f"Welcome to your **{map} HQ**, {role.mention}!\n\n"
+                f"Welcome to your **{map.value} HQ**, {role.mention}!\n\n"
                 f"👑 **Leader:** {leader.mention}\n"
                 f"👥 **Members:**\n{members_list}\n\n"
-                "This is your private faction base for communication and coordination.\n"
-                f"**Faction Color:** `{color}`"
+                f"**Faction Color:** `{color.name}`\n"
+                "This is your private faction base for communication and coordination. ⚔️"
             ),
             color=role_color
         )
         welcome_embed.set_footer(
-            text=f"{map} • Faction HQ",
+            text=f"{map.value} • Faction HQ",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
         )
         await channel.send(embed=welcome_embed)
@@ -185,10 +196,10 @@ class Factions(commands.Cog):
         embed = self.make_embed(
             "__Faction Created__",
             f"""
-> 🗺️ **Map:** `{map}`  
+> 🗺️ **Map:** `{map.value}`  
 > 🏠 **Channel:** {channel.mention}  
 > 🎭 **Role:** {role.mention}  
-> 🎨 **Color:** `{color}`  
+> 🎨 **Color:** `{color.name}`  
 > 👑 **Leader:** {leader.mention}  
 > 👥 **Members:**\n{admin_members_list}  
 > 🕓 **Created:** <t:{int(datetime.utcnow().timestamp())}:f>
@@ -210,14 +221,17 @@ class Factions(commands.Cog):
         await self.ensure_table()
         guild = interaction.guild
 
-        async with self.bot.db_pool.acquire() as conn:
-            faction = await conn.fetchrow(
-                "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
-                str(guild.id), name
-            )
-            if not faction:
-                await interaction.response.send_message(f"❌ No faction named `{name}` found.", ephemeral=True)
-                return
+        faction = None
+        if hasattr(self.bot, "db_pool"):
+            async with self.bot.db_pool.acquire() as conn:
+                faction = await conn.fetchrow(
+                    "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
+                    str(guild.id), name
+                )
+
+        if not faction:
+            await interaction.response.send_message(f"❌ No faction named `{name}` found.", ephemeral=True)
+            return
 
         # Confirm before delete
         view = discord.ui.View()
@@ -236,11 +250,12 @@ class Factions(commands.Cog):
             except Exception:
                 pass
 
-            async with self.bot.db_pool.acquire() as conn:
-                await conn.execute(
-                    "DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
-                    str(guild.id), name
-                )
+            if hasattr(self.bot, "db_pool"):
+                async with self.bot.db_pool.acquire() as conn:
+                    await conn.execute(
+                        "DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
+                        str(guild.id), name
+                    )
 
             embed = self.make_embed(
                 "__Faction Deleted__",
