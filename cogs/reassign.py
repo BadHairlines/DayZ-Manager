@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.helpers.base_cog import BaseCog
 from cogs.helpers.decorators import admin_only, MAP_CHOICES
-from cogs.utils import FLAGS, MAP_DATA, get_all_flags, set_flag, log_action
+from cogs.utils import FLAGS, MAP_DATA, get_all_flags, set_flag, log_action, db_pool
 
 
 class Reassign(commands.Cog, BaseCog):
@@ -76,6 +76,19 @@ class Reassign(commands.Cog, BaseCog):
 
         # ✅ Reassign in DB
         await set_flag(guild_id, map_key, flag, "❌", str(new_role.id))
+
+        # 🔄 Sync with faction table
+        async with db_pool.acquire() as conn:
+            # Clear from old owner faction
+            await conn.execute(
+                "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2",
+                guild_id, flag
+            )
+            # Assign to the new faction (if role exists in DB)
+            await conn.execute(
+                "UPDATE factions SET claimed_flag=$1 WHERE guild_id=$2 AND role_id=$3",
+                flag, guild_id, str(new_role.id)
+            )
 
         # ✅ Confirmation embed
         embed = self.make_embed(
