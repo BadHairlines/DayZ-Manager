@@ -2,15 +2,20 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-from cogs.utils import db_pool
+from cogs import utils  # ✅ Use full utils module for shared DB
 from .faction_utils import ensure_faction_table, make_embed
 
+
+# ==============================
+# 🌍 Map Choices
+# ==============================
 MAP_CHOICES = [
     app_commands.Choice(name="Livonia", value="Livonia"),
     app_commands.Choice(name="Chernarus", value="Chernarus"),
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
+# 🎨 Color Choices
 COLOR_CHOICES = [
     app_commands.Choice(name="Red ❤️", value="#FF0000"),
     app_commands.Choice(name="Blue 💙", value="#0000FF"),
@@ -18,46 +23,104 @@ COLOR_CHOICES = [
     app_commands.Choice(name="Black 🖤", value="#000000"),
 ]
 
+
 class FactionCreate(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # ============================================
+    # 🏗️ /create-faction
+    # ============================================
     @app_commands.command(name="create-faction", description="Create a faction with a role, channel, and members.")
     @app_commands.choices(map=MAP_CHOICES, color=COLOR_CHOICES)
-    async def create_faction(self, interaction, name: str, map, color, leader: discord.Member,
-                             member1: discord.Member | None = None,
-                             member2: discord.Member | None = None,
-                             member3: discord.Member | None = None):
+    @app_commands.describe(
+        name="Name of the faction",
+        map="Select which map this faction belongs to",
+        color="Choose the faction color",
+        leader="Select the faction leader",
+        member1="Faction member #1 (optional)",
+        member2="Faction member #2 (optional)",
+        member3="Faction member #3 (optional)"
+    )
+    async def create_faction(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        map: app_commands.Choice[str],
+        color: app_commands.Choice[str],
+        leader: discord.Member,
+        member1: discord.Member | None = None,
+        member2: discord.Member | None = None,
+        member3: discord.Member | None = None,
+    ):
         await interaction.response.defer(thinking=True)
-        await ensure_faction_table()
 
+        # 🔒 Check permissions
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.followup.send("❌ Admin only.", ephemeral=True)
+            return await interaction.followup.send("❌ Only admins can create factions.", ephemeral=True)
+
+        # 🧩 Ensure DB is ready and faction table exists
+        if utils.db_pool is None:
+            raise RuntimeError("❌ Database not initialized yet — please restart the bot.")
+        await ensure_faction_table()
 
         guild = interaction.guild
         role_color = discord.Color(int(color.value.strip("#"), 16))
-        async with db_pool.acquire() as conn:
-            existing = await conn.fetchrow("SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2", str(guild.id), name)
-        if existing:
-            return await interaction.followup.send(f"⚠️ Faction `{name}` already exists!", ephemeral=True)
 
+        # 🔍 Prevent duplicates
+        async with utils.db_pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
+                str(guild.id), name
+            )
+        if existing:
+            return await interaction.followup.send(
+                f"⚠️ Faction **{name}** already exists on {existing['map']}!",
+                ephemeral=True
+            )
+
+        # 🗂️ Create or fetch category
         category_name = f"{map.value} Factions Hub"
-        category = discord.utils.get(guild.categories, name=category_name) or await guild.create_category(category_name)
+        category = discord.utils.get(guild.categories, name=category_name)
+        if not category:
+            category = await guild.create_category(category_name)
+
+        # 🎭 Create role
         role = await guild.create_role(name=name, color=role_color, mentionable=True)
-        channel = await guild.create_text_channel(name.lower().replace(" ", "-"), category=category, topic=f"Private HQ for {name}")
+        divider = discord.utils.get(guild.roles, name="────────── Factions ──────────")
+        if divider:
+            try:
+                await role.edit(position=divider.position - 1)
+            except Exception:
+                pass
+
+        # 💬 Create private channel
+        channel_name = name.lower().replace(" ", "-")
+        channel = await guild.create_text_channel(
+            channel_name,
+            category=category,
+            topic=f"Private HQ for {name} faction on {map.value}."
+        )
         await channel.set_permissions(role, read_messages=True, send_messages=True)
         await channel.set_permissions(guild.default_role, read_messages=False)
 
+        # 👥 Assign roles to leader and members
         members = [m for m in [leader, member1, member2, member3] if m]
         for m in members:
-            await m.add_roles(role)
+            try:
+                await m.add_roles(role)
+            except Exception as e:
+                print(f"⚠️ Failed to assign faction role to {m}: {e}")
 
-        async with db_pool.acquire() as conn:
+        # 💾 Save to database
+        async with utils.db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            """, str(guild.id), map.value, name, str(role.id), str(channel.id), str(leader.id), [str(m.id) for m in members], color.value)
+            """, str(guild.id), map.value, name, str(role.id), str(channel.id),
+                str(leader.id), [str(m.id) for m in members], color.value)
 
+        # 🎉 Welcome embed inside the faction HQ
         members_list = "\n".join([m.mention for m in members if m.id != leader.id]) or "*No members listed*"
         welcome_embed = discord.Embed(
             title=f"🎖️ Welcome to {name}!",
@@ -65,13 +128,37 @@ class FactionCreate(commands.Cog):
                 f"Welcome to your **{map.value} HQ**, {role.mention}! ⚔️\n\n"
                 f"👑 **Leader:** {leader.mention}\n"
                 f"👥 **Members:**\n{members_list}\n\n"
-                f"🎨 **Color:** `{color.name}`\n"
+                f"🎨 **Faction Color:** `{color.name}`\n"
                 f"🕓 **Created:** <t:{int(datetime.utcnow().timestamp())}:f>"
             ),
             color=role_color
         )
-        await channel.send(embed=welcome_embed)
-        await interaction.followup.send(embed=make_embed("__Faction Created__", f"Faction **{name}** created successfully!"))
+        welcome_embed.set_footer(text=f"{map.value} • Faction HQ", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        msg = await channel.send(embed=welcome_embed)
+        try:
+            await msg.pin()
+        except Exception:
+            pass
+
+        # ✅ Admin confirmation embed
+        confirm_embed = make_embed(
+            "__Faction Created__",
+            f"""
+🗺️ **Map:** `{map.value}`
+🎭 **Role:** {role.mention}
+🏠 **Channel:** {channel.mention}
+👑 **Leader:** {leader.mention}
+
+👥 **Members:**
+{', '.join([m.mention for m in members])}
+
+🎨 **Color:** `{color.name}`
+🕓 **Created:** <t:{int(datetime.utcnow().timestamp())}:f>
+            """,
+            color=int(color.value.strip("#"), 16)
+        )
+        await interaction.followup.send(embed=confirm_embed)
+
 
 async def setup(bot):
     await bot.add_cog(FactionCreate(bot))
