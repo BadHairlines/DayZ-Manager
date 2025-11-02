@@ -38,7 +38,7 @@ class Factions(commands.Cog):
     # 🧱 Database Setup
     # ==============================
     async def ensure_table(self):
-        """Safely ensure the factions table exists."""
+        """Ensures the factions table exists."""
         if db_pool is None:
             print("⚠️ Warning: db_pool not initialized — skipping table creation.")
             return
@@ -110,7 +110,7 @@ class Factions(commands.Cog):
         guild = interaction.guild
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
-        # 🧩 Check for duplicates
+        # 🧩 Prevent duplicates
         if db_pool:
             async with db_pool.acquire() as conn:
                 existing = await conn.fetchrow(
@@ -124,14 +124,14 @@ class Factions(commands.Cog):
                     )
                     return
 
-        # 🗂️ Category setup
+        # 🗂️ Ensure category exists
         category_name = f"{map.value} Factions Hub"
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             category = await guild.create_category(category_name)
             print(f"📁 Created category: {category_name}")
 
-        # 🎭 Create faction role and channel
+        # 🎭 Create faction role
         role = await guild.create_role(name=name, color=role_color, mentionable=True)
         divider = discord.utils.get(guild.roles, name="────────── Factions ──────────")
         if divider:
@@ -140,6 +140,7 @@ class Factions(commands.Cog):
             except Exception:
                 pass
 
+        # 📢 Create faction channel
         channel_name = name.lower().replace(" ", "-")
         channel = await guild.create_text_channel(
             channel_name,
@@ -159,7 +160,7 @@ class Factions(commands.Cog):
         )
         await channel.set_permissions(guild.default_role, read_messages=False)
 
-        # 👥 Assign members
+        # 👥 Assign members and leader
         members = [m for m in [leader, member1, member2, member3] if m]
         for member in members:
             try:
@@ -167,7 +168,7 @@ class Factions(commands.Cog):
             except Exception as e:
                 print(f"⚠️ Failed to assign role to {member}: {e}")
 
-        # 💾 Save to DB
+        # 💾 Save faction to database
         if db_pool:
             async with db_pool.acquire() as conn:
                 await conn.execute("""
@@ -184,7 +185,7 @@ class Factions(commands.Cog):
                 f"Welcome to your **{map.value} HQ**, {role.mention}!\n\n"
                 f"👑 **Leader:** {leader.mention}\n"
                 f"👥 **Members:**\n{members_list}\n\n"
-                f"**Faction Color:** `{color.name}`\n"
+                f"🎨 **Faction Color:** `{color.name}`\n"
                 "This is your private faction base for communication and coordination. ⚔️"
             ),
             color=role_color
@@ -195,7 +196,7 @@ class Factions(commands.Cog):
         )
         await channel.send(embed=welcome_embed)
 
-        # ✅ Confirmation Embed
+        # ✅ Admin Confirmation
         admin_members_list = "\n".join([m.mention for m in members]) if len(members) > 1 else "*No members*"
         embed = self.make_embed(
             "__Faction Created__",
@@ -215,7 +216,7 @@ class Factions(commands.Cog):
     # =======================================
     # /delete-faction
     # =======================================
-    @app_commands.command(name="delete-faction", description="Delete a faction’s role, channel, and DB record.")
+    @app_commands.command(name="delete-faction", description="Delete a faction’s role, channel, and database record.")
     @app_commands.describe(name="Faction name to delete")
     async def delete_faction(self, interaction: discord.Interaction, name: str):
         if not interaction.user.guild_permissions.administrator:
@@ -225,6 +226,7 @@ class Factions(commands.Cog):
         await self.ensure_table()
         guild = interaction.guild
 
+        # Fetch faction record
         faction = None
         if db_pool:
             async with db_pool.acquire() as conn:
@@ -237,22 +239,24 @@ class Factions(commands.Cog):
             await interaction.response.send_message(f"❌ No faction named `{name}` found.", ephemeral=True)
             return
 
+        # Confirm deletion
         view = discord.ui.View()
 
         async def confirm(inter: discord.Interaction):
             await inter.response.defer()
-
             channel = guild.get_channel(int(faction["channel_id"]))
             role = guild.get_role(int(faction["role_id"]))
 
+            # Try deleting Discord resources
             try:
                 if channel:
                     await channel.delete()
                 if role:
                     await role.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"⚠️ Cleanup issue: {e}")
 
+            # Remove from DB
             if db_pool:
                 async with db_pool.acquire() as conn:
                     await conn.execute(
@@ -262,7 +266,7 @@ class Factions(commands.Cog):
 
             embed = self.make_embed(
                 "__Faction Deleted__",
-                f"> ✅ Faction **{name}** removed from Discord and database.",
+                f"> ✅ Faction **{name}** successfully removed from Discord and database.",
                 0xE74C3C
             )
             await inter.followup.send(embed=embed, ephemeral=True)
