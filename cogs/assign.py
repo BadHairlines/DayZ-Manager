@@ -3,7 +3,16 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.helpers.base_cog import BaseCog
 from cogs.helpers.decorators import admin_only, MAP_CHOICES
-from cogs.utils import FLAGS, MAP_DATA, set_flag, get_all_flags, log_action, release_flag, create_flag_embed, db_pool
+from cogs.utils import (
+    FLAGS,
+    MAP_DATA,
+    set_flag,
+    get_all_flags,
+    log_action,
+    release_flag,
+    create_flag_embed,
+    db_pool
+)
 
 
 class FlagManageView(discord.ui.View):
@@ -40,6 +49,9 @@ class FlagManageView(discord.ui.View):
         except Exception as e:
             print(f"⚠️ Failed to update flag message: {e}")
 
+    # ================================================
+    # 🔁 Reassign Button
+    # ================================================
     @discord.ui.button(label="🔁 Reassign", style=discord.ButtonStyle.primary)
     async def reassign_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Reassign flag to another role using a dropdown menu."""
@@ -75,6 +87,21 @@ class FlagManageView(discord.ui.View):
 
             # Reassign in DB
             await set_flag(guild_id, self.map_key, self.flag, "❌", str(new_role.id))
+
+            # 🔄 Sync with faction table
+            async with db_pool.acquire() as conn:
+                # Clear old owners
+                await conn.execute(
+                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2",
+                    guild_id, self.flag
+                )
+                # Assign to new faction if role matches
+                await conn.execute(
+                    "UPDATE factions SET claimed_flag=$1 WHERE guild_id=$2 AND role_id=$3",
+                    self.flag, guild_id, str(new_role.id)
+                )
+
+            # Refresh flag display
             await self.update_flag_display()
 
             await log_action(
@@ -95,6 +122,9 @@ class FlagManageView(discord.ui.View):
         view.add_item(select)
         await interaction.followup.send("Select a new role:", view=view, ephemeral=True)
 
+    # ================================================
+    # 🏳 Release Button
+    # ================================================
     @discord.ui.button(label="🏳 Release", style=discord.ButtonStyle.secondary)
     async def release_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Release the flag back to ✅ available."""
@@ -102,11 +132,18 @@ class FlagManageView(discord.ui.View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
-        # ✅ Defer early to acknowledge the interaction
         await interaction.response.defer(ephemeral=True)
 
         guild_id = str(self.guild.id)
         await release_flag(guild_id, self.map_key, self.flag)
+
+        # 🔄 Sync with faction table
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2",
+                guild_id, self.flag
+            )
+
         await self.update_flag_display()
 
         await log_action(
@@ -119,6 +156,9 @@ class FlagManageView(discord.ui.View):
 
         await interaction.followup.send(f"✅ **{self.flag}** released successfully!", ephemeral=True)
 
+    # ================================================
+    # ❌ Close Button
+    # ================================================
     @discord.ui.button(label="❌ Close", style=discord.ButtonStyle.danger)
     async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Remove the management view."""
@@ -127,7 +167,6 @@ class FlagManageView(discord.ui.View):
             return
 
         await interaction.response.defer(ephemeral=True)
-
         try:
             await interaction.message.delete()
         except Exception:
@@ -212,6 +251,19 @@ class Assign(commands.Cog, BaseCog):
 
         # ✅ Assign the flag
         await set_flag(guild_id, map_key, flag, "❌", str(role.id))
+
+        # 🔄 Sync faction table
+        async with db_pool.acquire() as conn:
+            # Clear flag from old owners
+            await conn.execute(
+                "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2",
+                guild_id, flag
+            )
+            # Assign to new faction if role exists in DB
+            await conn.execute(
+                "UPDATE factions SET claimed_flag=$1 WHERE guild_id=$2 AND role_id=$3",
+                flag, guild_id, str(role.id)
+            )
 
         # ✅ Success embed
         embed = self.make_embed(
