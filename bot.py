@@ -1,156 +1,189 @@
+# bot.py
 import os
 import asyncio
 import logging
+import importlib
 import discord
 from discord.ext import commands
 
-# 🧩 Import database tools via module (not direct reference)
-from cogs import utils
-from cogs.assign import FlagManageView  # ✅ persistent view class
+# ✅ Shared utilities (DB, helpers)
+from cogs import utils  # make sure cogs/__init__.py exists (can be empty)
 
 # =========================
-# 🧩 Logging Setup
+# 🧾 Logging
 # =========================
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s]: %(message)s",
-    datefmt="%H:%M:%S"
+    datefmt="%H:%M:%S",
 )
+log = logging.getLogger("dayz-manager")
 
 # =========================
-# ⚙️ Discord Bot Setup
+# 🤖 Discord Bot
 # =========================
 intents = discord.Intents.default()
-intents.message_content = True
 intents.guilds = True
+intents.members = True
 intents.guild_messages = True
+intents.message_content = True
 intents.guild_reactions = True
-intents.members = True  # ✅ needed for role/membership checks
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.synced = False
+bot.synced = False  # track slash sync once
 
 
 # =========================
-# 🚀 Bot Events
+# 🔁 Persistent Views
 # =========================
-@bot.event
-async def on_ready():
-    logging.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-
-    # ✅ Sync slash commands only once
-    if not bot.synced:
+def resolve_flag_manage_view():
+    """
+    Try to import FlagManageView from where your project defines it.
+    Prefer cogs.ui_views.FlagManageView; fallback to cogs.assign.FlagManageView.
+    """
+    for path, cls in (("cogs.ui_views", "FlagManageView"), ("cogs.assign", "FlagManageView")):
         try:
-            synced = await bot.tree.sync()
-            bot.synced = True
-            logging.info(f"✅ Synced {len(synced)} slash commands with Discord.")
+            mod = importlib.import_module(path)
+            view_cls = getattr(mod, cls, None)
+            if view_cls:
+                log.info(f"✅ Using {cls} from {path}")
+                return view_cls
         except Exception as e:
-            logging.error(f"⚠️ Failed to sync slash commands: {e}")
-    else:
-        logging.info("⏭️ Slash commands already synced, skipping.")
-
-    # ✅ Confirm database is connected
-    if utils.db_pool is None:
-        logging.error("❌ Database not connected! Factions and Flags will not save data.")
-    else:
-        logging.info("🗄️ Database connection verified.")
-
-    # ✅ Auto-cleanup deleted roles
-    try:
-        for guild in bot.guilds:
-            await utils.cleanup_deleted_roles(guild)
-            await asyncio.sleep(1)
-        logging.info("🧹 Auto-cleanup complete for all guilds.")
-    except Exception as e:
-        logging.error(f"⚠️ Auto-cleanup failed: {e}")
-
-    logging.info("------")
+            log.debug(f"FlagManageView not found in {path}: {e}")
+    log.warning("⚠️ FlagManageView not available — persistent views will be skipped.")
+    return None
 
 
-# =========================
-# 🔧 Dynamic Cog Loader
-# =========================
-async def load_cogs():
-    """Auto-load all cogs except utils.py and helpers."""
-    loaded = 0
-    for root, _, files in os.walk("cogs"):
-        if "helpers" in root:
-            continue
-        for filename in files:
-            if filename.endswith(".py") and not filename.startswith("__") and filename != "utils.py":
-                cog_path = os.path.join(root, filename).replace(os.sep, ".")[:-3]
-                try:
-                    await bot.load_extension(cog_path)
-                    logging.info(f"✅ Loaded cog: {cog_path}")
-                    loaded += 1
-                except Exception as e:
-                    logging.error(f"❌ Failed to load {cog_path}: {e}")
-    logging.info(f"📦 Total cogs loaded: {loaded}")
-
-
-# =========================
-# 🔁 Persistent View Registration
-# =========================
-async def register_persistent_views(bot: commands.Bot):
-    """Re-register all FlagManageView UIs after restart."""
-    if utils.db_pool is None:
-        logging.warning("⚠️ Database not initialized yet. Skipping persistent view registration.")
+async def register_persistent_views():
+    """Re-register all saved FlagManageView panels for each guild/map."""
+    FlagManageView = resolve_flag_manage_view()
+    if FlagManageView is None:
         return
 
-    try:
-        async with utils.db_pool.acquire() as conn:
+    if utils.db_pool is None:
+        log.warning("⚠️ DB not initialized; skipping persistent view registration.")
+        return
+
+    async with utils.db_pool.acquire() as conn:
+        # If table doesn't exist yet, just skip silently
+        try:
             rows = await conn.fetch("SELECT guild_id, map, message_id FROM flag_messages;")
-    except Exception as e:
-        logging.error(f"❌ Could not fetch flag_messages: {e}")
-        return
+        except Exception as e:
+            log.info(f"ℹ️ No flag_messages table yet (or query failed): {e}")
+            return
 
+    registered = 0
     for row in rows:
         guild = bot.get_guild(int(row["guild_id"]))
         if not guild:
             continue
-
         try:
-            view = FlagManageView(guild, row["map"], "N/A", bot)
+            view = FlagManageView(guild, row["map"], "N/A", bot)  # flag name filled dynamically by UI on use
             bot.add_view(view, message_id=int(row["message_id"]))
-            logging.info(f"✅ Registered persistent view for {guild.name} ({row['map']})")
+            registered += 1
         except Exception as e:
-            logging.warning(f"⚠️ Failed to register persistent view for {guild.name}: {e}")
+            log.warning(f"⚠️ Could not re-register view for guild {row['guild_id']} map {row['map']}: {e}")
 
-    logging.info(f"🔄 Persistent view registration complete for {len(rows)} entries.")
+    log.info(f"🔄 Persistent views registered: {registered}")
 
 
 # =========================
-# 🧩 Main Async Runner
+# 📦 Cog Loader
+# =========================
+SKIP_FILES = {
+    "__init__.py",
+    "utils.py",          # helper (not a cog)
+    "faction_utils.py",  # helper (not a cog)
+    "ui_views.py",       # UI components (not a cog)
+}
+
+async def load_cogs():
+    """Walk ./cogs and load every cog except helper-only modules."""
+    loaded = 0
+    for root, dirs, files in os.walk("cogs"):
+        # ignore cache folders
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for filename in files:
+            if not filename.endswith(".py"):
+                continue
+            if filename in SKIP_FILES or filename.startswith("_"):
+                continue
+
+            module_path = os.path.join(root, filename).replace(os.sep, ".")[:-3]
+            try:
+                await bot.load_extension(module_path)
+                log.info(f"✅ Loaded cog: {module_path}")
+                loaded += 1
+            except Exception as e:
+                log.error(f"❌ Failed to load {module_path}: {e}")
+
+    log.info(f"📦 Total cogs loaded: {loaded}")
+
+
+# =========================
+# 🛰️ Events
+# =========================
+@bot.event
+async def on_ready():
+    log.info(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
+
+    # One-time slash sync
+    if not bot.synced:
+        try:
+            synced = await bot.tree.sync()
+            bot.synced = True
+            log.info(f"✅ Synced {len(synced)} slash command(s).")
+        except Exception as e:
+            log.error(f"⚠️ Failed to sync slash commands: {e}")
+
+    # Verify DB status
+    if utils.db_pool is None:
+        log.error("❌ Database not connected! Commands touching DB will fail.")
+
+    # Re-register persistent views (safe to call even if none saved)
+    await register_persistent_views()
+
+    log.info("------")
+
+
+# =========================
+# 🛠️ Owner-only helpers
+# =========================
+@bot.command(name="sync", help="Owner: force re-sync slash commands.")
+@commands.is_owner()
+async def _sync(ctx: commands.Context):
+    cmds = await bot.tree.sync()
+    await ctx.send(f"✅ Slash commands synced: {len(cmds)}")
+
+
+# =========================
+# 🚀 Main
 # =========================
 async def main():
-    await asyncio.sleep(5)  # Small delay to ensure environment is ready
+    # Small delay to ensure env is ready (Railway/containers) before DB connect
+    await asyncio.sleep(1)
+
+    # ✅ Initialize DB first (before loading cogs that might use it)
+    await utils.init_db()
+
+    # ✅ Then load cogs
+    await load_cogs()
+
+    # ✅ Start bot with retry on 429
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        raise RuntimeError("❌ DISCORD_TOKEN not set in environment.")
 
     async with bot:
-        # ✅ Initialize DB before anything else
-        await utils.init_db()
-        if utils.db_pool is None:
-            raise RuntimeError("❌ Database initialization failed — stopping startup.")
-
-        # ✅ Load all bot modules
-        await load_cogs()
-
-        # ✅ Register persistent UI views (FlagManageView)
-        await register_persistent_views(bot)
-
-        # ✅ Start the bot
-        token = os.getenv("DISCORD_TOKEN")
-        if not token:
-            raise RuntimeError("❌ DISCORD_TOKEN not set in environment variables.")
-
         for attempt in range(3):
             try:
                 await bot.start(token)
                 break
             except discord.HTTPException as e:
                 if e.status == 429:
-                    wait_time = 60 * (attempt + 1)
-                    logging.warning(f"⚠️ Rate-limited by Discord. Waiting {wait_time}s before retry...")
-                    await asyncio.sleep(wait_time)
+                    backoff = 30 * (attempt + 1)
+                    log.warning(f"⚠️ Rate limited by Discord. Retrying in {backoff}s...")
+                    await asyncio.sleep(backoff)
                 else:
                     raise
 
@@ -159,4 +192,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logging.info("🛑 Bot manually stopped.")
+        log.info("🛑 Bot manually stopped.")
