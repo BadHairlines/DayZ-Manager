@@ -65,7 +65,7 @@ class ActivityCheck(commands.Cog):
             except asyncio.TimeoutError:
                 continue
 
-        # ✅ Mark as complete or failed
+        # ✅ Mark as complete or failed visually
         await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=success))
 
         # ✅ Store results (convert role.id to str for safety)
@@ -97,12 +97,7 @@ class ActivityCheck(commands.Cog):
         # 🧮 Sort by most active first
         sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
 
-        embed = discord.Embed(
-            title=f"🏆 Activity Check Results — {category.name}",
-            description=f"📋 Activity check completed for **{len(results)} factions**.",
-            color=0x00BFFF
-        )
-
+        lines = [f"📋 Activity check completed for **{len(results)} factions.**\n"]
         for rank, (role_key, count) in enumerate(sorted_results, start=1):
             # Handle both str IDs and names
             role = None
@@ -111,38 +106,23 @@ class ActivityCheck(commands.Cog):
             elif isinstance(role_key, int):
                 role = guild.get_role(role_key)
 
-            name_display = role.mention if role else f"**{role_key}**"
-
+            mention = role.mention if role else f"**{role_key}**"
             emoji = "✅" if count >= self.required_reactions else "❌"
             medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
-            embed.add_field(
-                name=f"{medal} {name_display}",
-                value=f"{emoji} {count}/{self.required_reactions} members active",
-                inline=False
-            )
+            lines.append(f"{medal} {mention}\n{emoji} {count}/{self.required_reactions} members active\n")
 
+        embed = discord.Embed(
+            title=f"🏆 Activity Check Results — {category.name}",
+            description="\n".join(lines),
+            color=0x00BFFF
+        )
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
 
-        await alert_channel.send(embed=embed)
+        # ✅ Explicitly allow role mentions inside the embed
+        allowed = discord.AllowedMentions(roles=True)
+        await alert_channel.send(embed=embed, allowed_mentions=allowed)
         print(f"📊 Posted leaderboard in #{alert_channel.name} for {guild.name}")
-
-        # ⚠️ Ping failed factions
-        failed_roles = []
-        for k, v in results.items():
-            role = None
-            if isinstance(k, str) and k.isdigit():
-                role = guild.get_role(int(k))
-            elif isinstance(k, int):
-                role = guild.get_role(k)
-            if role and v < self.required_reactions:
-                failed_roles.append(role)
-
-        if failed_roles:
-            await alert_channel.send(
-                "⚠️ **The following factions failed their activity check:**\n" +
-                " ".join(r.mention for r in failed_roles)
-            )
 
     # ==============================
     # 💬 Slash Command
