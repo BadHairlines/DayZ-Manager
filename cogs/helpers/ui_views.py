@@ -1,6 +1,6 @@
 import discord
 from discord.ui import View, button, Select
-from cogs.utils import release_flag, set_flag, log_action, get_all_flags, MAP_DATA, create_flag_embed
+from cogs.utils import release_flag, set_flag, log_action, get_all_flags, MAP_DATA, create_flag_embed, db_pool
 
 
 class RoleSelect(discord.ui.Select):
@@ -30,6 +30,8 @@ class RoleSelect(discord.ui.Select):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         guild_id = str(self.guild.id)
         new_role_id = self.values[0]
         new_role = self.guild.get_role(int(new_role_id))
@@ -38,7 +40,7 @@ class RoleSelect(discord.ui.Select):
         existing_flags = await get_all_flags(guild_id, self.map_key)
         for record in existing_flags:
             if record["role_id"] == str(new_role.id):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ {new_role.mention} already owns **{record['flag']}** on this map.",
                     ephemeral=True
                 )
@@ -57,7 +59,7 @@ class RoleSelect(discord.ui.Select):
             description=f"🔁 {self.flag} → {new_role.mention} (by {interaction.user.mention})"
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"🔁 Successfully reassigned **{self.flag}** to {new_role.mention}.",
             ephemeral=True
         )
@@ -97,15 +99,20 @@ class FlagManageView(View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         view = View(timeout=60)
         view.add_item(RoleSelect(self.guild, self.map_key, self.flag, self))
-        await interaction.response.send_message("Select a new role for this flag:", view=view, ephemeral=True)
+        await interaction.followup.send("Select a new role for this flag:", view=view, ephemeral=True)
 
     @button(label="🏳 Release", style=discord.ButtonStyle.secondary)
     async def release_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
+
+        # ✅ Acknowledge immediately
+        await interaction.response.defer(ephemeral=True)
 
         guild_id = str(self.guild.id)
         await release_flag(guild_id, self.map_key, self.flag)
@@ -117,7 +124,9 @@ class FlagManageView(View):
             title="Flag Released (UI)",
             description=f"🏳️ {self.flag} released by {interaction.user.mention}"
         )
-        await interaction.response.send_message(f"✅ **{self.flag}** released successfully!", ephemeral=True)
+
+        # ✅ Safe follow-up message
+        await interaction.followup.send(f"✅ **{self.flag}** released successfully!", ephemeral=True)
 
     @button(label="❌ Close", style=discord.ButtonStyle.danger)
     async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -125,5 +134,11 @@ class FlagManageView(View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
-        await interaction.message.delete()
-        await interaction.response.send_message("🧹 Closed flag management panel.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+
+        await interaction.followup.send("🧹 Closed flag management panel.", ephemeral=True)
