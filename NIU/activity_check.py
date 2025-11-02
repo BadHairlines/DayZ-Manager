@@ -11,7 +11,7 @@ class ActivityCheck(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.required_reactions = 4         # ✅ minimum number of members
-        self.expiry_hours = 6               # 🕒 auto-expire time
+        self.expiry_hours = 12               # 🕒 auto-expire time
         self.emoji = "✅"
 
     def make_embed(self, role, color, progress=0, complete=False, failed=False):
