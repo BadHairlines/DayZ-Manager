@@ -16,7 +16,7 @@ class RoleSelect(discord.ui.Select):
             discord.SelectOption(label=role.name, value=str(role.id))
             for role in guild.roles
             if not role.is_default() and not role.is_bot_managed() and role.name != "@everyone"
-        ][:25]  # Discord UI limit
+        ][:25]
 
         super().__init__(
             placeholder="Select a new faction/role...",
@@ -30,6 +30,7 @@ class RoleSelect(discord.ui.Select):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
+        # ✅ Acknowledge right away
         await interaction.response.defer(ephemeral=True)
 
         guild_id = str(self.guild.id)
@@ -76,7 +77,7 @@ class FlagManageView(View):
         self.bot = bot
 
     async def update_flag_display(self, guild: discord.Guild, map_key: str):
-        """Refresh the live flag message (uses your BaseCog helper)."""
+        """Refresh the live flag message."""
         guild_id = str(guild.id)
         embed = await create_flag_embed(guild_id, map_key)
         async with db_pool.acquire() as conn:
@@ -99,6 +100,7 @@ class FlagManageView(View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
+        # ✅ Defer early
         await interaction.response.defer(ephemeral=True)
 
         view = View(timeout=60)
@@ -111,7 +113,7 @@ class FlagManageView(View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
-        # ✅ Acknowledge immediately
+        # ✅ Defer immediately to avoid Unknown Interaction
         await interaction.response.defer(ephemeral=True)
 
         guild_id = str(self.guild.id)
@@ -125,7 +127,7 @@ class FlagManageView(View):
             description=f"🏳️ {self.flag} released by {interaction.user.mention}"
         )
 
-        # ✅ Safe follow-up message
+        # ✅ Safe follow-up after deferring
         await interaction.followup.send(f"✅ **{self.flag}** released successfully!", ephemeral=True)
 
     @button(label="❌ Close", style=discord.ButtonStyle.danger)
@@ -134,6 +136,7 @@ class FlagManageView(View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
+        # ✅ Defer first
         await interaction.response.defer(ephemeral=True)
 
         try:
