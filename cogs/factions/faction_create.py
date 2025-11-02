@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-from cogs import utils  # ✅ Use full utils module for shared DB
+from cogs import utils  # ✅ Shared DB and logging functions
 from .faction_utils import ensure_faction_table, make_embed
 
 
@@ -30,7 +30,6 @@ COLOR_CHOICES = [
     app_commands.Choice(name="Grey ⚙️", value="#808080"),
     app_commands.Choice(name="Brown 🤎", value="#8B4513"),
 ]
-
 
 
 class FactionCreate(commands.Cog):
@@ -64,11 +63,11 @@ class FactionCreate(commands.Cog):
     ):
         await interaction.response.defer(thinking=True)
 
-        # 🔒 Check permissions
+        # 🔒 Permission Check
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("❌ Only admins can create factions.", ephemeral=True)
 
-        # 🧩 Ensure DB is ready and faction table exists
+        # 🧩 Ensure DB ready
         if utils.db_pool is None:
             raise RuntimeError("❌ Database not initialized yet — please restart the bot.")
         await ensure_faction_table()
@@ -129,7 +128,7 @@ class FactionCreate(commands.Cog):
             """, str(guild.id), map.value, name, str(role.id), str(channel.id),
                 str(leader.id), [str(m.id) for m in members], color.value)
 
-        # 🎉 Welcome embed inside the faction HQ
+        # 🎉 Welcome embed inside HQ
         members_list = "\n".join([m.mention for m in members if m.id != leader.id]) or "*No members listed*"
         welcome_embed = discord.Embed(
             title=f"🎖️ Welcome to {name}!",
@@ -142,12 +141,24 @@ class FactionCreate(commands.Cog):
             ),
             color=role_color
         )
-        welcome_embed.set_footer(text=f"{map.value} • Faction HQ", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        welcome_embed.set_footer(
+            text=f"{map.value} • Faction HQ",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+        )
         msg = await channel.send(embed=welcome_embed)
         try:
             await msg.pin()
         except Exception:
             pass
+
+        # 🧾 Log the creation
+        await utils.log_faction_action(
+            guild,
+            action="Faction Created",
+            faction_name=name,
+            user=interaction.user,
+            details=f"Leader: {leader.mention}, Map: {map.value}, Members: {', '.join([m.mention for m in members])}"
+        )
 
         # ✅ Admin confirmation embed
         confirm_embed = make_embed(
