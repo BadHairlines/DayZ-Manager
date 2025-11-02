@@ -78,6 +78,12 @@ class AutoRefresh(commands.Cog):
     async def on_ready(self):
         """Auto-refresh all stored flag messages after bot startup."""
         await self.bot.wait_until_ready()
+
+        # ✅ Prevent multiple refreshes on reconnect/reload
+        if getattr(self.bot, "_refresh_done", False):
+            return
+        self.bot._refresh_done = True
+
         print("🚀 DayZ Manager starting flag auto-refresh & recovery...")
 
         await asyncio.sleep(5)  # small delay for safety
@@ -96,6 +102,9 @@ class AutoRefresh(commands.Cog):
                 if not rows:
                     print(f"⚠️ No maps set up for {guild.name}. Skipping auto-refresh.")
                     continue
+
+                # 👀 Debug line: shows what maps will refresh
+                print(f"🔍 Found maps in DB for {guild.name}: {[r['map'] for r in rows]}")
 
                 for row in rows:
                     await self.ensure_flag_message(guild, row["map"])
