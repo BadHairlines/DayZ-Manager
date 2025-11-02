@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
 from cogs.utils import FLAGS, MAP_DATA, get_all_flags, log_action, db_pool
+from cogs.helpers.decorators import MAP_CHOICES  # ✅ reimport your dropdown list
 
 
 class Status(commands.Cog):
@@ -11,13 +12,13 @@ class Status(commands.Cog):
 
     @app_commands.command(
         name="status",
-        description="View a summary of flag statuses for a specific map, or all maps if none selected."
+        description="View a summary of flag statuses for a selected map, or all maps if none selected."
     )
-    @app_commands.describe(selected_map="Select a map to view its status, or leave empty for full overview.")
+    @app_commands.choices(selected_map=MAP_CHOICES)  # ✅ Restores dropdown
     async def status(
         self,
         interaction: discord.Interaction,
-        selected_map: str | None = None
+        selected_map: app_commands.Choice[str] = None
     ):
         """Displays flag ownership summary for one map, or an overview of all maps."""
         guild = interaction.guild
@@ -28,12 +29,9 @@ class Status(commands.Cog):
         # 🧭 If specific map selected
         # ==========================
         if selected_map:
-            map_key = selected_map.lower()
-            if map_key not in MAP_DATA:
-                await interaction.followup.send(f"❌ Unknown map: `{selected_map}`", ephemeral=True)
-                return
-
+            map_key = selected_map.value
             map_info = MAP_DATA[map_key]
+
             rows = await get_all_flags(guild_id, map_key)
             if not rows:
                 await interaction.followup.send(
@@ -125,7 +123,7 @@ class Status(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-        # ✅ Optional: log overview usage
+        # ✅ Log overview usage
         for row in rows:
             await log_action(
                 guild,
