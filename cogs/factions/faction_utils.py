@@ -1,9 +1,12 @@
 import discord
 from cogs import utils  # ✅ use the full utils module now
 
+
+# ======================================================
+# 🧩 Ensure Faction Table Exists
+# ======================================================
 async def ensure_faction_table():
     """Ensure factions table exists (safe to call multiple times)."""
-    # 🧩 Double safety: ensure DB is ready before touching it
     if utils.db_pool is None:
         print("⚠️ Database pool not initialized — skipping faction table creation.")
         return
@@ -27,6 +30,9 @@ async def ensure_faction_table():
     print("✅ Verified factions table exists.")
 
 
+# ======================================================
+# 🎨 Embed Helpers
+# ======================================================
 def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
     """Helper to create embeds with consistent faction style."""
     embed = discord.Embed(title=title, description=desc, color=color)
@@ -35,4 +41,23 @@ def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
         text="DayZ Manager",
         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
     )
+    return embed
+
+
+def make_log_embed(action: str, details: str, user: discord.Member, color: int = 0xF1C40F) -> discord.Embed:
+    """
+    Helper to create log embeds for faction events.
+    Example: creation, deletion, member added/removed.
+    """
+    embed = discord.Embed(
+        title=f"🪵 {action}",
+        description=details,
+        color=color
+    )
+    embed.set_author(name=f"Action by {user.display_name}", icon_url=user.display_avatar.url)
+    embed.set_footer(
+        text="Faction Logs • DayZ Manager",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
+    embed.timestamp = discord.utils.utcnow()
     return embed
