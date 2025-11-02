@@ -63,17 +63,14 @@ class ActivityCheck(commands.Cog):
 
         # ✅ Mark as complete
         await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=success))
-        results_dict[msg.channel.name] = len(confirmed_users)
+        results_dict[role.id if role else msg.channel.name] = len(confirmed_users)
 
     async def detect_faction_role(self, channel: discord.TextChannel):
         """Detects which faction role owns the given channel based on permission overwrites."""
         for target, overwrite in channel.overwrites.items():
             if isinstance(target, discord.Role):
-                # Check if role explicitly has access
-                if overwrite.view_channel is True:
-                    # Skip @everyone (we want faction roles)
-                    if not target.is_default():
-                        return target
+                if overwrite.view_channel is True and not target.is_default():
+                    return target
         return None
 
     async def send_leaderboard(self, guild: discord.Guild, category: discord.CategoryChannel, results: dict):
@@ -85,23 +82,30 @@ class ActivityCheck(commands.Cog):
                 reason="Created automatically for activity summaries"
             )
 
+        # Sort results (highest reactions first)
         sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
+
         embed = discord.Embed(
             title=f"🏆 Activity Check Results — {category.name}",
             description=f"📋 Activity check completed for **{len(results)} factions**.",
             color=0x00BFFF
         )
 
-        for rank, (name, count) in enumerate(sorted_results, start=1):
+        for rank, (role_or_name, count) in enumerate(sorted_results, start=1):
+            # Try to convert stored ID back to a Role mention
+            role = guild.get_role(role_or_name) if isinstance(role_or_name, int) else None
+            name_display = role.mention if role else f"**{role_or_name}**"
+
             emoji = "✅" if count >= self.required_reactions else "❌"
             embed.add_field(
-                name=f"{rank}. {name}",
+                name=f"{rank}. {name_display}",
                 value=f"{emoji} {count}/{self.required_reactions} members active",
                 inline=False
             )
 
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
+
         await alert_channel.send(embed=embed)
         print(f"📊 Posted leaderboard in #{alert_channel.name} for {guild.name}")
 
@@ -120,7 +124,7 @@ class ActivityCheck(commands.Cog):
 
         for channel in category.text_channels:
             try:
-                # Detect faction role from permissions
+                # Detect faction role from channel permissions
                 matched_role = await self.detect_faction_role(channel)
 
                 embed = self.make_embed(channel.name, matched_role, color)
@@ -129,7 +133,7 @@ class ActivityCheck(commands.Cog):
                 await msg.add_reaction(self.emoji)
                 sent_count += 1
 
-                # Track reactions concurrently
+                # Track each check concurrently
                 self.bot.loop.create_task(self.start_tracking(msg, matched_role, color, results))
                 await asyncio.sleep(1)
 
