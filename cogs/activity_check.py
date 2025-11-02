@@ -14,8 +14,10 @@ class ActivityCheck(commands.Cog):
         self.expiry_hours = 0.05  # ~3 minutes for testing
         self.emoji = "✅"
 
+    # ==============================
+    # 📦 Embed builder
+    # ==============================
     def make_embed(self, name: str, role: discord.Role | None, color: int, progress=0, complete=False):
-        """Creates the activity check embed."""
         mention_text = role.mention if role else f"**{name}**"
 
         if complete:
@@ -31,8 +33,10 @@ class ActivityCheck(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
         return embed
 
+    # ==============================
+    # 🎯 Reaction tracking per channel
+    # ==============================
     async def start_tracking(self, msg: discord.Message, role: discord.Role | None, color: int, results_dict: dict):
-        """Tracks reactions for a single activity check message."""
         confirmed_users = set()
         end_time = datetime.utcnow() + timedelta(hours=self.expiry_hours)
         success = False
@@ -61,12 +65,15 @@ class ActivityCheck(commands.Cog):
             except asyncio.TimeoutError:
                 continue
 
-        # ✅ Mark as complete or failed visually
+        # ✅ Mark as complete or failed
         await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=success))
 
-        # Store result by role ID (or fallback name)
-        results_dict[role.id if role else msg.channel.name] = len(confirmed_users)
+        # ✅ Store results (convert role.id to str for safety)
+        results_dict[str(role.id) if role else msg.channel.name] = len(confirmed_users)
 
+    # ==============================
+    # 🧭 Detect faction role
+    # ==============================
     async def detect_faction_role(self, channel: discord.TextChannel):
         """Detects which faction role owns the given channel based on permission overwrites."""
         for target, overwrite in channel.overwrites.items():
@@ -75,6 +82,9 @@ class ActivityCheck(commands.Cog):
                     return target
         return None
 
+    # ==============================
+    # 🏆 Leaderboard builder
+    # ==============================
     async def send_leaderboard(self, guild: discord.Guild, category: discord.CategoryChannel, results: dict):
         """Creates and posts a leaderboard summary to #activity-alerts."""
         alert_channel = discord.utils.get(guild.text_channels, name="activity-alerts")
@@ -84,7 +94,7 @@ class ActivityCheck(commands.Cog):
                 reason="Created automatically for activity summaries"
             )
 
-        # 🧮 Sort results (highest reactions first)
+        # 🧮 Sort by most active first
         sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
 
         embed = discord.Embed(
@@ -93,9 +103,15 @@ class ActivityCheck(commands.Cog):
             color=0x00BFFF
         )
 
-        for rank, (role_or_name, count) in enumerate(sorted_results, start=1):
-            role = guild.get_role(role_or_name) if isinstance(role_or_name, int) else None
-            name_display = role.mention if role else f"**{role_or_name}**"
+        for rank, (role_key, count) in enumerate(sorted_results, start=1):
+            # Handle both str IDs and names
+            role = None
+            if isinstance(role_key, str) and role_key.isdigit():
+                role = guild.get_role(int(role_key))
+            elif isinstance(role_key, int):
+                role = guild.get_role(role_key)
+
+            name_display = role.mention if role else f"**{role_key}**"
 
             emoji = "✅" if count >= self.required_reactions else "❌"
             medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
@@ -111,15 +127,30 @@ class ActivityCheck(commands.Cog):
         await alert_channel.send(embed=embed)
         print(f"📊 Posted leaderboard in #{alert_channel.name} for {guild.name}")
 
-        # Optionally ping failed factions
-        failed_roles = [guild.get_role(k) for k, v in results.items() if isinstance(k, int) and v < self.required_reactions]
+        # ⚠️ Ping failed factions
+        failed_roles = []
+        for k, v in results.items():
+            role = None
+            if isinstance(k, str) and k.isdigit():
+                role = guild.get_role(int(k))
+            elif isinstance(k, int):
+                role = guild.get_role(k)
+            if role and v < self.required_reactions:
+                failed_roles.append(role)
+
         if failed_roles:
             await alert_channel.send(
-                "⚠️ The following factions failed their check:\n" +
-                " ".join(r.mention for r in failed_roles if r)
+                "⚠️ **The following factions failed their activity check:**\n" +
+                " ".join(r.mention for r in failed_roles)
             )
 
-    @app_commands.command(name="activity-check", description="Run activity checks for all faction channels in a category (map).")
+    # ==============================
+    # 💬 Slash Command
+    # ==============================
+    @app_commands.command(
+        name="activity-check",
+        description="Run activity checks for all faction channels in a category (map)."
+    )
     @app_commands.describe(category="Select the category containing all faction channels.")
     async def activity_check(self, interaction: discord.Interaction, category: discord.CategoryChannel):
         """Posts and tracks activity checks for every channel in the given category."""
@@ -142,8 +173,8 @@ class ActivityCheck(commands.Cog):
                 await msg.add_reaction(self.emoji)
                 sent_count += 1
 
-                # Track each check concurrently
-                task = self.bot.loop.create_task(self.start_tracking(msg, matched_role, color, results))
+                # Run tracking concurrently
+                task = asyncio.create_task(self.start_tracking(msg, matched_role, color, results))
                 tasks.append(task)
 
                 await asyncio.sleep(1)  # rate limit safety
@@ -166,11 +197,10 @@ class ActivityCheck(commands.Cog):
             color=0x00BFFF
         )
 
-        # 🕒 Wait for all tasks to finish (robust against short timers)
+        # 🕒 Wait for all tracking to finish before leaderboard
         if tasks:
             await asyncio.gather(*tasks)
 
-        # ✅ Post leaderboard summary after all complete
         await self.send_leaderboard(interaction.guild, category, results)
 
 
