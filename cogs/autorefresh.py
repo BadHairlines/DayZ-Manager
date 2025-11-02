@@ -3,6 +3,7 @@ from discord.ext import commands
 from cogs.utils import db_pool, MAP_DATA, create_flag_embed
 import asyncio
 
+
 class AutoRefresh(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -12,6 +13,7 @@ class AutoRefresh(commands.Cog):
         channel_name = f"flags-{map_key}"
         channel = discord.utils.get(guild.text_channels, name=channel_name)
 
+        # ✅ Only create the channel if it already exists in DB
         if not channel:
             channel = await guild.create_text_channel(
                 name=channel_name,
@@ -27,7 +29,6 @@ class AutoRefresh(commands.Cog):
     async def ensure_flag_message(self, guild: discord.Guild, map_key: str):
         """Ensure the flag message exists; recreate it if missing."""
         guild_id = str(guild.id)
-        channel = await self.ensure_flag_channel(guild, map_key)
 
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -35,25 +36,20 @@ class AutoRefresh(commands.Cog):
                 guild_id, map_key
             )
 
-        embed = await create_flag_embed(guild_id, map_key)
-
-        # If there’s no existing DB record, create message fresh
+        # ❌ If no database record exists, skip — map not set up yet
         if not row:
-            msg = await channel.send(embed=embed)
-            async with db_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (guild_id, map)
-                    DO UPDATE SET channel_id = EXCLUDED.channel_id, message_id = EXCLUDED.message_id;
-                """, guild_id, map_key, str(channel.id), str(msg.id))
-            print(f"🆕 Created new flag message for {guild.name} - {MAP_DATA[map_key]['name']}")
+            print(f"⏭️ Skipping {MAP_DATA[map_key]['name']} for {guild.name} (not set up yet).")
             return
 
-        # If message exists but is missing (deleted)
+        channel = guild.get_channel(int(row["channel_id"]))
+        if not channel:
+            # If channel was deleted, try recreating
+            channel = await self.ensure_flag_channel(guild, map_key)
+
+        embed = await create_flag_embed(guild_id, map_key)
+
         try:
-            msg_channel = guild.get_channel(int(row["channel_id"]))
-            msg = await msg_channel.fetch_message(int(row["message_id"]))
+            msg = await channel.fetch_message(int(row["message_id"]))
             await msg.edit(embed=embed)
             print(f"🔄 Refreshed flags for {guild.name} - {MAP_DATA[map_key]['name']}")
         except Exception:
@@ -69,21 +65,36 @@ class AutoRefresh(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Auto-refresh all stored flag messages after bot startup."""
+        """Auto-refresh only stored flag messages after bot startup."""
         await self.bot.wait_until_ready()
         print("🚀 DayZ Manager starting flag auto-refresh & recovery...")
 
         await asyncio.sleep(5)  # slight delay for stability
 
         for guild in self.bot.guilds:
-            for map_key in MAP_DATA.keys():
-                try:
+            guild_id = str(guild.id)
+            try:
+                # ✅ Fetch only existing map records for this guild
+                async with db_pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        "SELECT map FROM flag_messages WHERE guild_id = $1",
+                        guild_id
+                    )
+
+                if not rows:
+                    print(f"⚠️ No maps set up yet for {guild.name} — skipping auto-refresh.")
+                    continue
+
+                for row in rows:
+                    map_key = row["map"]
                     await self.ensure_flag_message(guild, map_key)
                     await asyncio.sleep(1)  # prevent rate limits
-                except Exception as e:
-                    print(f"⚠️ Error during refresh for {guild.name} ({map_key}): {e}")
+
+            except Exception as e:
+                print(f"⚠️ Error during refresh for {guild.name}: {e}")
 
         print("✅ DayZ Manager finished auto-refresh & recovery of flag messages.")
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AutoRefresh(bot))
