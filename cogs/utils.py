@@ -4,7 +4,7 @@ import ssl
 import discord
 
 # ======================================================
-# 🗃 Database connection pool
+# 🗃 Database connection pool (shared globally)
 # ======================================================
 db_pool: asyncpg.Pool | None = None
 
@@ -32,20 +32,26 @@ async def init_db():
     """Initialize PostgreSQL connection and ensure all tables/columns exist."""
     global db_pool
 
-    db_url = os.getenv("DATABASE_URL")
+    db_url = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("POSTGRES_URL")
+        or os.getenv("PG_URL")
+    )
+
     if not db_url:
         raise RuntimeError("❌ DATABASE_URL not found in environment variables!")
 
-    # ✅ Always use SSL (safe for both internal & external Railway URLs)
+    # ✅ Always use SSL (safe for both Railway & local)
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
     # ✅ Create connection pool
     db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
-
     async with db_pool.acquire() as conn:
-        # Create flags table if missing
+        # ==========================
+        # 🏁 Flag Tables
+        # ==========================
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
                 guild_id TEXT NOT NULL,
@@ -57,7 +63,6 @@ async def init_db():
             );
         """)
 
-        # Create flag_messages table if missing
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flag_messages (
                 guild_id TEXT NOT NULL,
@@ -68,7 +73,7 @@ async def init_db():
             );
         """)
 
-        # ✅ Auto-add log_channel_id column if missing (self-healing schema)
+        # ✅ Add missing log_channel_id column (auto-heal schema)
         await conn.execute("""
             DO $$
             BEGIN
@@ -81,11 +86,30 @@ async def init_db():
             END $$;
         """)
 
-    print("✅ Connected to PostgreSQL and ensured all tables/columns exist.")
+        # ==========================
+        # 🏴‍☠️ Faction Table
+        # ==========================
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS factions (
+                id SERIAL PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                map TEXT NOT NULL,
+                faction_name TEXT NOT NULL,
+                role_id TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                leader_id TEXT NOT NULL,
+                member_ids TEXT[],
+                color TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE (guild_id, faction_name)
+            );
+        """)
+
+    print("✅ Connected to PostgreSQL and ensured all tables/columns exist (Flags + Factions).")
 
 
 # ======================================================
-# ⚙️ CRUD Operations
+# ⚙️ Flag CRUD Operations
 # ======================================================
 async def set_flag(guild_id: str, map_name: str, flag: str, status: str, role_id: str | None):
     """Insert or update a flag record."""
@@ -163,7 +187,7 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
 
 # ======================================================
-# 🪵 Shared Logging Function (Structured Embed Version)
+# 🪵 Structured Logging
 # ======================================================
 async def log_action(
     guild: discord.Guild,
@@ -172,10 +196,7 @@ async def log_action(
     description: str = "",
     color: int | None = None
 ):
-    """
-    Sends a rich embed log to the map's assigned log channel.
-    Supports structured title, description, and dynamic color coding.
-    """
+    """Send a structured log embed to the map's assigned log channel."""
     guild_id = str(guild.id)
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -192,19 +213,17 @@ async def log_action(
         print(f"⚠️ Log channel deleted or invalid for {guild.name} ({map_key})")
         return
 
-    # 🎨 Auto-color based on keywords if not manually provided
     if color is None:
         text = f"{title} {description}".lower()
-        if "assign" in text or "release" in text or "setup complete" in text:
+        if any(word in text for word in ["assign", "release", "setup complete"]):
             color = 0x2ECC71  # green
         elif "cleanup" in text:
             color = 0x95A5A6  # gray
-        elif "fail" in text or "error" in text:
+        elif any(word in text for word in ["fail", "error"]):
             color = 0xE74C3C  # red
         else:
-            color = 0xF1C40F  # yellow (info/warning)
+            color = 0xF1C40F  # yellow (info)
 
-    # 🧱 Build embed
     embed = discord.Embed(
         title=f"🪵 {MAP_DATA[map_key]['name']} | {title}",
         description=description,
@@ -227,10 +246,7 @@ async def log_action(
 # 🧹 Auto-Cleanup of Deleted Roles
 # ======================================================
 async def cleanup_deleted_roles(guild: discord.Guild):
-    """
-    Checks all flags assigned to roles that no longer exist in the guild.
-    Automatically resets those flags back to ✅ and logs each cleanup action.
-    """
+    """Auto-reset flags with deleted roles and log cleanup."""
     if not db_pool:
         print("⚠️ Database not initialized. Skipping cleanup.")
         return
