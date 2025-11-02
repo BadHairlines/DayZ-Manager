@@ -41,22 +41,25 @@ class Factions(commands.Cog):
     # =======================================
     # /create-faction (with leader + members)
     # =======================================
-    @app_commands.command(name="create-faction", description="Create a faction (role, channel, and assign members).")
+    @app_commands.command(
+        name="create-faction",
+        description="Create a faction (role, channel, and assign members)."
+    )
     @app_commands.describe(
         name="Faction name",
         map="Select which map this faction belongs to",
+        color="Select faction color",
         leader="Faction leader",
         member1="Faction member #1",
         member2="Faction member #2",
         member3="Faction member #3"
     )
-    @app_commands.choices(color=COLOR_CHOICES, map=MAP_CHOICES)
     async def create_faction(
         self,
         interaction: discord.Interaction,
         name: str,
-        color: app_commands.Choice[str],
-        map: app_commands.Choice[str],
+        map: str,
+        color: str,
         leader: discord.Member,
         member1: discord.Member | None = None,
         member2: discord.Member | None = None,
@@ -71,11 +74,10 @@ class Factions(commands.Cog):
             return
 
         guild = interaction.guild
-        color_hex = color.value
-        role_color = discord.Color(int(color_hex.strip("#"), 16))
+        role_color = discord.Color(int(color.strip("#"), 16))
 
         # 🗂️ Category setup (create if not exists)
-        category_name = f"{map.value} Factions Hub"
+        category_name = f"{map} Factions Hub"
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             category = await guild.create_category(category_name)
@@ -87,7 +89,7 @@ class Factions(commands.Cog):
         channel = await guild.create_text_channel(
             channel_name,
             category=category,
-            topic=f"Private HQ for the {name} faction on {map.value}."
+            topic=f"Private HQ for the {name} faction on {map}."
         )
 
         # 🔐 Set permissions
@@ -115,16 +117,16 @@ class Factions(commands.Cog):
         welcome_embed = discord.Embed(
             title=f"🎖️ Welcome to {name}",
             description=(
-                f"Welcome to your **{map.value} HQ**, {role.mention}!\n\n"
+                f"Welcome to your **{map} HQ**, {role.mention}!\n\n"
                 f"👑 **Leader:** {leader.mention}\n"
                 f"👥 **Members:**\n{members_list}\n\n"
                 "This is your private faction base for communication and coordination.\n"
                 "Stay active to maintain your faction’s presence on the server! ⚔️\n\n"
-                f"**Faction Color:** `{color.name}`"
+                f"**Faction Color:** `{color}`"
             ),
             color=role_color
         )
-        welcome_embed.set_footer(text=f"{map.value} • Faction HQ", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        welcome_embed.set_footer(text=f"{map} • Faction HQ", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         await channel.send(embed=welcome_embed)
 
         # ✅ Confirmation to Admin
@@ -132,10 +134,10 @@ class Factions(commands.Cog):
         embed = self.make_embed(
             "__Faction Created__",
             f"""
-> 🗺️ **Map:** `{map.value}`  
+> 🗺️ **Map:** `{map}`  
 > 🏠 **Channel:** {channel.mention}  
 > 🎭 **Role:** {role.mention}  
-> 🎨 **Color:** `{color.name}`  
+> 🎨 **Color:** `{color}`  
 > 👑 **Leader:** {leader.mention}  
 > 👥 **Members:**\n{admin_members_list}
 
@@ -153,6 +155,21 @@ class Factions(commands.Cog):
         )
 
         await interaction.followup.send(embed=embed)
+
+    # ✅ Limit map & color options to dropdowns only
+    @create_faction.autocomplete("map")
+    async def map_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [
+            app_commands.Choice(name=choice.name, value=choice.value)
+            for choice in MAP_CHOICES if current.lower() in choice.name.lower()
+        ]
+
+    @create_faction.autocomplete("color")
+    async def color_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [
+            app_commands.Choice(name=choice.name, value=choice.value)
+            for choice in COLOR_CHOICES if current.lower() in choice.name.lower()
+        ]
 
     # =======================================
     # /delete-faction
