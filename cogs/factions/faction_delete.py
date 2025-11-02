@@ -26,16 +26,54 @@ class FactionDelete(commands.Cog):
         await ensure_faction_table()
 
         guild = interaction.guild
+        guild_id = str(guild.id)
 
         # 🔍 Find faction
         async with utils.db_pool.acquire() as conn:
             faction = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
-                str(guild.id), name
+                guild_id, name
             )
 
         if not faction:
             return await interaction.followup.send(f"❌ Faction `{name}` not found.", ephemeral=True)
+
+        # 🏳️ If this faction claimed a flag — free it
+        claimed_flag = faction.get("claimed_flag") or None
+        if claimed_flag:
+            try:
+                await utils.set_flag(
+                    guild_id,
+                    faction["map"],
+                    claimed_flag,
+                    "✅",  # mark flag as available
+                    None   # remove owner
+                )
+
+                await utils.log_action(
+                    guild,
+                    faction["map"],
+                    title="Flag Released (Faction Deleted)",
+                    description=f"🏳️ Flag **{claimed_flag}** was freed after `{name}` disbanded."
+                )
+
+                # 🧭 Try updating flag display
+                try:
+                    embed = await utils.create_flag_embed(guild_id, faction["map"])
+                    async with utils.db_pool.acquire() as conn:
+                        row = await conn.fetchrow(
+                            "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                            guild_id, faction["map"]
+                        )
+                    if row:
+                        ch = guild.get_channel(int(row["channel_id"]))
+                        msg = await ch.fetch_message(int(row["message_id"]))
+                        await msg.edit(embed=embed)
+                except Exception as e:
+                    print(f"⚠️ Failed to refresh flag display for deleted faction: {e}")
+
+            except Exception as e:
+                print(f"⚠️ Could not release flag {claimed_flag}: {e}")
 
         # 💬 Announce & delete faction channel
         if (channel := guild.get_channel(int(faction["channel_id"]))):
@@ -60,7 +98,7 @@ class FactionDelete(commands.Cog):
         async with utils.db_pool.acquire() as conn:
             await conn.execute(
                 "DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
-                str(guild.id), name
+                guild_id, name
             )
 
         # 🧾 Log the deletion
@@ -75,7 +113,7 @@ class FactionDelete(commands.Cog):
         # ✅ Confirmation to admin
         confirm_embed = make_embed(
             "✅ Faction Deleted",
-            f"Faction **{name}** has been completely removed.",
+            f"Faction **{name}** has been completely removed and its flag freed.",
             color=0xE74C3C
         )
         await interaction.followup.send(embed=confirm_embed, ephemeral=True)
