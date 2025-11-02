@@ -4,8 +4,8 @@ import logging
 import discord
 from discord.ext import commands
 
-# 🧩 Import database tools & utils
-from cogs.utils import init_db, cleanup_deleted_roles, db_pool
+# 🧩 Import database tools via module (not direct reference)
+from cogs import utils
 from cogs.assign import FlagManageView  # ✅ persistent view class
 
 # =========================
@@ -50,7 +50,7 @@ async def on_ready():
         logging.info("⏭️ Slash commands already synced, skipping.")
 
     # ✅ Confirm database is connected
-    if db_pool is None:
+    if utils.db_pool is None:
         logging.error("❌ Database not connected! Factions and Flags will not save data.")
     else:
         logging.info("🗄️ Database connection verified.")
@@ -58,7 +58,7 @@ async def on_ready():
     # ✅ Auto-cleanup deleted roles
     try:
         for guild in bot.guilds:
-            await cleanup_deleted_roles(guild)
+            await utils.cleanup_deleted_roles(guild)
             await asyncio.sleep(1)
         logging.info("🧹 Auto-cleanup complete for all guilds.")
     except Exception as e:
@@ -93,14 +93,12 @@ async def load_cogs():
 # =========================
 async def register_persistent_views(bot: commands.Bot):
     """Re-register all FlagManageView UIs after restart."""
-    from cogs.utils import db_pool  # ✅ ensure global pool reference
-
-    if db_pool is None:
+    if utils.db_pool is None:
         logging.warning("⚠️ Database not initialized yet. Skipping persistent view registration.")
         return
 
     try:
-        async with db_pool.acquire() as conn:
+        async with utils.db_pool.acquire() as conn:
             rows = await conn.fetch("SELECT guild_id, map, message_id FROM flag_messages;")
     except Exception as e:
         logging.error(f"❌ Could not fetch flag_messages: {e}")
@@ -129,8 +127,8 @@ async def main():
 
     async with bot:
         # ✅ Initialize DB before anything else
-        await init_db()
-        if db_pool is None:
+        await utils.init_db()
+        if utils.db_pool is None:
             raise RuntimeError("❌ Database initialization failed — stopping startup.")
 
         # ✅ Load all bot modules
