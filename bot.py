@@ -57,8 +57,12 @@ async def on_ready():
 # 🔧 Dynamic Cog Loader
 # =========================
 async def load_cogs():
-    """Auto-load all cogs in the cogs directory."""
+    """Auto-load all valid cogs in the cogs directory (skips helpers)."""
     for root, _, files in os.walk("cogs"):
+        # 🚫 Skip the helpers directory completely
+        if "helpers" in root:
+            continue
+
         for filename in files:
             if filename.endswith(".py") and not filename.startswith("__") and filename not in ["utils.py"]:
                 cog_path = os.path.join(root, filename).replace(os.sep, ".")[:-3]
