@@ -32,28 +32,33 @@ async def init_db():
     """Initialize PostgreSQL connection and ensure all tables/columns exist."""
     global db_pool
 
+    if db_pool is not None:
+        print("⚙️ Database pool already initialized.")
+        return
+
     db_url = (
         os.getenv("DATABASE_URL")
         or os.getenv("POSTGRES_URL")
         or os.getenv("PG_URL")
     )
-
     if not db_url:
         raise RuntimeError("❌ DATABASE_URL not found in environment variables!")
 
-    # ✅ Always use SSL (safe for both Railway & local)
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    # ✅ Create connection pool
     print("🔌 Connecting to PostgreSQL…")
-    db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
+    try:
+        db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        raise
 
     async with db_pool.acquire() as conn:
         try:
             # ==========================
-            # 🏁 Flag Tables
+            # 🏁 Flags Tables
             # ==========================
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS flags (
@@ -72,25 +77,13 @@ async def init_db():
                     map TEXT NOT NULL,
                     channel_id TEXT NOT NULL,
                     message_id TEXT NOT NULL,
+                    log_channel_id TEXT,
                     PRIMARY KEY (guild_id, map)
                 );
             """)
 
-            # ✅ Add missing log_channel_id column (auto-heal schema)
-            await conn.execute("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name='flag_messages' AND column_name='log_channel_id'
-                    ) THEN
-                        ALTER TABLE flag_messages ADD COLUMN log_channel_id TEXT;
-                    END IF;
-                END $$;
-            """)
-
             # ==========================
-            # 🏴‍☠️ Faction Table
+            # 🏴‍☠️ Factions Table
             # ==========================
             print("⚙️ Creating or verifying factions table...")
             await conn.execute("""
@@ -118,10 +111,19 @@ async def init_db():
 
 
 # ======================================================
+# ⚙️ Database Access Safety Helper
+# ======================================================
+def require_db():
+    """Ensure the DB is initialized before any query."""
+    if db_pool is None:
+        raise RuntimeError("❌ Database not initialized yet. Run init_db() before using DB functions.")
+
+
+# ======================================================
 # ⚙️ Flag CRUD Operations
 # ======================================================
 async def set_flag(guild_id: str, map_name: str, flag: str, status: str, role_id: str | None):
-    """Insert or update a flag record."""
+    require_db()
     async with db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO flags (guild_id, map, flag, status, role_id)
@@ -132,7 +134,7 @@ async def set_flag(guild_id: str, map_name: str, flag: str, status: str, role_id
 
 
 async def get_flag(guild_id: str, map_name: str, flag: str):
-    """Fetch one flag record."""
+    require_db()
     async with db_pool.acquire() as conn:
         return await conn.fetchrow("""
             SELECT status, role_id FROM flags
@@ -141,7 +143,7 @@ async def get_flag(guild_id: str, map_name: str, flag: str):
 
 
 async def get_all_flags(guild_id: str, map_name: str):
-    """Fetch all flags for a specific map."""
+    require_db()
     async with db_pool.acquire() as conn:
         return await conn.fetch("""
             SELECT flag, status, role_id FROM flags
@@ -150,12 +152,11 @@ async def get_all_flags(guild_id: str, map_name: str):
 
 
 async def release_flag(guild_id: str, map_name: str, flag: str):
-    """Reset a flag to ✅ and clear the assigned role."""
     await set_flag(guild_id, map_name, flag, "✅", None)
 
 
 async def reset_map_flags(guild_id: str, map_name: str):
-    """Reset all flags for a map to ✅ and clear all roles."""
+    require_db()
     async with db_pool.acquire() as conn:
         await conn.execute("""
             UPDATE flags
@@ -168,7 +169,7 @@ async def reset_map_flags(guild_id: str, map_name: str):
 # 🧱 Shared Flag Embed Builder
 # ======================================================
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
-    """Generate an embed showing all flags and their statuses for a map."""
+    require_db()
     records = await get_all_flags(guild_id, map_key)
     db_flags = {r["flag"]: r for r in records}
 
@@ -185,11 +186,8 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
         data = db_flags.get(flag)
         status = data["status"] if data else "✅"
         role_id = data["role_id"] if data and data["role_id"] else None
-        emoji = CUSTOM_EMOJIS.get(flag, "")
-        if not emoji.startswith("<:"):
-            emoji = ""
         display_value = "✅" if status == "✅" else (f"<@&{role_id}>" if role_id else "❌")
-        lines.append(f"{emoji} **• {flag}**: {display_value}")
+        lines.append(f"**• {flag}**: {display_value}")
 
     embed.description = "\n".join(lines)
     return embed
@@ -198,14 +196,8 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 # ======================================================
 # 🪵 Structured Logging
 # ======================================================
-async def log_action(
-    guild: discord.Guild,
-    map_key: str,
-    title: str = "Event Log",
-    description: str = "",
-    color: int | None = None
-):
-    """Send a structured log embed to the map's assigned log channel."""
+async def log_action(guild: discord.Guild, map_key: str, title="Event Log", description="", color=None):
+    require_db()
     guild_id = str(guild.id)
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -225,13 +217,13 @@ async def log_action(
     if color is None:
         text = f"{title} {description}".lower()
         if any(word in text for word in ["assign", "release", "setup complete"]):
-            color = 0x2ECC71  # green
+            color = 0x2ECC71
         elif "cleanup" in text:
-            color = 0x95A5A6  # gray
+            color = 0x95A5A6
         elif any(word in text for word in ["fail", "error"]):
-            color = 0xE74C3C  # red
+            color = 0xE74C3C
         else:
-            color = 0xF1C40F  # yellow (info)
+            color = 0xF1C40F
 
     embed = discord.Embed(
         title=f"🪵 {MAP_DATA[map_key]['name']} | {title}",
@@ -255,7 +247,6 @@ async def log_action(
 # 🧹 Auto-Cleanup of Deleted Roles
 # ======================================================
 async def cleanup_deleted_roles(guild: discord.Guild):
-    """Auto-reset flags with deleted roles and log cleanup."""
     if not db_pool:
         print("⚠️ Database not initialized. Skipping cleanup.")
         return
@@ -270,9 +261,7 @@ async def cleanup_deleted_roles(guild: discord.Guild):
         """, guild_id)
 
         for row in rows:
-            map_key = row["map"]
-            flag = row["flag"]
-            role_id = row["role_id"]
+            map_key, flag, role_id = row["map"], row["flag"], row["role_id"]
 
             if not guild.get_role(int(role_id)):
                 await conn.execute("""
