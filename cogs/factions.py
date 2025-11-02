@@ -158,7 +158,7 @@ class Factions(commands.Cog):
             """, str(guild.id), map.value, name, str(role.id), str(channel.id),
                 str(leader.id), [str(m.id) for m in members], color.value)
 
-        # 🎉 Welcome Embed (sent in faction HQ)
+        # 🎉 Welcome Embed
         members_list = "\n".join([m.mention for m in members if m.id != leader.id]) or "*No members listed*"
         welcome_embed = discord.Embed(
             title=f"🎖️ Welcome to {name}!",
@@ -171,17 +171,14 @@ class Factions(commands.Cog):
             ),
             color=role_color
         )
-        welcome_embed.set_footer(
-            text=f"{map.value} • Faction HQ",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-        )
+        welcome_embed.set_footer(text=f"{map.value} • Faction HQ", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         msg = await channel.send(embed=welcome_embed)
         try:
             await msg.pin()
         except Exception:
             pass
 
-        # ✅ Admin Confirmation Embed (clean layout)
+        # ✅ Admin Confirmation Embed
         admin_embed = self.make_embed(
             "__Faction Created__",
             f"""
@@ -204,7 +201,6 @@ class Factions(commands.Cog):
     # 🗑️ /delete-faction
     # =======================================
     @app_commands.command(name="delete-faction", description="Delete a faction and remove from DB.")
-    @app_commands.describe(name="Name of the faction to delete")
     async def delete_faction(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
@@ -232,8 +228,10 @@ class Factions(commands.Cog):
             print(f"⚠️ Failed to delete role/channel: {e}")
 
         async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
-                               str(guild.id), name)
+            await conn.execute(
+                "DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
+                str(guild.id), name
+            )
 
         await interaction.followup.send(
             embed=self.make_embed("✅ Faction Deleted", f"Faction **{name}** removed successfully.", 0xE74C3C),
@@ -252,22 +250,27 @@ class Factions(commands.Cog):
 
         await self.ensure_table()
         guild = interaction.guild
+
+        # Fetch faction
         async with db_pool.acquire() as conn:
             faction = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 str(guild.id), faction_name
             )
+
         if not faction:
             await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
             return
 
-        members = faction["member_ids"] or []
-        if str(member.id) in members:
+        member_ids = faction["member_ids"] or []
+        if str(member.id) in member_ids:
             await interaction.followup.send(f"⚠️ {member.mention} is already in `{faction_name}`.", ephemeral=True)
             return
 
-        members.append(str(member.id))
-        await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
+        member_ids.append(str(member.id))
+        # ✅ new connection for update
+        async with db_pool.acquire() as conn:
+            await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", member_ids, faction["id"])
 
         if (role := guild.get_role(int(faction["role_id"]))):
             await member.add_roles(role)
@@ -287,22 +290,27 @@ class Factions(commands.Cog):
 
         await self.ensure_table()
         guild = interaction.guild
+
+        # Fetch faction
         async with db_pool.acquire() as conn:
             faction = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 str(guild.id), faction_name
             )
+
         if not faction:
             await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
             return
 
-        members = faction["member_ids"] or []
-        if str(member.id) not in members:
+        member_ids = faction["member_ids"] or []
+        if str(member.id) not in member_ids:
             await interaction.followup.send(f"⚠️ {member.mention} is not in `{faction_name}`.", ephemeral=True)
             return
 
-        members.remove(str(member.id))
-        await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
+        member_ids.remove(str(member.id))
+        # ✅ new connection for update
+        async with db_pool.acquire() as conn:
+            await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", member_ids, faction["id"])
 
         if (role := guild.get_role(int(faction["role_id"]))):
             await member.remove_roles(role)
