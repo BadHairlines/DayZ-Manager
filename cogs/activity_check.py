@@ -15,30 +15,49 @@ class ActivityCheck(commands.Cog):
         self.emoji = "✅"
 
     # ==============================
-    # 📦 Embed builder
+    # 📦 Embed builder (with live countdown)
     # ==============================
-    def make_embed(self, name: str, role: discord.Role | None, color: int, progress=0, complete=False, failed=False):
-        """Builds a dynamic activity check embed."""
+    def make_embed(
+        self,
+        name: str,
+        role: discord.Role | None,
+        color: int,
+        progress=0,
+        complete=False,
+        failed=False,
+        end_time: datetime | None = None
+    ):
+        """Builds a dynamic activity check embed with live Discord countdown."""
         mention_text = role.mention if role else f"**{name}**"
 
         if complete:
             desc = f"✅ **Activity Check Complete!** {mention_text} met the requirement!"
-            color = 0x2ECC71  # green
+            color = 0x2ECC71
         elif failed:
             desc = f"💀 **Activity Check Failed!** {mention_text} didn’t reach the required number of active members!"
-            color = 0xE74C3C  # red
+            color = 0xE74C3C
         else:
-            desc = f"🕒 **Activity Check Active!** {mention_text}\n> At least **{self.required_reactions}** members must click {self.emoji} below before time runs out."
+            countdown = f"<t:{int(end_time.timestamp())}:R>" if end_time else "soon"
+            exact_time = f"<t:{int(end_time.timestamp())}:t>" if end_time else ""
+            desc = (
+                f"🕒 **Activity Check Active!** {mention_text}\n"
+                f"> At least **{self.required_reactions}** members must click {self.emoji} below "
+                f"before time runs out ({countdown} • {exact_time})."
+            )
 
         embed = discord.Embed(title="__**ACTIVITY CHECK**__", description=desc, color=color)
 
         if not complete and not failed:
-            embed.add_field(name="Progress", value=f"✅ {progress}/{self.required_reactions} confirmed", inline=False)
-            remaining = self.expiry_hours * 60
-            embed.add_field(name="Time Remaining", value=f"🕓 ~{remaining:.0f} minutes left", inline=False)
+            embed.add_field(
+                name="Progress",
+                value=f"✅ {progress}/{self.required_reactions} confirmed",
+                inline=False
+            )
 
-        embed.set_footer(text="DayZ Manager • Faction Activity Monitor",
-                         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        embed.set_footer(
+            text="DayZ Manager • Faction Activity Monitor",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+        )
         embed.timestamp = discord.utils.utcnow()
         return embed
 
@@ -49,6 +68,9 @@ class ActivityCheck(commands.Cog):
         confirmed_users = set()
         end_time = datetime.utcnow() + timedelta(hours=self.expiry_hours)
         success = False
+
+        # Initial embed update with countdown
+        await msg.edit(embed=self.make_embed(msg.channel.name, role, color, 0, end_time=end_time))
 
         while datetime.utcnow() < end_time:
             try:
@@ -65,7 +87,7 @@ class ActivityCheck(commands.Cog):
 
                 confirmed_users.add(user.id)
                 progress = len(confirmed_users)
-                await msg.edit(embed=self.make_embed(msg.channel.name, role, color, progress))
+                await msg.edit(embed=self.make_embed(msg.channel.name, role, color, progress, end_time=end_time))
 
                 if progress >= self.required_reactions:
                     success = True
@@ -74,7 +96,7 @@ class ActivityCheck(commands.Cog):
             except asyncio.TimeoutError:
                 continue
 
-        # 🏁 Mark completion or failure
+        # 🏁 Mark as complete or failed
         if success:
             await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=True))
         else:
@@ -133,11 +155,11 @@ class ActivityCheck(commands.Cog):
             color=color
         )
 
-        footer_text = "All factions passed! 💪" if failed == 0 else (
-            f"{passed} passed • {failed} failed ⚠️"
+        footer_text = "All factions passed! 💪" if failed == 0 else f"{passed} passed • {failed} failed ⚠️"
+        embed.set_footer(
+            text=f"DayZ Manager • {footer_text}",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
         )
-        embed.set_footer(text=f"DayZ Manager • {footer_text}",
-                         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
 
         await alert_channel.send(embed=embed, allowed_mentions=discord.AllowedMentions(roles=True))
@@ -166,16 +188,16 @@ class ActivityCheck(commands.Cog):
         for channel in category.text_channels:
             try:
                 matched_role = await self.detect_faction_role(channel)
-                embed = self.make_embed(channel.name, matched_role, color)
+                end_time = datetime.utcnow() + timedelta(hours=self.expiry_hours)
+                embed = self.make_embed(channel.name, matched_role, color, end_time=end_time)
                 content = matched_role.mention if matched_role else None
                 msg = await channel.send(content=content, embed=embed)
                 await msg.add_reaction(self.emoji)
                 sent_count += 1
 
-                # Run tracking concurrently
                 task = asyncio.create_task(self.start_tracking(msg, matched_role, color, results))
                 tasks.append(task)
-                await asyncio.sleep(1)  # rate limit safety
+                await asyncio.sleep(1)
 
             except discord.Forbidden:
                 print(f"⚠️ No permission to send messages in {channel.name}.")
@@ -189,17 +211,3 @@ class ActivityCheck(commands.Cog):
 
         await log_action(
             interaction.guild,
-            category.name,
-            title="Category Activity Check Started",
-            description=f"📢 {interaction.user.mention} launched activity checks for **{category.name}**.",
-            color=0x00BFFF
-        )
-
-        if tasks:
-            await asyncio.gather(*tasks)
-
-        await self.send_leaderboard(interaction.guild, category, results)
-
-
-async def setup(bot):
-    await bot.add_cog(ActivityCheck(bot))
