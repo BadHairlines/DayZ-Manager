@@ -181,17 +181,20 @@ class Factions(commands.Cog):
         except Exception:
             pass
 
-        # ✅ Admin Confirmation
+        # ✅ Admin Confirmation Embed (clean layout)
         admin_embed = self.make_embed(
             "__Faction Created__",
             f"""
-> 🗺️ **Map:** `{map.value}`
-> 🎭 **Role:** {role.mention}
-> 🏠 **Channel:** {channel.mention}
-> 👑 **Leader:** {leader.mention}
-> 👥 **Members:** {', '.join([m.mention for m in members])}
-> 🎨 **Color:** `{color.name}`
-> 🕓 **Created:** <t:{int(datetime.utcnow().timestamp())}:f>
+🗺️ **Map:** `{map.value}`
+🎭 **Role:** {role.mention}
+🏠 **Channel:** {channel.mention}
+👑 **Leader:** {leader.mention}
+
+👥 **Members:**
+{', '.join([m.mention for m in members])}
+
+🎨 **Color:** `{color.name}`
+🕓 **Created:** <t:{int(datetime.utcnow().timestamp())}:f>
             """,
             role_color.value
         )
