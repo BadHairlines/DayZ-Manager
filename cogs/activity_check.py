@@ -17,19 +17,28 @@ class ActivityCheck(commands.Cog):
     # ==============================
     # 📦 Embed builder
     # ==============================
-    def make_embed(self, name: str, role: discord.Role | None, color: int, progress=0, complete=False):
+    def make_embed(self, name: str, role: discord.Role | None, color: int, progress=0, complete=False, failed=False):
+        """Builds a dynamic activity check embed."""
         mention_text = role.mention if role else f"**{name}**"
 
         if complete:
             desc = f"✅ **Activity Check Complete!** {mention_text} met the requirement!"
+            color = 0x2ECC71  # green
+        elif failed:
+            desc = f"💀 **Activity Check Failed!** {mention_text} didn’t reach the required number of active members!"
+            color = 0xE74C3C  # red
         else:
-            desc = f"> At least **{self.required_reactions}** members of {mention_text} must click {self.emoji} below!"
+            desc = f"🕒 **Activity Check Active!** {mention_text}\n> At least **{self.required_reactions}** members must click {self.emoji} below before time runs out."
 
         embed = discord.Embed(title="__**ACTIVITY CHECK**__", description=desc, color=color)
-        if not complete:
-            embed.add_field(name="Progress", value=f"✅ {progress}/{self.required_reactions} confirmed", inline=False)
 
-        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+        if not complete and not failed:
+            embed.add_field(name="Progress", value=f"✅ {progress}/{self.required_reactions} confirmed", inline=False)
+            remaining = self.expiry_hours * 60
+            embed.add_field(name="Time Remaining", value=f"🕓 ~{remaining:.0f} minutes left", inline=False)
+
+        embed.set_footer(text="DayZ Manager • Faction Activity Monitor",
+                         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
         return embed
 
@@ -65,10 +74,13 @@ class ActivityCheck(commands.Cog):
             except asyncio.TimeoutError:
                 continue
 
-        # ✅ Mark as complete or failed visually
-        await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=success))
+        # 🏁 Mark completion or failure
+        if success:
+            await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=True))
+        else:
+            await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), failed=True))
 
-        # ✅ Store results (convert role.id to str for safety)
+        # Save result
         results_dict[str(role.id) if role else msg.channel.name] = len(confirmed_users)
 
     # ==============================
@@ -94,12 +106,15 @@ class ActivityCheck(commands.Cog):
                 reason="Created automatically for activity summaries"
             )
 
-        # 🧮 Sort by most active first
         sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
 
-        lines = [f"📋 Activity check completed for **{len(results)} factions.**\n"]
+        # Determine leaderboard color
+        passed = sum(1 for _, v in results.items() if v >= self.required_reactions)
+        failed = len(results) - passed
+        color = 0x2ECC71 if failed == 0 else 0xE67E22 if passed > 0 else 0xE74C3C
+
+        lines = [f"📋 **Activity check completed for {len(results)} factions.**\n"]
         for rank, (role_key, count) in enumerate(sorted_results, start=1):
-            # Handle both str IDs and names
             role = None
             if isinstance(role_key, str) and role_key.isdigit():
                 role = guild.get_role(int(role_key))
@@ -107,21 +122,25 @@ class ActivityCheck(commands.Cog):
                 role = guild.get_role(role_key)
 
             mention = role.mention if role else f"**{role_key}**"
-            emoji = "✅" if count >= self.required_reactions else "❌"
+            percentage = round((count / self.required_reactions) * 100, 1)
             medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
-            lines.append(f"{medal} {mention}\n{emoji} {count}/{self.required_reactions} members active\n")
+            status_emoji = "✅" if count >= self.required_reactions else "❌"
+            lines.append(f"{medal} {mention}\n{status_emoji} {count}/{self.required_reactions} ({percentage}%) active\n")
 
         embed = discord.Embed(
             title=f"🏆 Activity Check Results — {category.name}",
             description="\n".join(lines),
-            color=0x00BFFF
+            color=color
         )
-        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+
+        footer_text = "All factions passed! 💪" if failed == 0 else (
+            f"{passed} passed • {failed} failed ⚠️"
+        )
+        embed.set_footer(text=f"DayZ Manager • {footer_text}",
+                         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
 
-        # ✅ Explicitly allow role mentions inside the embed
-        allowed = discord.AllowedMentions(roles=True)
-        await alert_channel.send(embed=embed, allowed_mentions=allowed)
+        await alert_channel.send(embed=embed, allowed_mentions=discord.AllowedMentions(roles=True))
         print(f"📊 Posted leaderboard in #{alert_channel.name} for {guild.name}")
 
     # ==============================
@@ -156,7 +175,6 @@ class ActivityCheck(commands.Cog):
                 # Run tracking concurrently
                 task = asyncio.create_task(self.start_tracking(msg, matched_role, color, results))
                 tasks.append(task)
-
                 await asyncio.sleep(1)  # rate limit safety
 
             except discord.Forbidden:
@@ -177,7 +195,6 @@ class ActivityCheck(commands.Cog):
             color=0x00BFFF
         )
 
-        # 🕒 Wait for all tracking to finish before leaderboard
         if tasks:
             await asyncio.gather(*tasks)
 
