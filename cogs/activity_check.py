@@ -11,7 +11,7 @@ class ActivityCheck(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.required_reactions = 4
-        self.expiry_hours = 0.05  # ⏱️ ~3 minutes for testing (change to 12 later)
+        self.expiry_hours = 0.05  # ~3 minutes for testing
         self.emoji = "✅"
 
     def make_embed(self, name: str, role: discord.Role | None, color: int, progress=0, complete=False):
@@ -65,9 +65,19 @@ class ActivityCheck(commands.Cog):
         await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=success))
         results_dict[msg.channel.name] = len(confirmed_users)
 
+    async def detect_faction_role(self, channel: discord.TextChannel):
+        """Detects which faction role owns the given channel based on permission overwrites."""
+        for target, overwrite in channel.overwrites.items():
+            if isinstance(target, discord.Role):
+                # Check if role explicitly has access
+                if overwrite.view_channel is True:
+                    # Skip @everyone (we want faction roles)
+                    if not target.is_default():
+                        return target
+        return None
+
     async def send_leaderboard(self, guild: discord.Guild, category: discord.CategoryChannel, results: dict):
         """Creates and posts a leaderboard summary to #activity-alerts."""
-        # Find or create the alerts channel
         alert_channel = discord.utils.get(guild.text_channels, name="activity-alerts")
         if not alert_channel:
             alert_channel = await guild.create_text_channel(
@@ -75,12 +85,10 @@ class ActivityCheck(commands.Cog):
                 reason="Created automatically for activity summaries"
             )
 
-        # Sort results (highest reactions first)
         sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
-
         embed = discord.Embed(
             title=f"🏆 Activity Check Results — {category.name}",
-            description=f"Activity check completed for **{len(results)} factions**.",
+            description=f"📋 Activity check completed for **{len(results)} factions**.",
             color=0x00BFFF
         )
 
@@ -94,7 +102,6 @@ class ActivityCheck(commands.Cog):
 
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
-
         await alert_channel.send(embed=embed)
         print(f"📊 Posted leaderboard in #{alert_channel.name} for {guild.name}")
 
@@ -111,13 +118,10 @@ class ActivityCheck(commands.Cog):
         sent_count = 0
         results = {}
 
-        # Send checks to all faction channels
         for channel in category.text_channels:
             try:
-                matched_role = discord.utils.find(
-                    lambda r: r.name.lower().replace(" ", "-") in channel.name.lower(),
-                    interaction.guild.roles
-                )
+                # Detect faction role from permissions
+                matched_role = await self.detect_faction_role(channel)
 
                 embed = self.make_embed(channel.name, matched_role, color)
                 content = matched_role.mention if matched_role else None
@@ -125,7 +129,7 @@ class ActivityCheck(commands.Cog):
                 await msg.add_reaction(self.emoji)
                 sent_count += 1
 
-                # Track each check concurrently
+                # Track reactions concurrently
                 self.bot.loop.create_task(self.start_tracking(msg, matched_role, color, results))
                 await asyncio.sleep(1)
 
@@ -147,7 +151,7 @@ class ActivityCheck(commands.Cog):
             color=0x00BFFF
         )
 
-        # Wait for all checks to finish (shorter timer for testing)
+        # Wait for all checks to finish
         await asyncio.sleep(self.expiry_hours * 3600 + 10)
 
         # Post leaderboard summary
