@@ -1,4 +1,3 @@
-# bot.py
 import os
 import asyncio
 import logging
@@ -65,7 +64,6 @@ async def register_persistent_views():
         return
 
     async with utils.db_pool.acquire() as conn:
-        # If table doesn't exist yet, just skip silently
         try:
             rows = await conn.fetch("SELECT guild_id, map, message_id FROM flag_messages;")
         except Exception as e:
@@ -78,7 +76,7 @@ async def register_persistent_views():
         if not guild:
             continue
         try:
-            view = FlagManageView(guild, row["map"], "N/A", bot)  # flag name filled dynamically by UI on use
+            view = FlagManageView(guild, row["map"], "N/A", bot)
             bot.add_view(view, message_id=int(row["message_id"]))
             registered += 1
         except Exception as e:
@@ -101,8 +99,9 @@ async def load_cogs():
     """Walk ./cogs and load every cog except helper-only modules."""
     loaded = 0
     for root, dirs, files in os.walk("cogs"):
-        # ignore cache folders
-        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        # ignore cache folders and helper modules
+        dirs[:] = [d for d in dirs if d not in ("__pycache__", "helpers")]
+
         for filename in files:
             if not filename.endswith(".py"):
                 continue
@@ -136,11 +135,10 @@ async def on_ready():
         except Exception as e:
             log.error(f"⚠️ Failed to sync slash commands: {e}")
 
-    # Verify DB status
     if utils.db_pool is None:
         log.error("❌ Database not connected! Commands touching DB will fail.")
 
-    # Re-register persistent views (safe to call even if none saved)
+    # Re-register persistent views (safe even if none exist)
     await register_persistent_views()
 
     log.info("------")
@@ -163,13 +161,21 @@ async def main():
     # Small delay to ensure env is ready (Railway/containers) before DB connect
     await asyncio.sleep(1)
 
-    # ✅ Initialize DB first (before loading cogs that might use it)
+    # ✅ Initialize DB first
     await utils.init_db()
 
-    # ✅ Then load cogs
+    # ✅ Load all cogs
     await load_cogs()
 
-    # ✅ Start bot with retry on 429
+    # ✅ (Optional) Pre-register FlagManageView to remove warning
+    try:
+        from cogs.ui_views import FlagManageView
+        bot.add_view(FlagManageView())
+        log.info("✅ Pre-registered FlagManageView for persistent buttons.")
+    except Exception:
+        log.warning("⚠️ Could not pre-register FlagManageView (optional).")
+
+    # ✅ Start bot
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise RuntimeError("❌ DISCORD_TOKEN not set in environment.")
