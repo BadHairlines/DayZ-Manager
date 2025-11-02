@@ -97,10 +97,19 @@ async def init_db():
                     leader_id TEXT NOT NULL,
                     member_ids TEXT[],
                     color TEXT,
+                    claimed_flag TEXT,
                     created_at TIMESTAMP DEFAULT NOW(),
                     UNIQUE (guild_id, faction_name)
                 );
             """)
+            # ✅ Ensure backwards compatibility
+            col_check = await conn.fetchval("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name='factions' AND column_name='claimed_flag';
+            """)
+            if not col_check:
+                await conn.execute("ALTER TABLE factions ADD COLUMN claimed_flag TEXT;")
+                print("🧩 Added missing column: claimed_flag → factions table.")
             print("✅ Factions table verified successfully.")
 
             # ==========================
@@ -180,6 +189,43 @@ async def reset_map_flags(guild_id: str, map_name: str):
             SET status='✅', role_id=NULL
             WHERE guild_id=$1 AND map=$2;
         """, guild_id, map_name)
+        # Also clear claimed_flag for all factions on that map
+        await conn.execute("""
+            UPDATE factions
+            SET claimed_flag=NULL
+            WHERE guild_id=$1 AND map=$2;
+        """, guild_id, map_name)
+
+
+# ======================================================
+# 🧭 Faction ↔ Flag Sync Utilities
+# ======================================================
+async def sync_faction_claims(guild_id: str):
+    """Ensure factions.claimed_flag matches actual flag ownership."""
+    require_db()
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT f.map, f.flag, f.role_id
+            FROM flags f
+            WHERE f.role_id IS NOT NULL AND f.guild_id=$1
+        """, guild_id)
+        for row in rows:
+            await conn.execute("""
+                UPDATE factions
+                SET claimed_flag=$1
+                WHERE guild_id=$2 AND role_id=$3 AND map=$4
+            """, row["flag"], guild_id, row["role_id"], row["map"])
+    print(f"🔁 Faction claims synced successfully for guild {guild_id}.")
+
+
+async def get_faction_by_flag(guild_id: str, flag: str):
+    """Return the faction that owns a given flag."""
+    require_db()
+    async with db_pool.acquire() as conn:
+        return await conn.fetchrow(
+            "SELECT * FROM factions WHERE guild_id=$1 AND claimed_flag=$2",
+            guild_id, flag
+        )
 
 
 # ======================================================
@@ -275,14 +321,12 @@ async def log_faction_action(
         print("⚠️ Skipping faction log — DB not ready.")
         return
 
-    # 🧠 Save to database
     async with db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO faction_logs (guild_id, action, faction_name, user_id, details)
             VALUES ($1, $2, $3, $4, $5)
         """, str(guild.id), action, faction_name, str(user.id) if user else None, details)
 
-    # 🧾 Send embed to #faction-logs
     log_channel = discord.utils.get(guild.text_channels, name="faction-logs")
     if not log_channel:
         try:
@@ -293,10 +337,11 @@ async def log_faction_action(
             return
 
     color_map = {
-        "create": 0x2ECC71,  # green
-        "delete": 0xE74C3C,  # red
-        "add": 0x3498DB,     # blue
-        "remove": 0xE67E22,  # orange
+        "create": 0x2ECC71,
+        "delete": 0xE74C3C,
+        "assign": 0xF1C40F,
+        "update": 0x3498DB,
+        "release": 0x95A5A6,
     }
     color = next((v for k, v in color_map.items() if k in action.lower()), 0x95A5A6)
 
@@ -347,6 +392,12 @@ async def cleanup_deleted_roles(guild: discord.Guild):
                     SET status = '✅', role_id = NULL
                     WHERE guild_id = $1 AND map = $2 AND flag = $3;
                 """, guild_id, map_key, flag)
+
+                # 🧩 Also clear claimed_flag for factions with this role
+                await conn.execute(
+                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND role_id=$2",
+                    guild_id, str(role_id)
+                )
 
                 cleaned_count += 1
                 print(f"🧹 Cleaned up deleted role {role_id} for flag {flag} ({map_key})")
