@@ -3,7 +3,123 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.helpers.base_cog import BaseCog
 from cogs.helpers.decorators import admin_only, MAP_CHOICES
-from cogs.utils import FLAGS, MAP_DATA, set_flag, get_all_flags, log_action
+from cogs.utils import FLAGS, MAP_DATA, set_flag, get_all_flags, log_action, release_flag, create_flag_embed, db_pool
+
+
+class FlagManageView(discord.ui.View):
+    """Interactive management buttons for flag control."""
+
+    def __init__(self, guild: discord.Guild, map_key: str, flag: str, bot: commands.Bot):
+        super().__init__(timeout=180)
+        self.guild = guild
+        self.map_key = map_key
+        self.flag = flag
+        self.bot = bot
+
+    async def update_flag_display(self):
+        """Refresh the live flag embed after changes."""
+        guild_id = str(self.guild.id)
+        embed = await create_flag_embed(guild_id, self.map_key)
+
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                guild_id, self.map_key
+            )
+
+        if not row:
+            return
+
+        channel = self.guild.get_channel(int(row["channel_id"]))
+        if not channel:
+            return
+
+        try:
+            msg = await channel.fetch_message(int(row["message_id"]))
+            await msg.edit(embed=embed)
+        except Exception as e:
+            print(f"⚠️ Failed to update flag message: {e}")
+
+    @discord.ui.button(label="🔁 Reassign", style=discord.ButtonStyle.primary)
+    async def reassign_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Reassign flag to another role using a dropdown menu."""
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admins only.", ephemeral=True)
+            return
+
+        options = [
+            discord.SelectOption(label=role.name, value=str(role.id))
+            for role in self.guild.roles
+            if not role.is_default() and not role.is_bot_managed() and role.name != "@everyone"
+        ][:25]
+
+        select = discord.ui.Select(placeholder="Select new role...", options=options)
+
+        async def select_callback(inter: discord.Interaction):
+            new_role = self.guild.get_role(int(select.values[0]))
+            guild_id = str(self.guild.id)
+
+            # Prevent duplicate ownership
+            existing_flags = await get_all_flags(guild_id, self.map_key)
+            for record in existing_flags:
+                if record["role_id"] == str(new_role.id):
+                    await inter.response.send_message(
+                        f"❌ {new_role.mention} already owns **{record['flag']}** on this map.",
+                        ephemeral=True
+                    )
+                    return
+
+            # Reassign in DB
+            await set_flag(guild_id, self.map_key, self.flag, "❌", str(new_role.id))
+            await self.update_flag_display()
+
+            await log_action(
+                self.guild,
+                self.map_key,
+                title="Flag Reassigned (UI)",
+                description=f"🔁 **{self.flag}** → {new_role.mention}\nChanged by {inter.user.mention}",
+                color=0x3498DB
+            )
+
+            await inter.response.send_message(
+                f"🔁 **{self.flag}** successfully reassigned to {new_role.mention}.",
+                ephemeral=True
+            )
+
+        select.callback = select_callback
+        view = discord.ui.View()
+        view.add_item(select)
+        await interaction.response.send_message("Select a new role:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="🏳 Release", style=discord.ButtonStyle.secondary)
+    async def release_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Release the flag back to ✅ available."""
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admins only.", ephemeral=True)
+            return
+
+        guild_id = str(self.guild.id)
+        await release_flag(guild_id, self.map_key, self.flag)
+        await self.update_flag_display()
+
+        await log_action(
+            self.guild,
+            self.map_key,
+            title="Flag Released (UI)",
+            description=f"🏳️ **{self.flag}** released by {interaction.user.mention}",
+            color=0x2ECC71
+        )
+        await interaction.response.send_message(f"✅ **{self.flag}** released successfully!", ephemeral=True)
+
+    @discord.ui.button(label="❌ Close", style=discord.ButtonStyle.danger)
+    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Remove the management view."""
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Admins only.", ephemeral=True)
+            return
+
+        await interaction.message.delete()
+        await interaction.response.send_message("🧹 Closed flag management panel.", ephemeral=True)
 
 
 class Assign(commands.Cog, BaseCog):
@@ -91,7 +207,10 @@ class Assign(commands.Cog, BaseCog):
             "🪧",
             "Assign Notification"
         )
-        await interaction.response.send_message(embed=embed)
+
+        # ✅ Send message with management view
+        view = FlagManageView(guild, map_key, flag, self.bot)
+        await interaction.response.send_message(embed=embed, view=view)
 
         # 🔁 Update live display
         await self.update_flag_message(guild, guild_id, map_key)
