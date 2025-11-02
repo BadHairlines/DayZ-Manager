@@ -198,6 +198,46 @@ class Factions(commands.Cog):
         await interaction.followup.send(embed=admin_embed)
 
     # =======================================
+    # 🗑️ /delete-faction
+    # =======================================
+    @app_commands.command(name="delete-faction", description="Delete a faction and remove from DB.")
+    @app_commands.describe(name="Name of the faction to delete")
+    async def delete_faction(self, interaction: discord.Interaction, name: str):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("❌ Admin only!", ephemeral=True)
+            return
+
+        await self.ensure_table()
+        guild = interaction.guild
+
+        async with db_pool.acquire() as conn:
+            faction = await conn.fetchrow(
+                "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
+                str(guild.id), name
+            )
+        if not faction:
+            await interaction.followup.send(f"❌ Faction `{name}` not found.", ephemeral=True)
+            return
+
+        try:
+            if (ch := guild.get_channel(int(faction["channel_id"]))):
+                await ch.delete()
+            if (r := guild.get_role(int(faction["role_id"]))):
+                await r.delete()
+        except Exception as e:
+            print(f"⚠️ Failed to delete role/channel: {e}")
+
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
+                               str(guild.id), name)
+
+        await interaction.followup.send(
+            embed=self.make_embed("✅ Faction Deleted", f"Faction **{name}** removed successfully.", 0xE74C3C),
+            ephemeral=True
+        )
+
+    # =======================================
     # ➕ /add-member
     # =======================================
     @app_commands.command(name="add-member", description="Add a member to a faction.")
@@ -232,14 +272,13 @@ class Factions(commands.Cog):
         if (role := guild.get_role(int(faction["role_id"]))):
             await member.add_roles(role)
 
-        # 🔔 HQ Notification
         if (ch := guild.get_channel(int(faction["channel_id"]))):
             join_embed = self.make_embed(
                 "👥 New Member Joined!",
                 f"Welcome {member.mention} to **{faction_name}**! 🎉",
                 color=discord.Color.green()
             )
-            await ch.send(embed=join_embed, delete_after=14400)  # auto-delete after 4 hours
+            await ch.send(embed=join_embed, delete_after=14400)
 
         embed = self.make_embed("✅ Member Added", f"👥 {member.mention} added to **{faction_name}**.")
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -279,14 +318,13 @@ class Factions(commands.Cog):
         if (role := guild.get_role(int(faction["role_id"]))):
             await member.remove_roles(role)
 
-        # 🔔 HQ Notification
         if (ch := guild.get_channel(int(faction["channel_id"]))):
             leave_embed = self.make_embed(
                 "👋 Member Removed",
                 f"{member.mention} has been removed from **{faction_name}**.",
                 color=discord.Color.red()
             )
-            await ch.send(embed=leave_embed, delete_after=14400)  # auto-delete after 4 hours
+            await ch.send(embed=leave_embed, delete_after=14400)
 
         embed = self.make_embed("✅ Member Removed", f"👋 {member.mention} removed from **{faction_name}**.")
         await interaction.followup.send(embed=embed, ephemeral=True)
