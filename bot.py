@@ -3,7 +3,8 @@ import asyncio
 import logging
 import discord
 from discord.ext import commands
-from cogs.utils import init_db, cleanup_deleted_roles
+from cogs.utils import init_db, cleanup_deleted_roles, db_pool
+from cogs.assign import FlagManageView  # ✅ Import the persistent view class
 
 # =========================
 # 🧩 Logging Setup
@@ -79,13 +80,37 @@ async def load_cogs():
 
 
 # =========================
+# 🔁 Persistent View Registration
+# =========================
+async def register_persistent_views(bot: commands.Bot):
+    """Re-register all FlagManageView UIs after restart."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, map, message_id FROM flag_messages;")
+
+    for row in rows:
+        guild = bot.get_guild(int(row["guild_id"]))
+        if not guild:
+            continue
+
+        try:
+            view = FlagManageView(guild, row["map"], "N/A", bot)
+            bot.add_view(view, message_id=int(row["message_id"]))
+            logging.info(f"✅ Registered persistent view for {guild.name} ({row['map']})")
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to register persistent view for {guild.name}: {e}")
+
+    logging.info(f"🔄 Persistent view registration complete for {len(rows)} entries.")
+
+
+# =========================
 # 🧩 Main Async Runner (Rate-limit safe)
 # =========================
 async def main():
     await asyncio.sleep(5)  # 🕒 grace delay before connecting to Discord
     async with bot:
-        await init_db()         # connect PostgreSQL
-        await load_cogs()       # load all cogs
+        await init_db()          # connect PostgreSQL
+        await load_cogs()        # load all cogs
+        await register_persistent_views(bot)  # ✅ add this line
 
         token = os.getenv("DISCORD_TOKEN")
         if not token:
