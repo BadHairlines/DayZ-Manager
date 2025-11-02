@@ -2,6 +2,7 @@ import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action
+from cogs.helpers.decorators import admin_only, MAP_CHOICES
 import asyncio
 
 
@@ -13,13 +14,9 @@ class Setup(commands.Cog):
         name="setup",
         description="Setup or refresh a map and initialize all flags in the database."
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @admin_only()  # ✅ cleaner admin check
     @app_commands.describe(selected_map="Select the map to setup (Livonia, Chernarus, Sakhal)")
-    @app_commands.choices(selected_map=[
-        app_commands.Choice(name="Livonia", value="livonia"),
-        app_commands.Choice(name="Chernarus", value="chernarus"),
-        app_commands.Choice(name="Sakhal", value="sakhal"),
-    ])
+    @app_commands.choices(selected_map=MAP_CHOICES)  # ✅ shared constant
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
         """Initializes all flag data and creates the live flag display for a map."""
         guild = interaction.guild
