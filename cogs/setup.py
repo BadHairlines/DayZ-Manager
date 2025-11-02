@@ -2,11 +2,13 @@ import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action
-from cogs.helpers.decorators import admin_only, MAP_CHOICES
+from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 import asyncio
 
 
 class Setup(commands.Cog):
+    """Handles setup and initialization of flag systems per map."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -18,10 +20,10 @@ class Setup(commands.Cog):
     @app_commands.describe(selected_map="Select the map to setup (Livonia, Chernarus, Sakhal)")
     @app_commands.choices(selected_map=MAP_CHOICES)
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
-        """Initializes all flag data and creates the live flag display for a map."""
+        """Initializes all flag data, channels, and log systems for a specific map."""
         guild = interaction.guild
         guild_id = str(guild.id)
-        map_key = selected_map.value
+        map_key = normalize_map(selected_map)
         map_info = MAP_DATA[map_key]
         flags_channel_name = f"flags-{map_key}"
         logs_channel_name = f"{map_key}-logs"
@@ -30,6 +32,11 @@ class Setup(commands.Cog):
             f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
             ephemeral=True
         )
+
+        # ✅ Ensure DB pool exists
+        if db_pool is None:
+            await interaction.followup.send("❌ Database not initialized. Please restart the bot.")
+            return
 
         try:
             # ✅ Ensure flag_messages table exists
@@ -67,35 +74,29 @@ class Setup(commands.Cog):
                 )
                 await log_channel.send(f"🗒️ Log channel created for **{map_info['name']}** setup.")
 
-            # ✅ Step 1: Initialize all flags in DB
+            # ✅ Initialize all flags in DB
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await asyncio.sleep(0.05)  # smooth pacing
+                await asyncio.sleep(0.05)  # smooth pacing to avoid DB spam
 
-            # ✅ Step 2: Clear faction flag claims for this map (important sync!)
-            async with db_pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND map=$2",
-                    guild_id, map_key
-                )
-
-            # ✅ Step 3: Create unified flag embed
+            # ✅ Create unified flag embed
             embed = await create_flag_embed(guild_id, map_key)
 
-            # ✅ Step 4: Update or recreate the live message
+            # ✅ Update or recreate the live message
             msg = None
             if row:
                 try:
-                    channel = guild.get_channel(int(row["channel_id"]))
-                    msg = await channel.fetch_message(int(row["message_id"]))
-                    await msg.edit(embed=embed)
+                    old_channel = guild.get_channel(int(row["channel_id"]))
+                    if old_channel:
+                        msg = await old_channel.fetch_message(int(row["message_id"]))
+                        await msg.edit(embed=embed)
                 except Exception:
-                    pass
+                    msg = None  # fallback if fetch fails
 
             if not msg:
                 msg = await flags_channel.send(embed=embed)
 
-            # ✅ Step 5: Store or update DB record
+            # ✅ Store or update DB with both flag and log channel IDs
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
@@ -107,15 +108,14 @@ class Setup(commands.Cog):
                         log_channel_id = EXCLUDED.log_channel_id;
                 """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-            # ✅ Step 6: Success embed
+            # ✅ Create success embed
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
                     f"✅ **{map_info['name']}** setup finished successfully.\n\n"
                     f"📁 Flags channel: {flags_channel.mention}\n"
                     f"🧭 Log channel: {log_channel.mention}\n"
-                    f"🧾 Live flag message refreshed automatically.\n"
-                    f"🧩 All faction flag claims cleared for this map."
+                    f"🧾 Live flag message refreshed automatically."
                 ),
                 color=0x00FF00
             )
@@ -129,7 +129,7 @@ class Setup(commands.Cog):
 
             await interaction.edit_original_response(content=None, embed=complete_embed)
 
-            # 🪵 Structured log entry
+            # 🪵 Structured embed log entry
             await log_action(
                 guild,
                 map_key,
@@ -137,8 +137,7 @@ class Setup(commands.Cog):
                 description=(
                     f"✅ **{map_info['name']}** setup successfully by {interaction.user.mention}.\n\n"
                     f"📁 Flags channel: {flags_channel.mention}\n"
-                    f"🧭 Logs channel: {log_channel.mention}\n"
-                    f"🧩 All faction claims cleared."
+                    f"🧭 Logs channel: {log_channel.mention}"
                 ),
                 color=0x2ECC71
             )
@@ -148,6 +147,7 @@ class Setup(commands.Cog):
                 content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
             )
 
+            # 🪵 Structured error log
             await log_action(
                 guild,
                 map_key,
