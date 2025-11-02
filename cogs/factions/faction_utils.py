@@ -24,7 +24,7 @@ async def ensure_faction_table():
         """)
 
 def make_embed(title, desc, color=0x2ECC71):
-    """Helper to make styled embeds."""
+    """Helper to create embeds with consistent style."""
     embed = discord.Embed(title=title, description=desc, color=color)
     embed.set_author(name="🎭 Faction Manager")
     embed.set_footer(
