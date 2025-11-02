@@ -1,15 +1,17 @@
 import discord
-from cogs.utils import db_pool
+from cogs import utils  # ✅ use the full utils module now
 
 async def ensure_faction_table():
-    """Ensure factions table exists."""
-    if db_pool is None:
-        print("⚠️ db_pool not initialized — skipping table creation.")
+    """Ensure factions table exists (safe to call multiple times)."""
+    # 🧩 Double safety: ensure DB is ready before touching it
+    if utils.db_pool is None:
+        print("⚠️ Database pool not initialized — skipping faction table creation.")
         return
-    async with db_pool.acquire() as conn:
+
+    async with utils.db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS factions (
-                id SERIAL PRIMARY KEY,
+                id BIGSERIAL PRIMARY KEY,
                 guild_id TEXT NOT NULL,
                 map TEXT NOT NULL,
                 faction_name TEXT NOT NULL,
@@ -22,9 +24,11 @@ async def ensure_faction_table():
                 UNIQUE (guild_id, faction_name)
             );
         """)
+    print("✅ Verified factions table exists.")
 
-def make_embed(title, desc, color=0x2ECC71):
-    """Helper to create embeds with consistent style."""
+
+def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
+    """Helper to create embeds with consistent faction style."""
     embed = discord.Embed(title=title, description=desc, color=color)
     embed.set_author(name="🎭 Faction Manager")
     embed.set_footer(
