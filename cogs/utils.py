@@ -47,63 +47,72 @@ async def init_db():
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
     # ✅ Create connection pool
+    print("🔌 Connecting to PostgreSQL…")
     db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
+
     async with db_pool.acquire() as conn:
-        # ==========================
-        # 🏁 Flag Tables
-        # ==========================
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS flags (
-                guild_id TEXT NOT NULL,
-                map TEXT NOT NULL,
-                flag TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT '✅',
-                role_id TEXT,
-                PRIMARY KEY (guild_id, map, flag)
-            );
-        """)
+        try:
+            # ==========================
+            # 🏁 Flag Tables
+            # ==========================
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS flags (
+                    guild_id TEXT NOT NULL,
+                    map TEXT NOT NULL,
+                    flag TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT '✅',
+                    role_id TEXT,
+                    PRIMARY KEY (guild_id, map, flag)
+                );
+            """)
 
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS flag_messages (
-                guild_id TEXT NOT NULL,
-                map TEXT NOT NULL,
-                channel_id TEXT NOT NULL,
-                message_id TEXT NOT NULL,
-                PRIMARY KEY (guild_id, map)
-            );
-        """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS flag_messages (
+                    guild_id TEXT NOT NULL,
+                    map TEXT NOT NULL,
+                    channel_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, map)
+                );
+            """)
 
-        # ✅ Add missing log_channel_id column (auto-heal schema)
-        await conn.execute("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name='flag_messages' AND column_name='log_channel_id'
-                ) THEN
-                    ALTER TABLE flag_messages ADD COLUMN log_channel_id TEXT;
-                END IF;
-            END $$;
-        """)
+            # ✅ Add missing log_channel_id column (auto-heal schema)
+            await conn.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='flag_messages' AND column_name='log_channel_id'
+                    ) THEN
+                        ALTER TABLE flag_messages ADD COLUMN log_channel_id TEXT;
+                    END IF;
+                END $$;
+            """)
 
-        # ==========================
-        # 🏴‍☠️ Faction Table
-        # ==========================
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS factions (
-                id SERIAL PRIMARY KEY,
-                guild_id TEXT NOT NULL,
-                map TEXT NOT NULL,
-                faction_name TEXT NOT NULL,
-                role_id TEXT NOT NULL,
-                channel_id TEXT NOT NULL,
-                leader_id TEXT NOT NULL,
-                member_ids TEXT[],
-                color TEXT,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE (guild_id, faction_name)
-            );
-        """)
+            # ==========================
+            # 🏴‍☠️ Faction Table
+            # ==========================
+            print("⚙️ Creating or verifying factions table...")
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS factions (
+                    id BIGSERIAL PRIMARY KEY,
+                    guild_id TEXT NOT NULL,
+                    map TEXT NOT NULL,
+                    faction_name TEXT NOT NULL,
+                    role_id TEXT NOT NULL,
+                    channel_id TEXT NOT NULL,
+                    leader_id TEXT NOT NULL,
+                    member_ids TEXT[],
+                    color TEXT,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (guild_id, faction_name)
+                );
+            """)
+            print("✅ Factions table verified successfully.")
+
+        except Exception as e:
+            print(f"❌ Database migration error: {e}")
+            raise
 
     print("✅ Connected to PostgreSQL and ensured all tables/columns exist (Flags + Factions).")
 
@@ -265,7 +274,7 @@ async def cleanup_deleted_roles(guild: discord.Guild):
             flag = row["flag"]
             role_id = row["role_id"]
 
-            if not guild.get_role(int(role_id)):  # Role deleted from server
+            if not guild.get_role(int(role_id)):
                 await conn.execute("""
                     UPDATE flags
                     SET status = '✅', role_id = NULL
