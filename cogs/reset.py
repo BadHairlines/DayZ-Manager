@@ -1,92 +1,104 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs.helpers.base_cog import BaseCog
-from cogs.helpers.decorators import admin_only, MAP_CHOICES
-from cogs.utils import reset_map_flags, MAP_DATA, log_action, db_pool
 import asyncio
+from cogs.helpers.base_cog import BaseCog
+from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
+from cogs import utils
 
 
 class Reset(commands.Cog, BaseCog):
+    """Reset all flags and faction claims for a specific map."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @app_commands.command(
         name="reset",
-        description="Reset all flags for a selected map back to ✅ and clear faction claims."
+        description="Reset all flags on a map back to ✅ and clear any faction claims."
     )
-    @app_commands.choices(selected_map=MAP_CHOICES)
     @admin_only()
+    @app_commands.choices(selected_map=MAP_CHOICES)
     async def reset(
         self,
         interaction: discord.Interaction,
         selected_map: app_commands.Choice[str]
     ):
-        """Reset all flags for a map to ✅ and refresh the display."""
+        await interaction.response.defer(thinking=True)
+
         guild = interaction.guild
         guild_id = str(guild.id)
-        map_key = selected_map.value
-        map_info = MAP_DATA[map_key]
+        map_key = normalize_map(selected_map)
+        map_name = utils.MAP_DATA[map_key]["name"]
 
-        # 🟡 Notify start
-        await interaction.response.send_message(
-            f"🧹 Resetting **{map_info['name']}** flags... please wait ⏳",
+        # ✅ Ensure DB is ready
+        if utils.db_pool is None:
+            return await interaction.followup.send("❌ Database not initialized. Please restart the bot.", ephemeral=True)
+
+        # 🟡 Start message
+        await interaction.followup.send(
+            f"🧹 Resetting **{map_name}** flags... please wait ⏳",
             ephemeral=True
         )
 
         try:
-            # 🟢 Step 1: Reset flags in DB
-            await reset_map_flags(guild_id, map_key)
+            # 🔹 Step 1: Reset flags in DB (and clear faction claims)
+            await utils.reset_map_flags(guild_id, map_key)
             await asyncio.sleep(1)
 
-            # 🟢 Step 2: Clear claimed_flag from all factions on this map
-            async with db_pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND map=$2",
-                    guild_id, map_key
-                )
+            # 🔹 Step 2: Update live flag embed
+            try:
+                await self.update_flag_message(guild, guild_id, map_key)
+            except Exception as e:
+                print(f"⚠️ Failed to update flag embed during reset: {e}")
 
-            # 🟢 Step 3: Refresh live message
-            await self.update_flag_message(guild, guild_id, map_key)
-
-            # 🟢 Step 4: Success embed
+            # 🔹 Step 3: Send confirmation embed
             embed = self.make_embed(
-                "__RESET COMPLETE__",
-                f"✅ **{map_info['name']}** flags successfully reset.\n\n"
-                f"All flags are now marked as ✅ and any faction flag claims were cleared.",
-                0x2ECC71,
-                "🧹",
-                "Reset Notification"
+                title="__RESET COMPLETE__",
+                desc=(
+                    f"✅ **{map_name}** flags successfully reset.\n\n"
+                    f"🏳️ All flags are now available (✅)\n"
+                    f"🔄 All faction `claimed_flag` values cleared.\n"
+                    f"📜 Live display updated automatically."
+                ),
+                color=0x2ECC71,
+                author_icon="🧹",
+                author_name="Map Reset"
             )
-            embed.set_image(url=map_info["image"])
+            embed.set_image(url=utils.MAP_DATA[map_key]["image"])
             embed.timestamp = discord.utils.utcnow()
-
             await interaction.edit_original_response(content=None, embed=embed)
 
-            # 🪵 Step 5: Structured log
-            await log_action(
+            # 🔹 Step 4: Log in map-specific logs
+            await utils.log_action(
                 guild,
                 map_key,
                 title="Map Reset Complete",
                 description=(
-                    f"🧹 **All flags reset** on **{map_info['name']}** by {interaction.user.mention}.\n"
-                    "All flags have been restored to ✅ and all faction flag claims were cleared."
+                    f"🧹 **{map_name}** reset by {interaction.user.mention}.\n"
+                    "All flags restored to ✅ and all faction claims cleared."
                 ),
                 color=0x2ECC71
             )
 
-        except Exception as e:
-            await interaction.edit_original_response(
-                content=f"❌ Reset failed for **{map_info['name']}**:\n```{e}```"
+            # 🔹 Step 5: Log in faction-logs channel
+            await utils.log_faction_action(
+                guild,
+                action="Map Reset",
+                faction_name=None,
+                user=interaction.user,
+                details=f"Reset all faction flag claims on map `{map_name}`."
             )
 
-            await log_action(
+        except Exception as e:
+            await interaction.edit_original_response(
+                content=f"❌ Reset failed for **{map_name}**:\n```{e}```"
+            )
+            await utils.log_action(
                 guild,
                 map_key,
                 title="Map Reset Failed",
-                description=(
-                    f"❌ **Reset failed** on **{map_info['name']}** by {interaction.user.mention}:\n```{e}```"
-                ),
+                description=f"❌ Reset failed for **{map_name}** by {interaction.user.mention}:\n```{e}```",
                 color=0xE74C3C
             )
 
