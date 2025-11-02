@@ -61,8 +61,10 @@ class ActivityCheck(commands.Cog):
             except asyncio.TimeoutError:
                 continue
 
-        # ✅ Mark as complete
+        # ✅ Mark as complete or failed visually
         await msg.edit(embed=self.make_embed(msg.channel.name, role, color, len(confirmed_users), complete=success))
+
+        # Store result by role ID (or fallback name)
         results_dict[role.id if role else msg.channel.name] = len(confirmed_users)
 
     async def detect_faction_role(self, channel: discord.TextChannel):
@@ -82,7 +84,7 @@ class ActivityCheck(commands.Cog):
                 reason="Created automatically for activity summaries"
             )
 
-        # Sort results (highest reactions first)
+        # 🧮 Sort results (highest reactions first)
         sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
 
         embed = discord.Embed(
@@ -92,13 +94,13 @@ class ActivityCheck(commands.Cog):
         )
 
         for rank, (role_or_name, count) in enumerate(sorted_results, start=1):
-            # Try to convert stored ID back to a Role mention
             role = guild.get_role(role_or_name) if isinstance(role_or_name, int) else None
             name_display = role.mention if role else f"**{role_or_name}**"
 
             emoji = "✅" if count >= self.required_reactions else "❌"
+            medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
             embed.add_field(
-                name=f"{rank}. {name_display}",
+                name=f"{medal} {name_display}",
                 value=f"{emoji} {count}/{self.required_reactions} members active",
                 inline=False
             )
@@ -108,6 +110,14 @@ class ActivityCheck(commands.Cog):
 
         await alert_channel.send(embed=embed)
         print(f"📊 Posted leaderboard in #{alert_channel.name} for {guild.name}")
+
+        # Optionally ping failed factions
+        failed_roles = [guild.get_role(k) for k, v in results.items() if isinstance(k, int) and v < self.required_reactions]
+        if failed_roles:
+            await alert_channel.send(
+                "⚠️ The following factions failed their check:\n" +
+                " ".join(r.mention for r in failed_roles if r)
+            )
 
     @app_commands.command(name="activity-check", description="Run activity checks for all faction channels in a category (map).")
     @app_commands.describe(category="Select the category containing all faction channels.")
@@ -121,12 +131,11 @@ class ActivityCheck(commands.Cog):
         color = random.randint(0, 0xFFFFFF)
         sent_count = 0
         results = {}
+        tasks = []
 
         for channel in category.text_channels:
             try:
-                # Detect faction role from channel permissions
                 matched_role = await self.detect_faction_role(channel)
-
                 embed = self.make_embed(channel.name, matched_role, color)
                 content = matched_role.mention if matched_role else None
                 msg = await channel.send(content=content, embed=embed)
@@ -134,8 +143,10 @@ class ActivityCheck(commands.Cog):
                 sent_count += 1
 
                 # Track each check concurrently
-                self.bot.loop.create_task(self.start_tracking(msg, matched_role, color, results))
-                await asyncio.sleep(1)
+                task = self.bot.loop.create_task(self.start_tracking(msg, matched_role, color, results))
+                tasks.append(task)
+
+                await asyncio.sleep(1)  # rate limit safety
 
             except discord.Forbidden:
                 print(f"⚠️ No permission to send messages in {channel.name}.")
@@ -155,10 +166,11 @@ class ActivityCheck(commands.Cog):
             color=0x00BFFF
         )
 
-        # Wait for all checks to finish
-        await asyncio.sleep(self.expiry_hours * 3600 + 10)
+        # 🕒 Wait for all tasks to finish (robust against short timers)
+        if tasks:
+            await asyncio.gather(*tasks)
 
-        # Post leaderboard summary
+        # ✅ Post leaderboard summary after all complete
         await self.send_leaderboard(interaction.guild, category, results)
 
 
