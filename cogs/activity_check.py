@@ -7,61 +7,86 @@ from datetime import datetime, timedelta
 
 from cogs.utils import log_action, get_all_flags, release_flag, db_pool
 
+
 class ActivityCheck(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.required_reactions = 4         # ✅ minimum number of members
-        self.expiry_hours = 12               # 🕒 auto-expire time
+        self.required_reactions = 4
+        self.expiry_hours = 12
         self.emoji = "✅"
 
     def make_embed(self, role, color, progress=0, complete=False, failed=False):
-        """Builds an updated activity check embed."""
-        description = (
-            f"> At least **{self.required_reactions}** members of {role.mention} must click {self.emoji} below!"
-        )
+        desc = f"> At least **{self.required_reactions}** members of {role.mention} must click {self.emoji} below!"
 
         if complete:
-            description = f"✅ **Activity Check Complete!** {role.mention} met the requirement!"
+            desc = f"✅ **Activity Check Complete!** {role.mention} met the requirement!"
         elif failed:
-            description = f"❌ **Activity Check Failed!** Not enough members of {role.mention} responded."
+            desc = f"❌ **Activity Check Failed!** Not enough members of {role.mention} responded."
 
-        embed = discord.Embed(
-            title="__**ACTIVITY CHECK**__",
-            description=description,
-            color=color
-        )
-
+        embed = discord.Embed(title="__**ACTIVITY CHECK**__", description=desc, color=color)
         if not complete and not failed:
-            embed.add_field(
-                name="Progress",
-                value=f"✅ {progress}/{self.required_reactions} confirmed",
-                inline=False
-            )
+            embed.add_field(name="Progress", value=f"✅ {progress}/{self.required_reactions} confirmed", inline=False)
 
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
         return embed
 
-    @app_commands.command(name="activity-check", description="Start an activity check for a faction or role.")
-    @app_commands.describe(role="Select the faction or role to ping for activity")
-    async def activity_check(self, interaction: discord.Interaction, role: discord.Role):
-        """Launches an automated faction activity check."""
+    @app_commands.command(name="activity-check", description="Start an activity check for a faction or all channels in a category.")
+    @app_commands.describe(
+        role="Faction or role to ping (ignored if you use 'category')",
+        category="Run activity checks in every text channel inside this category"
+    )
+    async def activity_check(self, interaction: discord.Interaction, role: discord.Role | None = None, category: discord.CategoryChannel | None = None):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Admins only!", ephemeral=True)
             return
 
+        await interaction.response.defer(thinking=True)
         color = random.randint(0, 0xFFFFFF)
-        embed = self.make_embed(role, color)
 
-        # Send initial message
+        # ===============================
+        # 🌍 MULTI-CHANNEL MODE (Category)
+        # ===============================
+        if category:
+            sent_count = 0
+            for channel in category.text_channels:
+                try:
+                    # Try to match the faction role to the channel name
+                    matched_role = None
+                    for r in interaction.guild.roles:
+                        if r.name.lower().replace(" ", "-") in channel.name.lower():
+                            matched_role = r
+                            break
+
+                    if not matched_role:
+                        continue  # skip if no faction role matches
+
+                    embed = self.make_embed(matched_role, color)
+                    msg = await channel.send(content=matched_role.mention, embed=embed)
+                    await msg.add_reaction(self.emoji)
+                    sent_count += 1
+                    await asyncio.sleep(1)
+
+                except Exception as e:
+                    print(f"⚠️ Failed to post in {channel.name}: {e}")
+
+            await interaction.followup.send(f"✅ Sent activity checks to **{sent_count}** channels in {category.name}!", ephemeral=True)
+            return
+
+        # ==========================
+        # 🎯 SINGLE ROLE MODE
+        # ==========================
+        if not role:
+            await interaction.followup.send("❌ You must provide either a `role` or a `category`.", ephemeral=True)
+            return
+
+        embed = self.make_embed(role, color)
         msg = await interaction.channel.send(content=role.mention, embed=embed)
         await msg.add_reaction(self.emoji)
-        await interaction.response.send_message(f"✅ Activity check started for {role.mention}!", ephemeral=True)
+        await interaction.followup.send(f"✅ Activity check started for {role.mention}!", ephemeral=True)
 
-        # Store who reacted
+        # Track reactions
         confirmed_users = set()
-
-        # Wait for reactions up to expiry time
         end_time = datetime.utcnow() + timedelta(hours=self.expiry_hours)
         success = False
 
@@ -77,29 +102,21 @@ class ActivityCheck(commands.Cog):
                         and role in u.roles
                     ),
                 )
-
                 confirmed_users.add(user.id)
                 progress = len(confirmed_users)
-
-                # Update embed with progress
-                updated_embed = self.make_embed(role, color, progress)
-                await msg.edit(embed=updated_embed)
-
+                await msg.edit(embed=self.make_embed(role, color, progress))
                 if progress >= self.required_reactions:
                     success = True
                     break
-
             except asyncio.TimeoutError:
-                # no reactions within 60s → continue loop
                 continue
 
         guild = interaction.guild
         guild_id = str(guild.id)
 
+        # ✅ Success
         if success:
-            # ✅ Mark faction as active
-            final_embed = self.make_embed(role, color, complete=True)
-            await msg.edit(embed=final_embed)
+            await msg.edit(embed=self.make_embed(role, color, complete=True))
             await log_action(
                 guild,
                 "N/A",
@@ -108,17 +125,14 @@ class ActivityCheck(commands.Cog):
                 color=0x2ECC71
             )
 
-            # 🕒 Update last_active in DB
             async with db_pool.acquire() as conn:
                 await conn.execute(
                     "UPDATE flags SET last_active=NOW() WHERE guild_id=$1 AND role_id=$2",
                     guild_id, str(role.id)
                 )
-
         else:
-            # ❌ Mark as failed
-            final_embed = self.make_embed(role, color, failed=True)
-            await msg.edit(embed=final_embed)
+            # ❌ Failed
+            await msg.edit(embed=self.make_embed(role, color, failed=True))
             await log_action(
                 guild,
                 "N/A",
@@ -127,8 +141,7 @@ class ActivityCheck(commands.Cog):
                 color=0xE74C3C
             )
 
-            # 🔁 Find and release their flag automatically
-            existing_flags = await get_all_flags(guild_id, "livonia")  # adjust if multi-map
+            existing_flags = await get_all_flags(guild_id, "livonia")  # or auto-detect later
             for record in existing_flags:
                 if record["role_id"] == str(role.id):
                     await release_flag(guild_id, record["map"], record["flag"])
