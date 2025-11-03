@@ -2,9 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
-from cogs import utils  # ✅ Shared DB, flag, and logging functions
+from cogs import utils
 from .faction_utils import ensure_faction_table, make_embed
-
 
 MAP_CHOICES = [
     app_commands.Choice(name="Livonia", value="Livonia"),
@@ -27,13 +26,11 @@ COLOR_CHOICES = [
     app_commands.Choice(name="Brown 🤎", value="#8B4513"),
 ]
 
-
 class FactionCreate(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
-        """Autocomplete flag list."""
         return [
             app_commands.Choice(name=flag, value=flag)
             for flag in utils.FLAGS
@@ -70,7 +67,6 @@ class FactionCreate(commands.Cog):
     ):
         await interaction.response.defer(thinking=True)
 
-        # 🔒 Admin check
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("❌ Only admins can create factions.", ephemeral=True)
 
@@ -83,7 +79,6 @@ class FactionCreate(commands.Cog):
         map_key = map.value.lower()
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
-        # 🔍 Prevent duplicates
         async with utils.db_pool.acquire() as conn:
             existing = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
@@ -95,7 +90,6 @@ class FactionCreate(commands.Cog):
                 ephemeral=True
             )
 
-        # 🏳️ Check flag availability
         flags = await utils.get_all_flags(guild_id, map_key)
         flag_data = next((f for f in flags if f["flag"].lower() == flag.lower()), None)
         if not flag_data:
@@ -107,13 +101,9 @@ class FactionCreate(commands.Cog):
                 ephemeral=True
             )
 
-        # 🗂️ Create or fetch faction category for this map
         category_name = f"🌍 {map.value} Factions Hub"
-        category = discord.utils.get(guild.categories, name=category_name)
-        if not category:
-            category = await guild.create_category(category_name)
+        category = discord.utils.get(guild.categories, name=category_name) or await guild.create_category(category_name)
 
-        # 🎭 Create faction role
         role = await guild.create_role(name=name, color=role_color, mentionable=True)
         divider = discord.utils.get(guild.roles, name="────────── Factions ──────────")
         if divider:
@@ -122,7 +112,6 @@ class FactionCreate(commands.Cog):
             except Exception:
                 pass
 
-        # 💬 Create private HQ channel
         channel_name = name.lower().replace(" ", "-")
         channel = await guild.create_text_channel(
             channel_name,
@@ -132,7 +121,6 @@ class FactionCreate(commands.Cog):
         await channel.set_permissions(role, read_messages=True, send_messages=True)
         await channel.set_permissions(guild.default_role, read_messages=False)
 
-        # 👥 Assign roles
         members = [m for m in [leader, member1, member2, member3] if m]
         for m in members:
             try:
@@ -140,7 +128,6 @@ class FactionCreate(commands.Cog):
             except Exception as e:
                 print(f"⚠️ Failed to assign faction role to {m}: {e}")
 
-        # 💾 Save to DB
         async with utils.db_pool.acquire() as conn:
             await conn.execute(
                 """
@@ -151,7 +138,6 @@ class FactionCreate(commands.Cog):
                 str(leader.id), [str(m.id) for m in members], color.value
             )
 
-        # 🏳️ Assign flag ownership
         await utils.set_flag(guild_id, map_key, flag, "❌", str(role.id))
         async with utils.db_pool.acquire() as conn:
             await conn.execute(
@@ -163,7 +149,6 @@ class FactionCreate(commands.Cog):
                 flag, guild_id, str(role.id), map_key
             )
 
-        # 🔄 Update flag embed
         try:
             embed = await utils.create_flag_embed(guild_id, map_key)
             async with utils.db_pool.acquire() as conn:
@@ -178,7 +163,6 @@ class FactionCreate(commands.Cog):
         except Exception as e:
             print(f"⚠️ Failed to update flag display: {e}")
 
-        # 🎉 HQ Welcome Embed
         members_list = "\n".join([m.mention for m in members if m.id != leader.id]) or "*No members listed*"
         welcome_embed = discord.Embed(
             title=f"🎖️ Welcome to {name}!",
@@ -202,17 +186,15 @@ class FactionCreate(commands.Cog):
         except Exception:
             pass
 
-        # 🪵 Log creation to map-specific faction log channel
         await utils.log_faction_action(
             guild,
             action="Faction Created + Flag Claimed",
             faction_name=name,
             user=interaction.user,
             details=f"Leader: {leader.mention}, Map: {map.value}, Flag: {flag}, Members: {', '.join([m.mention for m in members])}",
-            map_key=map_key,  # 👈 routes to factions-<map>-logs
+            map_key=map_key,
         )
 
-        # ✅ Confirmation to admin
         confirm_embed = make_embed(
             "__Faction Created__",
             f"🗺️ **Map:** `{map.value}`\n"
@@ -226,7 +208,6 @@ class FactionCreate(commands.Cog):
             color=int(color.value.strip("#"), 16)
         )
         await interaction.followup.send(embed=confirm_embed)
-
 
 async def setup(bot):
     await bot.add_cog(FactionCreate(bot))
