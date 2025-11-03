@@ -4,7 +4,7 @@ from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-from cogs.ui_views import FlagManageView  # ✅ new import for interactive flag controls
+from cogs.ui_views import FlagManageView  # ✅ Interactive flag controls
 
 class Setup(commands.Cog):
 """Handles setup and initialization of flag systems per map."""
@@ -34,13 +34,11 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
         ephemeral=True
     )
 
-    # ✅ Ensure DB pool exists
     if db_pool is None:
         await interaction.followup.send("❌ Database not initialized. Please restart the bot.")
         return
 
     try:
-        # ✅ Ensure flag_messages table exists
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS flag_messages (
@@ -57,7 +55,6 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
                 guild_id, map_key
             )
 
-        # ✅ Create or reuse flag display channel
         flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
         if not flags_channel:
             flags_channel = await guild.create_text_channel(
@@ -66,7 +63,6 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
             )
             await flags_channel.send(f"📜 This channel displays flag ownership for **{map_info['name']}**.")
 
-        # ✅ Create or reuse log channel
         log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
         if not log_channel:
             log_channel = await guild.create_text_channel(
@@ -75,18 +71,13 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
             )
             await log_channel.send(f"🗒️ Log channel created for **{map_info['name']}** setup.")
 
-        # ✅ Initialize all flags in DB
         for flag in FLAGS:
             await set_flag(guild_id, map_key, flag, "✅", None)
-            await asyncio.sleep(0.05)  # smooth pacing to avoid DB spam
+            await asyncio.sleep(0.05)
 
-        # ✅ Create unified flag embed
         embed = await create_flag_embed(guild_id, map_key)
-
-        # 🧠 Create view for admin flag management
         view = FlagManageView(guild, map_key, interaction.client)
 
-        # ✅ Update or recreate the live message
         msg = None
         if row:
             try:
@@ -95,12 +86,11 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
                     msg = await old_channel.fetch_message(int(row["message_id"]))
                     await msg.edit(embed=embed, view=view)
             except Exception:
-                msg = None  # fallback if fetch fails
+                msg = None
 
         if not msg:
             msg = await flags_channel.send(embed=embed, view=view)
 
-        # ✅ Store or update DB with both flag and log channel IDs
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
@@ -112,7 +102,6 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
                     log_channel_id = EXCLUDED.log_channel_id;
             """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-        # ✅ Create success embed
         complete_embed = Embed(
             title="__SETUP COMPLETE__",
             description=(
@@ -120,7 +109,7 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
                 f"📁 Flags channel: {flags_channel.mention}\n"
                 f"🧭 Log channel: {log_channel.mention}\n"
                 f"🧾 Live flag message refreshed automatically.\n\n"
-                f"🟩 **Admins can now manage flags directly below the embed!**"
+                f"🟩 **Admins can now manage flags below the embed!**"
             ),
             color=0x00FF00
         )
@@ -134,7 +123,6 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
 
         await interaction.edit_original_response(content=None, embed=complete_embed)
 
-        # 🪵 Structured embed log entry
         await log_action(
             guild,
             map_key,
@@ -151,8 +139,6 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
         await interaction.edit_original_response(
             content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
         )
-
-        # 🪵 Structured error log
         await log_action(
             guild,
             map_key,
