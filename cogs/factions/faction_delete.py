@@ -31,20 +31,23 @@ class FactionDelete(commands.Cog):
         guild = interaction.guild
         guild_id = str(guild.id)
 
-        # 🔍 Find faction (case-insensitive)
+        # 🔍 Find faction (case-insensitive exact match)
         async with utils.db_pool.acquire() as conn:
-            faction = await conn.fetchrow(
+            faction_rec = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 guild_id, name
             )
 
-        if not faction:
+        if not faction_rec:
             return await interaction.followup.send(f"❌ Faction `{name}` not found.", ephemeral=True)
 
-        map_key = faction["map"].lower()
+        # Convert to plain dict for safe key access
+        faction = dict(faction_rec)
 
-        # asyncpg.Record may not support .get reliably; guard the key explicitly
-        claimed_flag = faction["claimed_flag"] if "claimed_flag" in faction else None
+        map_key = (faction.get("map") or "").lower()
+
+        # Claimed flag (may be NULL if never set)
+        claimed_flag = faction.get("claimed_flag") or None
 
         # 🏳️ If this faction claimed a flag — free it safely
         if claimed_flag:
@@ -60,7 +63,7 @@ class FactionDelete(commands.Cog):
                     description=f"🏳️ Flag **{claimed_flag}** was freed after `{name}` disbanded."
                 )
 
-                # 🧭 Refresh the flag display embed
+                # 🧭 Refresh the flag display embed (only if we still know where it is)
                 try:
                     embed = await utils.create_flag_embed(guild_id, map_key)
                     async with utils.db_pool.acquire() as conn:
@@ -71,8 +74,11 @@ class FactionDelete(commands.Cog):
                     if row:
                         ch = guild.get_channel(int(row["channel_id"]))
                         if ch:
-                            msg = await ch.fetch_message(int(row["message_id"]))
-                            await msg.edit(embed=embed)
+                            try:
+                                msg = await ch.fetch_message(int(row["message_id"]))
+                                await msg.edit(embed=embed)
+                            except discord.NotFound:
+                                pass
                 except Exception as e:
                     print(f"⚠️ Failed to refresh flag display after faction deletion: {e}")
 
@@ -80,27 +86,39 @@ class FactionDelete(commands.Cog):
                 print(f"⚠️ Could not release flag {claimed_flag}: {e}")
 
         # 💬 Announce & delete faction channel
-        channel_id = int(faction["channel_id"])
-        channel = guild.get_channel(channel_id)
-        if channel:
-            try:
-                farewell_embed = make_embed(
-                    "💀 Faction Disbanded",
-                    f"**{name}** has been officially disbanded. 🕊️"
-                )
-                await channel.send(embed=farewell_embed)
-                await channel.delete(reason="Faction disbanded")
-            except Exception as e:
-                print(f"⚠️ Failed to delete faction channel: {e}")
+        channel_id_raw = faction.get("channel_id")
+        try:
+            channel_id = int(channel_id_raw) if channel_id_raw is not None else None
+        except (TypeError, ValueError):
+            channel_id = None
+
+        if channel_id:
+            channel = guild.get_channel(channel_id)
+            if channel:
+                try:
+                    farewell_embed = make_embed(
+                        "💀 Faction Disbanded",
+                        f"**{name}** has been officially disbanded. 🕊️"
+                    )
+                    await channel.send(embed=farewell_embed)
+                    await channel.delete(reason="Faction disbanded")
+                except Exception as e:
+                    print(f"⚠️ Failed to delete faction channel: {e}")
 
         # 🎭 Delete role
-        role_id = int(faction["role_id"])
-        role = guild.get_role(role_id)
-        if role:
-            try:
-                await role.delete(reason="Faction disbanded")
-            except Exception as e:
-                print(f"⚠️ Failed to delete faction role: {e}")
+        role_id_raw = faction.get("role_id")
+        try:
+            role_id = int(role_id_raw) if role_id_raw is not None else None
+        except (TypeError, ValueError):
+            role_id = None
+
+        if role_id:
+            role = guild.get_role(role_id)
+            if role:
+                try:
+                    await role.delete(reason="Faction disbanded")
+                except Exception as e:
+                    print(f"⚠️ Failed to delete faction role: {e}")
 
         # 🗃️ Remove from database
         async with utils.db_pool.acquire() as conn:
@@ -109,14 +127,14 @@ class FactionDelete(commands.Cog):
                 guild_id, name
             )
 
-        # ✅ Log the deletion (⚠️ include map_key which is now required)
+        # ✅ Log the deletion (include map_key which is required by log_faction_action)
         await utils.log_faction_action(
             guild,
             action="Faction Deleted",
             faction_name=name,
             user=interaction.user,
             details=f"Faction `{name}` was deleted by {interaction.user.mention}.",
-            map_key=map_key,  # 👈 added
+            map_key=map_key,
         )
 
         # ✅ Confirmation to admin
