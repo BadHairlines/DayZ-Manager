@@ -41,21 +41,16 @@ class FactionDelete(commands.Cog):
         if not faction:
             return await interaction.followup.send(f"❌ Faction `{name}` not found.", ephemeral=True)
 
-        # ✅ Normalize map key (to match DB + flag consistency)
         map_key = faction["map"].lower()
-
-        # 🏳️ If this faction claimed a flag — free it
         claimed_flag = faction.get("claimed_flag") or None
+
+        # 🏳️ If this faction claimed a flag — free it safely
         if claimed_flag:
             try:
-                await utils.set_flag(
-                    guild_id,
-                    map_key,
-                    claimed_flag,
-                    "✅",  # mark flag as available
-                    None   # remove owner
-                )
+                # ✅ Update the flag table to release it
+                await utils.release_flag(guild_id, map_key, claimed_flag)
 
+                # 🪵 Log this action in logs channel
                 await utils.log_action(
                     guild,
                     map_key,
@@ -63,7 +58,7 @@ class FactionDelete(commands.Cog):
                     description=f"🏳️ Flag **{claimed_flag}** was freed after `{name}` disbanded."
                 )
 
-                # 🧭 Try updating flag display
+                # 🧭 Refresh the flag display embed
                 try:
                     embed = await utils.create_flag_embed(guild_id, map_key)
                     async with utils.db_pool.acquire() as conn:
@@ -76,7 +71,7 @@ class FactionDelete(commands.Cog):
                         msg = await ch.fetch_message(int(row["message_id"]))
                         await msg.edit(embed=embed)
                 except Exception as e:
-                    print(f"⚠️ Failed to refresh flag display for deleted faction: {e}")
+                    print(f"⚠️ Failed to refresh flag display after faction deletion: {e}")
 
             except Exception as e:
                 print(f"⚠️ Could not release flag {claimed_flag}: {e}")
@@ -107,7 +102,7 @@ class FactionDelete(commands.Cog):
                 guild_id, name
             )
 
-        # 🧾 Log the deletion
+        # ✅ Log the deletion
         await utils.log_faction_action(
             guild,
             action="Faction Deleted",
