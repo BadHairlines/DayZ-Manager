@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 import traceback
-import sys
 
 class ErrorHandler(commands.Cog):
     """Global error handler for all commands in the DayZ Manager bot."""
@@ -101,7 +100,6 @@ class ErrorHandler(commands.Cog):
         )
         embed.timestamp = discord.utils.utcnow()
         return embed
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ErrorHandler(bot))
