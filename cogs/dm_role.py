@@ -1,51 +1,110 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import asyncio
+import json
+import os
+from datetime import datetime
+
+
+PROGRESS_FILE = "dm_progress.json"
+
 
 class DMRole(commands.Cog):
+    """Safely DM every user in a selected role (supports 1000+ users with resume support)."""
+
     def __init__(self, bot):
         self.bot = bot
 
+    def save_progress(self, guild_id, role_id, sent_ids):
+        """Save DM progress to file so it can resume later."""
+        data = {}
+        if os.path.exists(PROGRESS_FILE):
+            with open(PROGRESS_FILE, "r") as f:
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError:
+                    data = {}
+
+        data[f"{guild_id}_{role_id}"] = sent_ids
+        with open(PROGRESS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def load_progress(self, guild_id, role_id):
+        """Load existing progress if available."""
+        if not os.path.exists(PROGRESS_FILE):
+            return set()
+        try:
+            with open(PROGRESS_FILE, "r") as f:
+                data = json.load(f)
+            return set(data.get(f"{guild_id}_{role_id}", []))
+        except Exception:
+            return set()
+
     @app_commands.command(
         name="dm-role",
-        description="DM everyone in a specific role a plain message (supports invite links, no embeds)."
+        description="Safely DM all members in a role (resumable + rate-limited)."
     )
     @app_commands.describe(
-        role="Select the role whose members you want to message",
-        message="The message to send to all members in that role"
+        role="Which role to DM",
+        message="The message to send (plain text, links included)"
     )
     async def dm_role(self, interaction: discord.Interaction, role: discord.Role, message: str):
-        # 🔒 Only admins
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Only admins can use this command.", ephemeral=True)
+            return await interaction.followup.send("🚫 Admins only.", ephemeral=True)
 
-        await interaction.response.defer(ephemeral=True)
+        members = [m for m in role.members if not m.bot]
+        total = len(members)
 
-        sent = 0
-        failed = 0
-        skipped = 0
+        if total == 0:
+            return await interaction.followup.send("⚠️ No human members found in that role.", ephemeral=True)
 
-        for member in role.members:
-            if member.bot:
-                skipped += 1
-                continue
+        # Load previous progress
+        sent_ids = self.load_progress(interaction.guild.id, role.id)
+        remaining = [m for m in members if str(m.id) not in sent_ids]
+
+        await interaction.followup.send(
+            f"📬 Starting DM batch for **{role.name}** ({len(remaining)} users left out of {total}).",
+            ephemeral=True
+        )
+
+        success, failed = 0, 0
+
+        for i, member in enumerate(remaining, start=1):
             try:
-                # Send as raw text — not an embed
                 await member.send(message)
-                sent += 1
+                success += 1
+                sent_ids.add(str(member.id))
+                # Save progress every 10 users
+                if i % 10 == 0:
+                    self.save_progress(interaction.guild.id, role.id, list(sent_ids))
+
             except discord.Forbidden:
                 failed += 1
             except Exception as e:
-                print(f"⚠️ Could not DM {member}: {e}")
                 failed += 1
+                print(f"⚠️ DM failed for {member}: {e}")
 
-        summary = (
-            f"📨 **DM Summary for {role.name}**\n"
-            f"✅ Sent: `{sent}`\n"
-            f"⚠️ Failed: `{failed}`\n"
-            f"🤖 Skipped bots: `{skipped}`"
+            if i % 10 == 0:
+                await interaction.edit_original_response(
+                    content=f"📨 Sent `{success}` / `{total}` messages so far... (failed: {failed})"
+                )
+
+            # Rate-limit friendly delay
+            await asyncio.sleep(1.5)
+
+        # Final save + cleanup
+        self.save_progress(interaction.guild.id, role.id, list(sent_ids))
+
+        complete_msg = (
+            f"✅ Finished DM batch for **{role.name}**\n"
+            f"📤 Sent: {success}\n"
+            f"⚠️ Failed: {failed}\n"
+            f"🕒 Completed at <t:{int(datetime.utcnow().timestamp())}:f>"
         )
-        await interaction.followup.send(summary, ephemeral=True)
+        await interaction.edit_original_response(content=complete_msg)
 
 
 async def setup(bot: commands.Bot):
