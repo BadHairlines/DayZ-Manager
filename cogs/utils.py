@@ -1,9 +1,3 @@
-# cogs/utils.py
-# Core utilities shared by the DayZ Manager cogs.
-# Provides: db_pool, ensure_connection(), init_db(), FLAGS, MAP_DATA,
-# get_flag(), get_all_flags(), set_flag(), release_flag(), create_flag_embed(),
-# log_action(), log_faction_action().
-
 from __future__ import annotations
 
 import os
@@ -23,10 +17,7 @@ DEFAULT_DB_ENV_KEYS = ("DATABASE_URL", "POSTGRES_URL", "PG_URL")
 
 
 async def ensure_connection() -> asyncpg.Pool:
-    """
-    Ensure a global asyncpg pool exists and core tables are created.
-    Safe to call multiple times.
-    """
+    """Ensure a global asyncpg pool exists and core tables are created."""
     global db_pool
     if db_pool is not None:
         return db_pool
@@ -37,53 +28,42 @@ async def ensure_connection() -> asyncpg.Pool:
             dsn = os.getenv(key)
             break
     if not dsn:
-        raise RuntimeError(
-            "No database URL found. Set one of: DATABASE_URL, POSTGRES_URL, PG_URL"
-        )
+        raise RuntimeError("No database URL found. Set one of: DATABASE_URL, POSTGRES_URL, PG_URL")
 
-    # Create pool
     db_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
 
-    # Create core tables
     async with db_pool.acquire() as conn:
-        # Flags table: one row per guild+map+flag
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
                 guild_id TEXT NOT NULL,
-                map      TEXT NOT NULL,
-                flag     TEXT NOT NULL,
-                status   TEXT NOT NULL,   -- '✅' or '❌'
-                role_id  TEXT,            -- owning role when claimed
+                map TEXT NOT NULL,
+                flag TEXT NOT NULL,
+                status TEXT NOT NULL,
+                role_id TEXT,
                 PRIMARY KEY (guild_id, map, flag)
             );
         """)
-
-        # Where the flag embed lives (Setup cog also ensures this)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flag_messages (
-                guild_id   TEXT NOT NULL,
-                map        TEXT NOT NULL,
+                guild_id TEXT NOT NULL,
+                map TEXT NOT NULL,
                 channel_id TEXT NOT NULL,
                 message_id TEXT NOT NULL,
                 log_channel_id TEXT,
                 PRIMARY KEY (guild_id, map)
             );
         """)
-
-        # Generic action logs table (optional)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS action_logs (
                 id BIGSERIAL PRIMARY KEY,
                 guild_id TEXT NOT NULL,
-                map      TEXT,
-                title    TEXT NOT NULL,
+                map TEXT,
+                title TEXT NOT NULL,
                 description TEXT NOT NULL,
-                color    INT,
+                color INT,
                 created_at TIMESTAMP DEFAULT NOW()
             );
         """)
-
-        # Faction logs table (used by log_faction_action)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS faction_logs (
                 id BIGSERIAL PRIMARY KEY,
@@ -99,7 +79,6 @@ async def ensure_connection() -> asyncpg.Pool:
     return db_pool
 
 
-# Some code still calls init_db(); keep it as an alias.
 async def init_db() -> asyncpg.Pool:
     return await ensure_connection()
 
@@ -108,12 +87,10 @@ async def init_db() -> asyncpg.Pool:
 # 🗺️ Static game data
 # ==============================
 
-# The set of supported flags. Add/remove as you wish.
 FLAGS: List[str] = [
     "Wolf", "APA", "NAPA", "Coyote", "Bear", "Raven", "Boar", "Eagle", "Stag", "Viper"
 ]
 
-# Map metadata used in embeds / setup flows
 MAP_DATA: Dict[str, Dict[str, Any]] = {
     "livonia": {
         "name": "Livonia",
@@ -128,7 +105,6 @@ MAP_DATA: Dict[str, Dict[str, Any]] = {
         "image": "https://i.postimg.cc/0y9wDd0v/sakhal.png",
     },
 }
-
 
 # ==============================
 # 🧱 Flag storage helpers
@@ -154,9 +130,7 @@ async def get_all_flags(guild_id: str, map_key: str) -> List[asyncpg.Record]:
 
 
 async def set_flag(guild_id: str, map_key: str, flag_name: str, status: str, role_id: Optional[str]) -> None:
-    """
-    Upsert a flag row. status is '✅' for unclaimed, '❌' for claimed.
-    """
+    """Upsert a flag row. status is '✅' for unclaimed, '❌' for claimed."""
     await ensure_connection()
     async with db_pool.acquire() as conn:
         await conn.execute(
@@ -171,7 +145,6 @@ async def set_flag(guild_id: str, map_key: str, flag_name: str, status: str, rol
 
 
 async def release_flag(guild_id: str, map_key: str, flag_name: str) -> None:
-    """Mark a flag as unclaimed."""
     await set_flag(guild_id, map_key, flag_name, "✅", None)
 
 
@@ -180,11 +153,7 @@ async def release_flag(guild_id: str, map_key: str, flag_name: str) -> None:
 # ==============================
 
 def _split_claims(rows: List[asyncpg.Record]) -> Tuple[List[str], List[Tuple[str, str]]]:
-    """
-    Returns (unclaimed_names, claimed_pairs[(flag, role_id)])
-    """
-    unclaimed: List[str] = []
-    claimed: List[Tuple[str, str]] = []
+    unclaimed, claimed = [], []
     for r in rows:
         if r["status"] == "✅":
             unclaimed.append(r["flag"])
@@ -195,12 +164,12 @@ def _split_claims(rows: List[asyncpg.Record]) -> Tuple[List[str], List[Tuple[str
 
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     """
-    Build a summary embed for all flags on a map.
+    Build a rich, user-facing embed for all flags on a map.
+    Keeps logic the same but restores the polished DayZ Manager visual style.
     """
     await ensure_connection()
-
     rows = await get_all_flags(guild_id, map_key)
-    # If flags table empty for this map, preseed with all unclaimed
+
     if not rows:
         for f in FLAGS:
             await set_flag(guild_id, map_key, f, "✅", None)
@@ -210,43 +179,47 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     unclaimed, claimed = _split_claims(rows)
 
     embed = discord.Embed(
-        title=f"🏴 Flags — {map_info['name']}",
-        description="Assign or release flags using the buttons below.",
+        title=f"🏴 Territory Control — {map_info['name']}",
+        description="Manage your faction’s flags below. Use the buttons to assign or release flags.",
         color=0x2B90D9,
     )
-    embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+    embed.set_author(
+        name="🧭 DayZ Manager • Flag Overview",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
+    embed.set_footer(
+        text="DayZ Manager • Interactive Flag System",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
     embed.timestamp = discord.utils.utcnow()
 
-    # Thumbnail/hero image if provided
     if map_info.get("image"):
         embed.set_image(url=map_info["image"])
 
+    # Claimed
     if claimed:
-        lines = [f"❌ **{flag}** — <@&{rid}>" for flag, rid in claimed]
-        embed.add_field(name="Claimed", value="\n".join(lines)[:1024] or "—", inline=False)
+        lines = [f"❌ **{flag}** — <@&{rid}>" if rid else f"❌ **{flag}** — *(unknown)*" for flag, rid in claimed]
+        claimed_text = "\n".join(lines)
     else:
-        embed.add_field(name="Claimed", value="*(none)*", inline=False)
+        claimed_text = "*(none)*"
+    embed.add_field(name="🏳️‍🌈 Claimed Flags", value=claimed_text[:1024], inline=False)
 
+    # Unclaimed
     if unclaimed:
-        # group in comma list
-        embed.add_field(name="Available", value=", ".join(unclaimed)[:1024] or "—", inline=False)
+        unclaimed_text = ", ".join([f"✅ {f}" for f in unclaimed])[:1024]
     else:
-        embed.add_field(name="Available", value="*(none)*", inline=False)
+        unclaimed_text = "*(none)*"
+    embed.add_field(name="🪖 Available Flags", value=unclaimed_text, inline=False)
 
+    embed.add_field(name="🗺️ Map", value=f"**{map_info['name']}**", inline=True)
     return embed
 
 
-async def _resolve_logs_channel(
-    guild: discord.Guild,
-    map_key: Optional[str] = None,
-    prefer_category: bool = True,
-) -> Optional[discord.TextChannel]:
-    """
-    Find or create a sensible logs channel for the given map.
-    - If prefer_category, create/find category "📜 DayZ Manager Logs" and channel per map.
-    - fallback to guild.system_channel
-    """
-    channel: Optional[discord.TextChannel] = None
+# ==============================
+# 🪵 Logging utilities
+# ==============================
+
+async def _resolve_logs_channel(guild: discord.Guild, map_key: Optional[str] = None, prefer_category: bool = True) -> Optional[discord.TextChannel]:
     try:
         category = None
         if prefer_category:
@@ -260,42 +233,18 @@ async def _resolve_logs_channel(
                 except discord.Forbidden:
                     category = None
 
-        # Two naming styles are used by your code:
-        #  1) "<map>-logs" (Setup cog)
-        #  2) "factions-<map>-logs" (faction logs)
-        # Here we pick the general map log "<map>-logs" for log_action.
-        if map_key:
-            base = f"{map_key}-logs"
-        else:
-            base = "dayz-manager-logs"
-
+        base = f"{map_key}-logs" if map_key else "dayz-manager-logs"
         channel = discord.utils.get(guild.text_channels, name=base)
         if channel is None and category is not None:
-            try:
-                channel = await guild.create_text_channel(
-                    base, category=category, reason="Auto-created DayZ Manager map logs"
-                )
-            except discord.Forbidden:
-                channel = None
+            channel = await guild.create_text_channel(base, category=category, reason="Auto-created DayZ Manager map logs")
+        return channel or guild.system_channel
     except Exception as e:
         print(f"⚠️ Failed resolving logs channel: {e}")
+        return guild.system_channel
 
-    return channel or guild.system_channel
 
-
-async def log_action(
-    guild: discord.Guild,
-    map_key: Optional[str],
-    title: str,
-    description: str,
-    color: int = 0x2B90D9,
-) -> None:
-    """
-    Persist a generic action log and post a simple embed to the map log channel.
-    """
+async def log_action(guild: discord.Guild, map_key: Optional[str], title: str, description: str, color: int = 0x2B90D9) -> None:
     await ensure_connection()
-
-    # Persist
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -308,7 +257,6 @@ async def log_action(
     except Exception as e:
         print(f"⚠️ Failed to insert action_logs row: {e}")
 
-    # Post embed
     ch = await _resolve_logs_channel(guild, map_key)
     if ch is None:
         return
@@ -316,7 +264,6 @@ async def log_action(
     embed = discord.Embed(title=title, description=description, color=color)
     embed.set_footer(text="DayZ Manager • Logs", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
     embed.timestamp = discord.utils.utcnow()
-
     try:
         await ch.send(embed=embed)
     except discord.Forbidden:
@@ -325,28 +272,12 @@ async def log_action(
         print(f"⚠️ Failed to send log embed: {e}")
 
 
-# ==============================
-# 🪵 Faction logging (used by cogs)
-# ==============================
-
-async def log_faction_action(
-    guild: discord.Guild,
-    action: str,
-    faction_name: Optional[str],
-    user: discord.Member,
-    details: str,
-    map_key: str,
-) -> None:
-    """
-    Persist a faction action to the DB and post a rich embed to a map-specific
-    log channel named 'factions-<map>-logs' (fallback to system channel).
-    """
+async def log_faction_action(guild: discord.Guild, action: str, faction_name: Optional[str], user: discord.Member, details: str, map_key: str) -> None:
     await ensure_connection()
 
     mk = (map_key or "").strip().lower()
     full_details = f"[map: {mk}] {details}" if mk else details
 
-    # DB persist
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -359,51 +290,32 @@ async def log_faction_action(
     except Exception as e:
         print(f"⚠️ Failed to write faction_logs row: {e}")
 
-    # Resolve a channel in the logs category named factions-<map>-logs
-    log_channel: Optional[discord.TextChannel] = None
+    # Resolve channel
+    log_channel = None
     try:
         category = discord.utils.get(guild.categories, name="📜 DayZ Manager Logs")
         if category is None:
-            try:
-                category = await guild.create_category(
-                    "📜 DayZ Manager Logs",
-                    reason="Auto-created for faction logs"
-                )
-            except discord.Forbidden:
-                category = None
+            category = await guild.create_category("📜 DayZ Manager Logs", reason="Auto-created for faction logs")
 
         channel_name = f"factions-{mk}-logs" if mk else "factions-logs"
         log_channel = discord.utils.get(guild.text_channels, name=channel_name)
-        if log_channel is None and category is not None:
-            try:
-                log_channel = await guild.create_text_channel(
-                    name=channel_name,
-                    category=category,
-                    reason="Auto-created map-specific faction log channel",
-                )
-                try:
-                    scope = mk.title() if mk else "all maps"
-                    await log_channel.send(f"🪵 This channel logs faction activity for **{scope}**.")
-                except Exception:
-                    pass
-            except discord.Forbidden:
-                log_channel = None
+        if log_channel is None:
+            log_channel = await guild.create_text_channel(name=channel_name, category=category, reason="Auto-created map-specific faction log channel")
+            await log_channel.send(f"🪵 This channel logs faction activity for **{mk.title() or 'All Maps'}**.")
     except Exception as e:
         print(f"⚠️ Error resolving faction log channel: {e}")
-
-    if log_channel is None:
         log_channel = guild.system_channel
 
-    # Build & send embed
+    # Pick embed color
     al = (action or "").lower()
     if "create" in al:
-        color = 0x2ECC71  # green
+        color = 0x2ECC71
     elif "delete" in al or "disband" in al:
-        color = 0xE74C3C  # red
+        color = 0xE74C3C
     elif "update" in al or "edit" in al:
-        color = 0xF1C40F  # yellow
+        color = 0xF1C40F
     else:
-        color = 0x3498DB  # blue
+        color = 0x3498DB
 
     embed = discord.Embed(title=f"🪵 {action}", color=color)
     if faction_name:
@@ -411,22 +323,16 @@ async def log_faction_action(
     if mk:
         embed.add_field(name="🗺️ Map", value=mk.title(), inline=True)
     embed.add_field(name="👤 Action By", value=user.mention, inline=True)
-    embed.add_field(
-        name="🕓 Timestamp",
-        value=f"<t:{int(discord.utils.utcnow().timestamp())}:f>",
-        inline=False,
-    )
+    embed.add_field(name="🕓 Timestamp", value=f"<t:{int(discord.utils.utcnow().timestamp())}:f>", inline=False)
     embed.add_field(name="📋 Details", value=details, inline=False)
     embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
     embed.set_footer(text=f"Faction Logs • {guild.name}")
     embed.timestamp = discord.utils.utcnow()
 
-    if log_channel is not None:
+    if log_channel:
         try:
             await log_channel.send(embed=embed)
         except discord.Forbidden:
             print("⚠️ No permission to send to the resolved log channel.")
         except Exception as e:
             print(f"⚠️ Failed to send faction log embed: {e}")
-    else:
-        print("ℹ️ No available log channel (and no system channel). Embed not sent.")
