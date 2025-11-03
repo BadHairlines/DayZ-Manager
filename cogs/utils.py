@@ -235,10 +235,12 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     return embed
 
 # ======================================================
-# 🪵 LOGGING
+# 🪵 LOGGING (Universal System)
 # ======================================================
 async def log_action(guild: discord.Guild, map_key: str, title: str, description: str, color: int = 0x2ECC71):
+    """Universal logging system — stores map logs under 📜 DayZ Manager Logs."""
     require_db()
+
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT log_channel_id FROM flag_messages WHERE guild_id=$1 AND map=$2;",
@@ -246,19 +248,73 @@ async def log_action(guild: discord.Guild, map_key: str, title: str, description
         )
 
     log_channel = guild.get_channel(int(row["log_channel_id"])) if row and row["log_channel_id"] else None
-    if not log_channel:
-        print(f"⚠️ Missing log channel for {guild.name}/{map_key}")
-        return
 
+    # 🧭 Ensure universal category
+    if not log_channel:
+        category_name = "📜 DayZ Manager Logs"
+        category = discord.utils.get(guild.categories, name=category_name)
+        if not category:
+            category = await guild.create_category(category_name, reason="Universal log category for DayZ Manager")
+
+        # Create per-map log channel
+        log_channel = await guild.create_text_channel(
+            name=f"{map_key}-logs",
+            category=category,
+            reason=f"Auto-created log channel for {map_key}"
+        )
+        await log_channel.send(f"🗒️ Log channel initialized for **{MAP_DATA[map_key]['name']}**.")
+
+        # Save to DB
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE flag_messages SET log_channel_id=$1 WHERE guild_id=$2 AND map=$3;",
+                str(log_channel.id), str(guild.id), map_key
+            )
+        print(f"🪵 Created {log_channel.name} in {guild.name}")
+
+    # 🧱 Send log embed
     embed = discord.Embed(title=title, description=description, color=color)
     embed.timestamp = discord.utils.utcnow()
-    embed.set_footer(text=f"Map: {MAP_DATA[map_key]['name']}")
-    await log_channel.send(embed=embed)
+    embed.set_footer(text=f"Map: {MAP_DATA[map_key]['name']}", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
 
+    try:
+        await log_channel.send(embed=embed)
+    except Exception as e:
+        print(f"⚠️ Failed to send log to {log_channel.name}: {e}")
+
+# ======================================================
+# 🧩 Faction Logs
+# ======================================================
 async def log_faction_action(guild: discord.Guild, action: str, faction_name: str | None, user: discord.Member, details: str):
+    """Record faction actions to DB — and optionally send to the main logs category."""
     require_db()
+
     async with db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO faction_logs (guild_id, action, faction_name, user_id, details)
             VALUES ($1, $2, $3, $4, $5);
         """, str(guild.id), action, faction_name, str(user.id), details)
+
+    # Optional: mirror faction logs to 📜 DayZ Manager Logs
+    category_name = "📜 DayZ Manager Logs"
+    category = discord.utils.get(guild.categories, name=category_name)
+    if not category:
+        category = await guild.create_category(category_name)
+
+    log_channel = discord.utils.get(guild.text_channels, name="factions-logs")
+    if not log_channel:
+        log_channel = await guild.create_text_channel("factions-logs", category=category)
+
+    embed = discord.Embed(
+        title=f"🪵 {action}",
+        description=details,
+        color=0xF1C40F
+    )
+    embed.set_author(name=f"Action by {user.display_name}", icon_url=user.display_avatar.url)
+    embed.timestamp = discord.utils.utcnow()
+    embed.set_footer(text="Faction Logs • DayZ Manager")
+
+    try:
+        await log_channel.send(embed=embed)
+    except Exception as e:
+        print(f"⚠️ Failed to send faction log: {e}")
