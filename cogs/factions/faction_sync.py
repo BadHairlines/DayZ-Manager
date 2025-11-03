@@ -48,6 +48,12 @@ class FactionSync(commands.Cog):
             flags = await conn.fetch("SELECT map, flag, role_id FROM flags WHERE guild_id=$1", str(guild.id))
             total_flags = len(flags)
 
+            # ✅ Normalize all map names for internal comparison
+            for f in factions:
+                f["map"] = f["map"].lower()
+            for fl in flags:
+                fl["map"] = fl["map"].lower()
+
             # Build lookup dictionaries
             role_to_flag = {r["role_id"]: (r["map"], r["flag"]) for r in flags if r["role_id"]}
             flag_to_role = {(r["map"], r["flag"]): r["role_id"] for r in flags if r["role_id"]}
@@ -57,7 +63,7 @@ class FactionSync(commands.Cog):
             # ====================================
             for faction in factions:
                 role_id = faction["role_id"]
-                map_name = faction["map"]
+                map_key = faction["map"].lower()
 
                 # Skip if no role exists
                 if not guild.get_role(int(role_id)):
@@ -72,13 +78,16 @@ class FactionSync(commands.Cog):
                 # Otherwise verify ownership
                 flag_map, flag_name = role_to_flag[role_id]
 
+                # ✅ Normalize again for safety
+                flag_map = flag_map.lower()
+
                 # Log confirmation
                 await utils.log_faction_action(
                     guild,
                     action="Faction Ownership Verified",
                     faction_name=faction["faction_name"],
                     user=interaction.user,
-                    details=f"✅ {faction['faction_name']} confirmed as owning `{flag_name}` on `{flag_map}`."
+                    details=f"✅ `{faction['faction_name']}` confirmed as owning `{flag_name}` on `{flag_map}`."
                 )
                 updated_factions += 1
 
@@ -86,7 +95,7 @@ class FactionSync(commands.Cog):
             # 🔁 Pass 2: Sync flags → factions
             # ====================================
             for flag_record in flags:
-                flag_map = flag_record["map"]
+                flag_map = flag_record["map"].lower()
                 flag_name = flag_record["flag"]
                 role_id = flag_record["role_id"]
 
@@ -118,7 +127,6 @@ class FactionSync(commands.Cog):
             # ====================================
             # 🧹 Optional cleanup (unowned roles)
             # ====================================
-            # Detect factions with deleted roles
             for faction in factions:
                 role_id = faction["role_id"]
                 if not guild.get_role(int(role_id)):
@@ -141,7 +149,7 @@ class FactionSync(commands.Cog):
 🏳️ **Flags Checked:** {total_flags}
 🎭 **Factions Checked:** {total_factions}
 
-✅ **Factions Updated:** {updated_factions}
+✅ **Factions Verified:** {updated_factions}
 ⚙️ **Flags Reviewed:** {updated_flags}
 ⏭️ **Skipped:** {skipped}
 
