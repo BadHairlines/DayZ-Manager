@@ -9,11 +9,13 @@ MAP_CHOICES = [
 ]
 
 def normalize_map(map_choice: app_commands.Choice[str] | str) -> str:
+    """Return a lowercase map key whether a Choice or string is provided."""
     if isinstance(map_choice, app_commands.Choice):
         return map_choice.value.lower()
     return str(map_choice).lower()
 
 def admin_only():
+    """Decorator to restrict a slash command to server admins only."""
     def decorator(func):
         @wraps(func)
         async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
