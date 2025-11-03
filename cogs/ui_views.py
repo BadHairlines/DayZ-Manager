@@ -1,4 +1,5 @@
 import discord
+from discord.ext import commands
 from discord.ui import View, button, Select
 from cogs import utils
 
@@ -6,7 +7,7 @@ from cogs import utils
 class FlagManageView(View):
     """Persistent interactive control panel for flag assignment and release."""
 
-    def __init__(self, guild: discord.Guild, map_key: str, bot: discord.Bot):
+    def __init__(self, guild: discord.Guild, map_key: str, bot: commands.Bot):
         super().__init__(timeout=None)
         self.guild = guild
         self.map_key = map_key
