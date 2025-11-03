@@ -25,7 +25,6 @@ class Setup(commands.Cog):
         map_key = normalize_map(selected_map)
         map_info = MAP_DATA[map_key]
 
-        category_name = map_info["name"]
         flags_channel_name = f"flags-{map_key}"
         logs_channel_name = f"{map_key}-logs"
 
@@ -81,24 +80,25 @@ class Setup(commands.Cog):
                 await asyncio.sleep(0.5)
 
             # =============================
-            # 📂 Map Category
+            # 📁 Universal Flags Category
             # =============================
-            category = discord.utils.get(guild.categories, name=category_name)
-            if not category:
-                category = await guild.create_category(
-                    name=category_name,
-                    reason=f"Auto-created for {map_info['name']} map setup"
+            flags_category_name = "📁 DayZ Manager Flags"
+            flags_category = discord.utils.get(guild.categories, name=flags_category_name)
+            if not flags_category:
+                flags_category = await guild.create_category(
+                    name=flags_category_name,
+                    reason="Auto-created universal category for all flag embed channels"
                 )
                 await asyncio.sleep(0.5)
 
             # =============================
-            # 🧭 Create or reuse flags channel
+            # 🧭 Create or reuse flags channel per map
             # =============================
             flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
             if not flags_channel:
                 flags_channel = await guild.create_text_channel(
                     name=flags_channel_name,
-                    category=category,
+                    category=flags_category,
                     reason=f"Auto-created for {map_info['name']} setup"
                 )
                 await flags_channel.send(f"📜 Flag ownership for **{map_info['name']}**.")
@@ -112,7 +112,7 @@ class Setup(commands.Cog):
             # =============================
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await asyncio.sleep(0.05)  # prevent DB spam
+                await asyncio.sleep(0.05)
 
             # =============================
             # 🖼️ Create embed + view
@@ -154,10 +154,9 @@ class Setup(commands.Cog):
                 title="__SETUP COMPLETE__",
                 description=(
                     f"✅ **{map_info['name']}** setup finished successfully.\n\n"
-                    f"📂 **Map Category:** {category.name}\n"
-                    f"🏁 **Flags:** {flags_channel.mention}\n"
-                    f"🧭 **Logs:** {log_channel.mention}\n"
-                    f"🪵 **Faction Logs:** {factions_log.mention}\n"
+                    f"📁 **Flags Category:** {flags_category.name}\n"
+                    f"🏁 **Flags Channel:** {flags_channel.mention}\n"
+                    f"🧭 **Logs Channel:** {log_channel.mention}\n"
                     f"🧾 Flag message refreshed.\n\n"
                     f"🟩 **Admins can manage flags below the embed!**"
                 ),
@@ -180,10 +179,9 @@ class Setup(commands.Cog):
                 title="Map Setup Complete",
                 description=(
                     f"✅ **{map_info['name']}** setup by {interaction.user.mention}.\n\n"
-                    f"📂 Category: {category.name}\n"
+                    f"📁 Category: {flags_category.name}\n"
                     f"🏁 Flags: {flags_channel.mention}\n"
-                    f"🧭 Logs: {log_channel.mention}\n"
-                    f"🪵 Faction Logs: {factions_log.mention}"
+                    f"🧭 Logs: {log_channel.mention}"
                 ),
                 color=0x2ECC71
             )
