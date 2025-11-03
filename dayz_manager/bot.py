@@ -128,17 +128,24 @@ async def main():
     import sys
     from dayz_manager.cogs.utils import database as db_module
     sys.modules["dayz_manager.cogs.utils.database"] = db_module
-    log.info(f"[DEBUG] Database module reloaded with pool: {db_module.db_pool}")
 
+    # ✅ Patch global reference so this file and cogs share the same pool
+    global db_pool
+    db_pool = db_module.db_pool
+    log.info(f"[DEBUG] Database pool globally synced: {db_pool}")
+
+    # ✅ Load cogs
     await load_cogs()
 
     # ✅ Register persistent views AFTER DB + cogs are ready
     await register_persistent_views()
 
+    # ✅ Token validation
     token = DISCORD_TOKEN
     if not token:
         raise RuntimeError("❌ DISCORD_TOKEN not set!")
 
+    # ✅ Start bot with retry logic
     async with bot:
         for attempt in range(3):
             try:
