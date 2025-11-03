@@ -58,7 +58,41 @@ class Setup(commands.Cog):
                 )
 
             # =============================
-            # 📂 Create or reuse category
+            # 📜 Universal Logs Category
+            # =============================
+            logs_category_name = "📜 DayZ Manager Logs"
+            logs_category = discord.utils.get(guild.categories, name=logs_category_name)
+            if not logs_category:
+                logs_category = await guild.create_category(
+                    name=logs_category_name,
+                    reason="Auto-created universal DayZ Manager log category"
+                )
+                await asyncio.sleep(0.5)
+
+            # ✅ Create or reuse per-map log channel inside universal category
+            log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
+            if not log_channel:
+                log_channel = await guild.create_text_channel(
+                    name=logs_channel_name,
+                    category=logs_category,
+                    reason=f"Auto-created log channel for {map_info['name']} activity"
+                )
+                await log_channel.send(f"🗒️ Logs for **{map_info['name']}** initialized.")
+                await asyncio.sleep(0.5)
+
+            # ✅ Create or reuse general factions log channel once
+            factions_log = discord.utils.get(guild.text_channels, name="factions-logs")
+            if not factions_log:
+                factions_log = await guild.create_text_channel(
+                    name="factions-logs",
+                    category=logs_category,
+                    reason="Auto-created general faction log channel"
+                )
+                await factions_log.send("🪵 This channel logs all faction activity across maps.")
+                await asyncio.sleep(0.5)
+
+            # =============================
+            # 📂 Map Category
             # =============================
             category = discord.utils.get(guild.categories, name=category_name)
             if not category:
@@ -69,7 +103,7 @@ class Setup(commands.Cog):
                 await asyncio.sleep(0.5)
 
             # =============================
-            # 🧭 Create or reuse channels inside category
+            # 🧭 Create or reuse flags channel
             # =============================
             flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
             if not flags_channel:
@@ -80,21 +114,12 @@ class Setup(commands.Cog):
                 )
                 await flags_channel.send(f"📜 Flag ownership for **{map_info['name']}**.")
 
-            log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
-            if not log_channel:
-                log_channel = await guild.create_text_channel(
-                    name=logs_channel_name,
-                    category=category,
-                    reason=f"Log channel for {map_info['name']} flag activity"
-                )
-                await log_channel.send(f"🗒️ Logs for **{map_info['name']}** setup.")
-
-            # ✅ Sync permissions to category (optional but clean)
+            # ✅ Sync permissions for organization
             await flags_channel.edit(sync_permissions=True)
             await log_channel.edit(sync_permissions=True)
 
             # =============================
-            # 🏁 Initialize all flags cleanly
+            # 🏁 Initialize all flags
             # =============================
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
@@ -140,9 +165,10 @@ class Setup(commands.Cog):
                 title="__SETUP COMPLETE__",
                 description=(
                     f"✅ **{map_info['name']}** setup finished successfully.\n\n"
-                    f"📂 **Category:** {category.name}\n"
-                    f"📁 **Flags channel:** {flags_channel.mention}\n"
-                    f"🧭 **Log channel:** {log_channel.mention}\n"
+                    f"📂 **Map Category:** {category.name}\n"
+                    f"🏁 **Flags:** {flags_channel.mention}\n"
+                    f"🧭 **Logs:** {log_channel.mention}\n"
+                    f"🪵 **Faction Logs:** {factions_log.mention}\n"
                     f"🧾 Flag message refreshed.\n\n"
                     f"🟩 **Admins can manage flags below the embed!**"
                 ),
@@ -158,7 +184,7 @@ class Setup(commands.Cog):
 
             await interaction.edit_original_response(content=None, embed=complete_embed)
 
-            # 🪵 Log setup
+            # 🪵 Log setup to logs
             await log_action(
                 guild,
                 map_key,
@@ -166,8 +192,9 @@ class Setup(commands.Cog):
                 description=(
                     f"✅ **{map_info['name']}** setup by {interaction.user.mention}.\n\n"
                     f"📂 Category: {category.name}\n"
-                    f"📁 Flags: {flags_channel.mention}\n"
-                    f"🧭 Logs: {log_channel.mention}"
+                    f"🏁 Flags: {flags_channel.mention}\n"
+                    f"🧭 Logs: {log_channel.mention}\n"
+                    f"🪵 Faction Logs: {factions_log.mention}"
                 ),
                 color=0x2ECC71
             )
@@ -183,7 +210,6 @@ class Setup(commands.Cog):
                 description=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```",
                 color=0xE74C3C
             )
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Setup(bot))
