@@ -38,17 +38,17 @@ bot.synced = False  # track slash sync once
 def resolve_flag_manage_view():
     """
     Try to import FlagManageView from where your project defines it.
-    Prefer cogs.ui_views.FlagManageView; fallback to cogs.assign.FlagManageView.
+    Uses cogs.ui_views.FlagManageView.
     """
-    for path, cls in (("cogs.ui_views", "FlagManageView"), ("cogs.assign", "FlagManageView")):
-        try:
-            mod = importlib.import_module(path)
-            view_cls = getattr(mod, cls, None)
-            if view_cls:
-                log.info(f"✅ Using {cls} from {path}")
-                return view_cls
-        except Exception as e:
-            log.debug(f"FlagManageView not found in {path}: {e}")
+    path, cls = "cogs.ui_views", "FlagManageView"
+    try:
+        mod = importlib.import_module(path)
+        view_cls = getattr(mod, cls, None)
+        if view_cls:
+            log.info(f"✅ Using {cls} from {path}")
+            return view_cls
+    except Exception as e:
+        log.debug(f"FlagManageView not found in {path}: {e}")
     log.warning("⚠️ FlagManageView not available — persistent views will be skipped.")
     return None
 
@@ -76,6 +76,7 @@ async def register_persistent_views():
         if not guild:
             continue
         try:
+            # We don't know which specific flag the message represents; view still provides release/close UI per-flag elsewhere
             view = FlagManageView(guild, row["map"], "N/A", bot)
             bot.add_view(view, message_id=int(row["message_id"]))
             registered += 1
@@ -170,7 +171,8 @@ async def main():
     # ✅ (Optional) Pre-register FlagManageView to remove warning
     try:
         from cogs.ui_views import FlagManageView
-        bot.add_view(FlagManageView())
+        # Note: The default constructor here requires args; this is only to quiet logs if you provide a no-arg overload.
+        bot.add_view(FlagManageView())  # Will no-op if your class requires args (caught below)
         log.info("✅ Pre-registered FlagManageView for persistent buttons.")
     except Exception:
         log.warning("⚠️ Could not pre-register FlagManageView (optional).")
