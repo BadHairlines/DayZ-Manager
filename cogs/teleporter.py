@@ -65,7 +65,7 @@ class Teleporter(commands.Cog):
         await interaction.followup.send(
             content="✅ Teleporter JSON files generated successfully!",
             files=[file1, file2],
-            ephemeral=True
+            ephemeral=False
         )
 
 async def setup(bot: commands.Bot):
