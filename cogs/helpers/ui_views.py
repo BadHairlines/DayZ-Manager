@@ -5,6 +5,7 @@ from cogs import utils
 
 class FlagManageView(View):
     """Persistent interactive control panel for flag assignment and release."""
+
     def __init__(self, guild: discord.Guild, map_key: str, bot: discord.Bot):
         super().__init__(timeout=None)
         self.guild = guild
@@ -16,18 +17,19 @@ class FlagManageView(View):
     # ----------------------------
     async def refresh_flag_embed(self):
         guild_id = str(self.guild.id)
-        embed = await utils.create_flag_embed(guild_id, self.map_key)
-        async with utils.db_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
-                guild_id, self.map_key
-            )
-        if not row:
-            return
-        channel = self.guild.get_channel(int(row["channel_id"]))
-        if not channel:
-            return
         try:
+            embed = await utils.create_flag_embed(guild_id, self.map_key)
+            async with utils.db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                    guild_id,
+                    self.map_key,
+                )
+            if not row:
+                return
+            channel = self.guild.get_channel(int(row["channel_id"]))
+            if not channel:
+                return
             msg = await channel.fetch_message(int(row["message_id"]))
             await msg.edit(embed=embed, view=self)
         except Exception as e:
@@ -37,13 +39,13 @@ class FlagManageView(View):
     # 🟩 Assign Flag
     # ----------------------------
     @button(label="🟩 Assign Flag", style=discord.ButtonStyle.success)
-    async def assign_flag_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def assign_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("🚫 Admins only.", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
-
         guild_id = str(self.guild.id)
+
         # Load all unclaimed flags
         unclaimed = await utils.get_all_flags(guild_id, self.map_key)
         unclaimed = [f for f in unclaimed if f["status"] == "✅"]
@@ -58,37 +60,37 @@ class FlagManageView(View):
             if not r.is_default() and not r.managed
         ]
 
-        # Flag dropdown
-        flag_select = Select(placeholder="Select a flag to assign", options=flag_options, min_values=1, max_values=1)
-        # Role dropdown
-        role_select = Select(placeholder="Select a faction role", options=role_options, min_values=1, max_values=1)
+        flag_select = Select(placeholder="Select a flag to assign", options=flag_options)
+        role_select = Select(placeholder="Select a faction role", options=role_options)
 
-        async def confirm_assign(interaction2: discord.Interaction):
+        async def confirm_assign(inter2: discord.Interaction):
             flag_value = flag_select.values[0]
             role_id = role_select.values[0]
             role = self.guild.get_role(int(role_id))
 
+            # Update flag + faction
             await utils.set_flag(guild_id, self.map_key, flag_value, "❌", str(role.id))
             async with utils.db_pool.acquire() as conn:
-                await conn.execute("""
-                    UPDATE factions SET claimed_flag=$1
-                    WHERE guild_id=$2 AND role_id=$3 AND map=$4
-                """, flag_value, guild_id, str(role.id), self.map_key)
+                await conn.execute(
+                    "UPDATE factions SET claimed_flag=$1 WHERE guild_id=$2 AND role_id=$3 AND map=$4",
+                    flag_value,
+                    guild_id,
+                    str(role.id),
+                    self.map_key,
+                )
 
             await self.refresh_flag_embed()
             await utils.log_action(
                 self.guild,
                 self.map_key,
                 title="Flag Assigned (UI)",
-                description=f"🏴 `{flag_value}` assigned to {role.mention} by {interaction.user.mention}."
+                description=f"🏴 `{flag_value}` assigned to {role.mention} by {interaction.user.mention}.",
             )
-            await interaction2.response.edit_message(content=f"✅ Assigned `{flag_value}` to {role.mention}.", view=None)
+            await inter2.response.edit_message(content=f"✅ Assigned `{flag_value}` to {role.mention}.", view=None)
 
         confirm_view = View()
         confirm_view.add_item(flag_select)
         confirm_view.add_item(role_select)
-
-        flag_select.callback = lambda i: None  # wait for role select
         role_select.callback = confirm_assign
 
         await interaction.followup.send("Select a flag and role to assign:", view=confirm_view, ephemeral=True)
@@ -97,14 +99,13 @@ class FlagManageView(View):
     # 🟥 Release Flag
     # ----------------------------
     @button(label="🟥 Release Flag", style=discord.ButtonStyle.danger)
-    async def release_flag_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def release_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("🚫 Admins only.", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
         guild_id = str(self.guild.id)
 
-        # Load claimed flags
         claimed = await utils.get_all_flags(guild_id, self.map_key)
         claimed = [f for f in claimed if f["status"] == "❌"]
 
@@ -112,25 +113,27 @@ class FlagManageView(View):
             return await interaction.followup.send("⚠️ No claimed flags to release.", ephemeral=True)
 
         flag_options = [discord.SelectOption(label=f["flag"], value=f["flag"]) for f in claimed]
-        flag_select = Select(placeholder="Select a flag to release", options=flag_options, min_values=1, max_values=1)
+        flag_select = Select(placeholder="Select a flag to release", options=flag_options)
 
-        async def confirm_release(interaction2: discord.Interaction):
+        async def confirm_release(inter2: discord.Interaction):
             flag_value = flag_select.values[0]
             await utils.release_flag(guild_id, self.map_key, flag_value)
             async with utils.db_pool.acquire() as conn:
-                await conn.execute("""
-                    UPDATE factions SET claimed_flag=NULL
-                    WHERE guild_id=$1 AND claimed_flag=$2 AND map=$3
-                """, guild_id, flag_value, self.map_key)
+                await conn.execute(
+                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2 AND map=$3",
+                    guild_id,
+                    flag_value,
+                    self.map_key,
+                )
 
             await self.refresh_flag_embed()
             await utils.log_action(
                 self.guild,
                 self.map_key,
                 title="Flag Released (UI)",
-                description=f"🏳️ `{flag_value}` released by {interaction.user.mention}."
+                description=f"🏳️ `{flag_value}` released by {interaction.user.mention}.",
             )
-            await interaction2.response.edit_message(content=f"✅ Released `{flag_value}`.", view=None)
+            await inter2.response.edit_message(content=f"✅ Released `{flag_value}`.", view=None)
 
         release_view = View()
         release_view.add_item(flag_select)
