@@ -5,7 +5,6 @@ from datetime import datetime
 from cogs import utils  # ✅ Shared DB, flag, and logging functions
 from .faction_utils import ensure_faction_table, make_embed
 
-
 MAP_CHOICES = [
     app_commands.Choice(name="Livonia", value="Livonia"),
     app_commands.Choice(name="Chernarus", value="Chernarus"),
@@ -26,7 +25,6 @@ COLOR_CHOICES = [
     app_commands.Choice(name="Grey ⚙️", value="#808080"),
     app_commands.Choice(name="Brown 🤎", value="#8B4513"),
 ]
-
 
 class FactionCreate(commands.Cog):
     def __init__(self, bot):
@@ -95,7 +93,7 @@ class FactionCreate(commands.Cog):
                 ephemeral=True
             )
 
-        # 🏳️ Check Flag availability
+        # 🏳️ Check flag availability
         flags = await utils.get_all_flags(guild_id, map_key)
         flag_data = next((f for f in flags if f["flag"].lower() == flag.lower()), None)
         if not flag_data:
@@ -196,22 +194,7 @@ class FactionCreate(commands.Cog):
         except Exception:
             pass
 
-        # 🪵 Ensure universal faction log channel exists
-        category_name = "📜 DayZ Manager Logs"
-        logs_category = discord.utils.get(guild.categories, name=category_name)
-        if not logs_category:
-            logs_category = await guild.create_category(category_name)
-
-        factions_log = discord.utils.get(guild.text_channels, name="factions-logs")
-        if not factions_log:
-            factions_log = await guild.create_text_channel(
-                name="factions-logs",
-                category=logs_category,
-                reason="Auto-created for faction logging"
-            )
-            await factions_log.send("🪵 This channel logs all faction-related actions.")
-
-        # 🧾 Log creation
+        # 🧾 Log creation to map-specific channel
         await utils.log_faction_action(
             guild,
             action="Faction Created + Flag Claimed",
@@ -239,7 +222,6 @@ class FactionCreate(commands.Cog):
             color=int(color.value.strip("#"), 16)
         )
         await interaction.followup.send(embed=confirm_embed)
-
 
 async def setup(bot):
     await bot.add_cog(FactionCreate(bot))
