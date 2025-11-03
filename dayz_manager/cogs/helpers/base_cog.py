@@ -1,5 +1,6 @@
 import discord
-from dayz_manager.cogs.utils import create_flag_embed, db_pool
+from dayz_manager.cogs.utils.database import db_pool
+from dayz_manager.cogs.utils.embeds import create_flag_embed
 
 class BaseCog:
     """Reusable helper methods shared across all cogs."""
