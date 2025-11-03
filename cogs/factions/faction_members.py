@@ -12,7 +12,10 @@ class FactionMembers(commands.Cog):
     # ============================================
     # ➕ /add-member
     # ============================================
-    @app_commands.command(name="add-member", description="Add a member to a faction.")
+    @app_commands.command(
+        name="add-member",
+        description="Add a member to a faction."
+    )
     async def add_member(self, interaction: discord.Interaction, faction_name: str, member: discord.Member):
         await interaction.response.defer(ephemeral=True)
 
@@ -36,6 +39,9 @@ class FactionMembers(commands.Cog):
         if not faction:
             return await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
 
+        # ✅ Normalize map key for consistent logging
+        map_key = faction["map"].lower()
+
         members = faction["member_ids"] or []
         if str(member.id) in members:
             return await interaction.followup.send(f"⚠️ {member.mention} is already in `{faction_name}`.", ephemeral=True)
@@ -55,7 +61,7 @@ class FactionMembers(commands.Cog):
             action="Member Added",
             faction_name=faction["faction_name"],
             user=interaction.user,
-            details=f"{interaction.user.mention} added {member.mention} to faction `{faction['faction_name']}`."
+            details=f"{interaction.user.mention} added {member.mention} to faction `{faction['faction_name']}` (Map: `{map_key}`)."
         )
 
         # ✅ Confirmation
@@ -65,7 +71,10 @@ class FactionMembers(commands.Cog):
     # ============================================
     # ➖ /remove-member
     # ============================================
-    @app_commands.command(name="remove-member", description="Remove a member from a faction.")
+    @app_commands.command(
+        name="remove-member",
+        description="Remove a member from a faction."
+    )
     async def remove_member(self, interaction: discord.Interaction, faction_name: str, member: discord.Member):
         await interaction.response.defer(ephemeral=True)
 
@@ -89,6 +98,9 @@ class FactionMembers(commands.Cog):
         if not faction:
             return await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
 
+        # ✅ Normalize map key for consistent logging
+        map_key = faction["map"].lower()
+
         members = faction["member_ids"] or []
         if str(member.id) not in members:
             return await interaction.followup.send(f"⚠️ {member.mention} is not in `{faction_name}`.", ephemeral=True)
@@ -108,7 +120,7 @@ class FactionMembers(commands.Cog):
             action="Member Removed",
             faction_name=faction["faction_name"],
             user=interaction.user,
-            details=f"{interaction.user.mention} removed {member.mention} from faction `{faction['faction_name']}`."
+            details=f"{interaction.user.mention} removed {member.mention} from faction `{faction['faction_name']}` (Map: `{map_key}`)."
         )
 
         # ✅ Confirmation
