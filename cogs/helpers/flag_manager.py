@@ -1,6 +1,5 @@
 import discord
 from cogs import utils
-from cogs.helpers.decorators import normalize_map
 
 class FlagManager:
     """Central handler for all flag operations (assign, release, sync)."""
@@ -28,11 +27,14 @@ class FlagManager:
         faction = await utils.get_faction_by_flag(guild_id, flag)
         if not faction:
             async with utils.db_pool.acquire() as conn:
-                await conn.execute("""
+                await conn.execute(
+                    """
                     UPDATE factions
                     SET claimed_flag=$1
                     WHERE guild_id=$2 AND role_id=$3 AND map=$4
-                """, flag, guild_id, str(role.id), map_key)
+                    """,
+                    flag, guild_id, str(role.id), map_key
+                )
 
         # ✅ Refresh embed
         try:
@@ -53,7 +55,8 @@ class FlagManager:
             action="Flag Assigned",
             faction_name=role.name,
             user=user,
-            details=f"Flag `{flag}` claimed on map `{map_key.title()}`."
+            details=f"Flag `{flag}` claimed on map `{map_key.title()}`.",
+            map_key=map_key,  # 👈 required
         )
 
     # -----------------------------------------------------------------
@@ -78,11 +81,14 @@ class FlagManager:
 
         # ✅ Unlink from factions table
         async with utils.db_pool.acquire() as conn:
-            await conn.execute("""
+            await conn.execute(
+                """
                 UPDATE factions
                 SET claimed_flag=NULL
                 WHERE guild_id=$1 AND claimed_flag=$2 AND map=$3
-            """, guild_id, flag, map_key)
+                """,
+                guild_id, flag, map_key
+            )
 
         # ✅ Refresh embed
         try:
@@ -103,7 +109,8 @@ class FlagManager:
             action="Flag Released",
             faction_name=None,
             user=user,
-            details=f"Flag `{flag}` released on `{map_key.title()}`."
+            details=f"Flag `{flag}` released on `{map_key.title()}`.",
+            map_key=map_key,  # 👈 required
         )
 
     # -----------------------------------------------------------------
