@@ -75,7 +75,6 @@ async def register_persistent_views():
 # =========================
 async def load_cogs():
     loaded = 0
-    # Load helpers first so error handler is present
     for module_path in [
         "dayz_manager.cogs.helpers.error_handler",
         "dayz_manager.cogs.flags.setup",
@@ -84,8 +83,8 @@ async def load_cogs():
         "dayz_manager.cogs.factions.create",
         "dayz_manager.cogs.factions.delete",
         "dayz_manager.cogs.factions.members",
-        "dayz_manager.cogs.flags.ui",  # view registration
-        "dayz_manager.cogs.helpers.base_cog",  # not a cog, but keeps import sanity
+        "dayz_manager.cogs.flags.ui",
+        "dayz_manager.cogs.helpers.base_cog",
     ]:
         try:
             await bot.load_extension(module_path)
@@ -113,8 +112,9 @@ async def on_ready():
 
     if db_pool is None:
         log.error("❌ Database not connected!")
+    else:
+        log.info("✅ Database connection verified.")
 
-    await register_persistent_views()
     log.info("------ Ready ------")
 
 # =========================
@@ -131,6 +131,9 @@ async def main():
     log.info(f"[DEBUG] Database module reloaded with pool: {db_module.db_pool}")
 
     await load_cogs()
+
+    # ✅ Register persistent views AFTER DB + cogs are ready
+    await register_persistent_views()
 
     token = DISCORD_TOKEN
     if not token:
