@@ -89,7 +89,9 @@ class FactionCreate(commands.Cog):
 
         guild = interaction.guild
         guild_id = str(guild.id)
-        map_key = map.value
+
+        # ✅ Normalize map key
+        map_key = map.value.lower()
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
         # 🔍 Prevent duplicates
@@ -156,7 +158,7 @@ class FactionCreate(commands.Cog):
             await conn.execute("""
                 INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            """, guild_id, map.value, name, str(role.id), str(channel.id),
+            """, guild_id, map_key, name, str(role.id), str(channel.id),
                 str(leader.id), [str(m.id) for m in members], color.value)
 
         # 🏳️ Assign flag ownership
