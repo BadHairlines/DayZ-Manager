@@ -2,14 +2,11 @@ import discord
 from cogs import utils
 
 class FlagManager:
-    """Central handler for all flag operations (assign, release, sync)."""
+    """Central handler for flag assign/release and embed sync."""
 
-    # ----------------------------
-    # Helpers
-    # ----------------------------
     @staticmethod
     def _canonical_flag_name(raw: str) -> str | None:
-        """Return the canonical flag name from utils.FLAGS using case-insensitive match."""
+        """Case-insensitive lookup into utils.FLAGS and return the canonical name."""
         if not raw:
             return None
         r = raw.strip().lower()
@@ -23,37 +20,33 @@ class FlagManager:
         if role.guild.id != guild.id:
             raise ValueError("The selected role does not belong to this server.")
 
-    # ----------------------------
-    # Assign
-    # ----------------------------
     @staticmethod
-    async def assign_flag(guild: discord.Guild, map_key: str, flag: str, role: discord.Role, user: discord.Member):
-        """Assign a flag to a role/faction and update all related systems."""
+    async def assign_flag(
+        guild: discord.Guild,
+        map_key: str,
+        flag: str,
+        role: discord.Role,
+        user: discord.Member
+    ):
+        """Assign a flag to a role/faction and update related systems."""
         guild_id = str(guild.id)
-
-        # DB ready
         await utils.ensure_connection()
         if utils.db_pool is None:
             raise RuntimeError("Database not initialized yet.")
 
-        # Role sanity
         FlagManager._ensure_role_in_guild(guild, role)
 
-        # Canonicalize + validate flag
         canonical_flag = FlagManager._canonical_flag_name(flag)
         if not canonical_flag:
             raise ValueError(f"Invalid flag name '{flag}'. Must be one of {', '.join(utils.FLAGS)}")
 
-        # Check current state
         flag_data = await utils.get_flag(guild_id, map_key, canonical_flag)
         if flag_data and flag_data["status"] == "❌":
             current_owner = flag_data["role_id"]
             raise ValueError(f"Flag '{canonical_flag}' is already owned by <@&{current_owner}>.")
 
-        # Set ownership
         await utils.set_flag(guild_id, map_key, canonical_flag, "❌", str(role.id))
 
-        # Sync to factions table if a faction row exists for that role+map (or just force update)
         async with utils.db_pool.acquire() as conn:
             await conn.execute(
                 """
@@ -64,10 +57,8 @@ class FlagManager:
                 canonical_flag, guild_id, str(role.id), map_key
             )
 
-        # Refresh UI
         await FlagManager._refresh_embed_safe(guild, guild_id, map_key)
 
-        # Logs
         await utils.log_action(
             guild,
             map_key,
@@ -84,33 +75,29 @@ class FlagManager:
             map_key=map_key,
         )
 
-    # ----------------------------
-    # Release
-    # ----------------------------
     @staticmethod
-    async def release_flag(guild: discord.Guild, map_key: str, flag: str, user: discord.Member):
+    async def release_flag(
+        guild: discord.Guild,
+        map_key: str,
+        flag: str,
+        user: discord.Member
+    ):
         """Release a flag back to unclaimed state."""
         guild_id = str(guild.id)
-
-        # DB ready
         await utils.ensure_connection()
         if utils.db_pool is None:
             raise RuntimeError("Database not initialized yet.")
 
-        # Canonicalize + validate flag
         canonical_flag = FlagManager._canonical_flag_name(flag)
         if not canonical_flag:
             raise ValueError(f"Invalid flag name '{flag}'.")
 
-        # Ownership check
         flag_data = await utils.get_flag(guild_id, map_key, canonical_flag)
         if not flag_data or flag_data["status"] == "✅":
             raise ValueError(f"Flag '{canonical_flag}' is already unclaimed on `{map_key.title()}`.")
 
-        # Release in flags table
         await utils.release_flag(guild_id, map_key, canonical_flag)
 
-        # Unlink faction row(s) that had this flag on this map
         async with utils.db_pool.acquire() as conn:
             await conn.execute(
                 """
@@ -121,10 +108,8 @@ class FlagManager:
                 guild_id, canonical_flag, map_key
             )
 
-        # Refresh UI
         await FlagManager._refresh_embed_safe(guild, guild_id, map_key)
 
-        # Logs
         await utils.log_action(
             guild,
             map_key,
@@ -141,12 +126,9 @@ class FlagManager:
             map_key=map_key,
         )
 
-    # ----------------------------
-    # Embed refresh
-    # ----------------------------
     @staticmethod
     async def _refresh_embed_safe(guild: discord.Guild, guild_id: str, map_key: str) -> None:
-        """Refresh the map’s flag embed, but fail silently if the message/channel is missing."""
+        """Refresh the map’s flag embed; fail silently if message/channel is missing."""
         if utils.db_pool is None:
             return
         try:
