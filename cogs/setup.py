@@ -2,10 +2,9 @@ import asyncio
 import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
-from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action
+from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action, ensure_connection
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-from cogs.ui_views import FlagManageView  # ✅ Interactive flag controls
-
+from cogs.ui_views import FlagManageView
 
 class Setup(commands.Cog):
     """Handles setup and initialization of flag systems per map."""
@@ -13,9 +12,6 @@ class Setup(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ==============================================
-    # 🏗️ /setup
-    # ==============================================
     @app_commands.command(
         name="setup",
         description="Setup or refresh a map and initialize all flags in the database."
@@ -37,12 +33,13 @@ class Setup(commands.Cog):
             ephemeral=True
         )
 
-        # ✅ Ensure DB pool exists
-        if db_pool is None:
-            return await interaction.followup.send("❌ Database not initialized. Please restart the bot.")
+        # 🧩 Ensure DB connected (auto-reconnect)
+        await ensure_connection()
 
         try:
-            # 🗃️ Ensure table exists
+            # =============================
+            # 🗃️ Ensure flag_messages table
+            # =============================
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS flag_messages (
@@ -59,7 +56,9 @@ class Setup(commands.Cog):
                     guild_id, map_key
                 )
 
-            # ✅ Create or reuse channels
+            # =============================
+            # 🧭 Create or reuse channels
+            # =============================
             flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
             if not flags_channel:
                 flags_channel = await guild.create_text_channel(
@@ -76,12 +75,16 @@ class Setup(commands.Cog):
                 )
                 await log_channel.send(f"🗒️ Logs for **{map_info['name']}** setup.")
 
-            # ✅ Initialize all flags
+            # =============================
+            # 🏁 Initialize all flags cleanly
+            # =============================
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
                 await asyncio.sleep(0.05)  # prevent DB spam
 
-            # ✅ Embed + persistent view
+            # =============================
+            # 🖼️ Create embed + view
+            # =============================
             embed = await create_flag_embed(guild_id, map_key)
             view = FlagManageView(guild, map_key, self.bot)
 
@@ -98,7 +101,9 @@ class Setup(commands.Cog):
             if not msg:
                 msg = await flags_channel.send(embed=embed, view=view)
 
-            # ✅ Save message + log channel IDs
+            # =============================
+            # 💾 Save message + log IDs
+            # =============================
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
@@ -110,7 +115,9 @@ class Setup(commands.Cog):
                         log_channel_id = EXCLUDED.log_channel_id;
                 """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-            # ✅ Completion embed
+            # =============================
+            # ✅ Success confirmation
+            # =============================
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
@@ -156,7 +163,6 @@ class Setup(commands.Cog):
                 description=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```",
                 color=0xE74C3C
             )
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Setup(bot))
