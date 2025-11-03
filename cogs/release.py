@@ -5,7 +5,6 @@ from cogs.helpers.base_cog import BaseCog
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 from cogs import utils
 
-
 class Release(commands.Cog, BaseCog):
     """Release a flag (make it available again)."""
 
@@ -101,7 +100,6 @@ class Release(commands.Cog, BaseCog):
             author_name="Flag Release"
         )
         await interaction.followup.send(embed=embed)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Release(bot))
