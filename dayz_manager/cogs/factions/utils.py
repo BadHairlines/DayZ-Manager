@@ -1,5 +1,5 @@
 import discord
-from dayz_manager.cogs.utils import db_pool
+from dayz_manager.cogs.utils.database import db_pool
 
 async def ensure_faction_table():
     if db_pool is None:
