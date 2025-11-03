@@ -16,6 +16,10 @@ class FactionMembers(commands.Cog):
         name="add-member",
         description="Add a member to a faction."
     )
+    @app_commands.describe(
+        faction_name="Exact faction name (case-insensitive)",
+        member="Member to add"
+    )
     async def add_member(self, interaction: discord.Interaction, faction_name: str, member: discord.Member):
         await interaction.response.defer(ephemeral=True)
 
@@ -29,31 +33,45 @@ class FactionMembers(commands.Cog):
 
         guild = interaction.guild
 
-        # 🔍 Find faction
+        # 🔍 Find faction (case-insensitive exact)
         async with utils.db_pool.acquire() as conn:
-            faction = await conn.fetchrow(
+            faction_rec = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 str(guild.id), faction_name
             )
 
-        if not faction:
+        if not faction_rec:
             return await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
 
-        # ✅ Normalize map key for consistent logging
-        map_key = faction["map"].lower()
+        faction = dict(faction_rec)
+        map_key = (faction.get("map") or "").lower()
 
-        members = list(faction["member_ids"] or [])
+        # Normalize member_ids to a mutable list
+        members = list(faction.get("member_ids") or [])
+
         if str(member.id) in members:
+            # Still ensure they have the role (state might be out of sync)
+            role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
+            if role and role not in member.roles:
+                try:
+                    await member.add_roles(role, reason="Faction sync (was already in DB)")
+                except Exception as e:
+                    print(f"⚠️ Failed to add role to {member}: {e}")
             return await interaction.followup.send(f"⚠️ {member.mention} is already in `{faction_name}`.", ephemeral=True)
 
-        # ➕ Add new member
+        # ➕ Add new member to DB list
         members.append(str(member.id))
         async with utils.db_pool.acquire() as conn:
             await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
         # 🎭 Assign role
-        role = guild.get_role(int(faction["role_id"]))
-        if role:
+        role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
+        if not role:
+            await interaction.followup.send(
+                f"✅ Added to DB, but no valid faction role was found to assign. (Check role_id for `{faction_name}`.)",
+                ephemeral=True
+            )
+        else:
             try:
                 await member.add_roles(role, reason="Added to faction")
             except Exception as e:
@@ -80,6 +98,10 @@ class FactionMembers(commands.Cog):
         name="remove-member",
         description="Remove a member from a faction."
     )
+    @app_commands.describe(
+        faction_name="Exact faction name (case-insensitive)",
+        member="Member to remove"
+    )
     async def remove_member(self, interaction: discord.Interaction, faction_name: str, member: discord.Member):
         await interaction.response.defer(ephemeral=True)
 
@@ -95,19 +117,26 @@ class FactionMembers(commands.Cog):
 
         # 🔍 Find faction
         async with utils.db_pool.acquire() as conn:
-            faction = await conn.fetchrow(
+            faction_rec = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
                 str(guild.id), faction_name
             )
 
-        if not faction:
+        if not faction_rec:
             return await interaction.followup.send(f"❌ Faction `{faction_name}` not found.", ephemeral=True)
 
-        # ✅ Normalize map key for consistent logging
-        map_key = faction["map"].lower()
+        faction = dict(faction_rec)
+        map_key = (faction.get("map") or "").lower()
 
-        members = list(faction["member_ids"] or [])
+        members = list(faction.get("member_ids") or [])
         if str(member.id) not in members:
+            # If they still have the role, clean that up
+            role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
+            if role and role in member.roles:
+                try:
+                    await member.remove_roles(role, reason="Faction sync (not in DB)")
+                except Exception as e:
+                    print(f"⚠️ Failed to remove role from {member}: {e}")
             return await interaction.followup.send(f"⚠️ {member.mention} is not in `{faction_name}`.", ephemeral=True)
 
         # ➖ Remove member
@@ -116,7 +145,7 @@ class FactionMembers(commands.Cog):
             await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
         # 🎭 Remove role
-        role = guild.get_role(int(faction["role_id"]))
+        role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
         if role:
             try:
                 await member.remove_roles(role, reason="Removed from faction")
