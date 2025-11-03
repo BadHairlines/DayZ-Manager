@@ -70,7 +70,7 @@ class FactionCreate(commands.Cog):
     ):
         await interaction.response.defer(thinking=True)
 
-        # 🔒 Permission Check
+        # 🔒 Admin check
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("❌ Only admins can create factions.", ephemeral=True)
 
@@ -80,7 +80,6 @@ class FactionCreate(commands.Cog):
 
         guild = interaction.guild
         guild_id = str(guild.id)
-
         map_key = map.value.lower()
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
@@ -108,13 +107,13 @@ class FactionCreate(commands.Cog):
                 ephemeral=True
             )
 
-        # 🗂️ Create or fetch category
+        # 🗂️ Create or fetch faction category
         category_name = f"{map.value} Factions Hub"
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             category = await guild.create_category(category_name)
 
-        # 🎭 Create role
+        # 🎭 Create faction role
         role = await guild.create_role(name=name, color=role_color, mentionable=True)
         divider = discord.utils.get(guild.roles, name="────────── Factions ──────────")
         if divider:
@@ -133,7 +132,7 @@ class FactionCreate(commands.Cog):
         await channel.set_permissions(role, read_messages=True, send_messages=True)
         await channel.set_permissions(guild.default_role, read_messages=False)
 
-        # 👥 Assign roles to leader and members
+        # 👥 Assign roles
         members = [m for m in [leader, member1, member2, member3] if m]
         for m in members:
             try:
@@ -141,7 +140,7 @@ class FactionCreate(commands.Cog):
             except Exception as e:
                 print(f"⚠️ Failed to assign faction role to {m}: {e}")
 
-        # 💾 Save faction to DB
+        # 💾 Save to DB
         async with utils.db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO factions (guild_id, map, faction_name, role_id, channel_id, leader_id, member_ids, color)
@@ -149,10 +148,8 @@ class FactionCreate(commands.Cog):
             """, guild_id, map_key, name, str(role.id), str(channel.id),
                 str(leader.id), [str(m.id) for m in members], color.value)
 
-        # 🏳️ Assign flag ownership (both systems)
+        # 🏳️ Assign flag ownership
         await utils.set_flag(guild_id, map_key, flag, "❌", str(role.id))
-
-        # ✅ NEW — Sync claimed flag field in factions table
         async with utils.db_pool.acquire() as conn:
             await conn.execute("""
                 UPDATE factions
@@ -198,6 +195,21 @@ class FactionCreate(commands.Cog):
             await msg.pin()
         except Exception:
             pass
+
+        # 🪵 Ensure universal faction log channel exists
+        category_name = "📜 DayZ Manager Logs"
+        logs_category = discord.utils.get(guild.categories, name=category_name)
+        if not logs_category:
+            logs_category = await guild.create_category(category_name)
+
+        factions_log = discord.utils.get(guild.text_channels, name="factions-logs")
+        if not factions_log:
+            factions_log = await guild.create_text_channel(
+                name="factions-logs",
+                category=logs_category,
+                reason="Auto-created for faction logging"
+            )
+            await factions_log.send("🪵 This channel logs all faction-related actions.")
 
         # 🧾 Log creation
         await utils.log_faction_action(
