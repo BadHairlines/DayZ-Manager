@@ -1,4 +1,3 @@
-# cogs/helpers/decorators.py
 import discord
 from discord import app_commands
 from functools import wraps
