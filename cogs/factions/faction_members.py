@@ -42,7 +42,7 @@ class FactionMembers(commands.Cog):
         # ✅ Normalize map key for consistent logging
         map_key = faction["map"].lower()
 
-        members = faction["member_ids"] or []
+        members = list(faction["member_ids"] or [])
         if str(member.id) in members:
             return await interaction.followup.send(f"⚠️ {member.mention} is already in `{faction_name}`.", ephemeral=True)
 
@@ -52,16 +52,21 @@ class FactionMembers(commands.Cog):
             await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
         # 🎭 Assign role
-        if (role := guild.get_role(int(faction["role_id"]))):
-            await member.add_roles(role)
+        role = guild.get_role(int(faction["role_id"]))
+        if role:
+            try:
+                await member.add_roles(role, reason="Added to faction")
+            except Exception as e:
+                print(f"⚠️ Failed to add role to {member}: {e}")
 
-        # 🪵 Log event
+        # 🪵 Log event (✅ include map_key)
         await utils.log_faction_action(
             guild,
             action="Member Added",
             faction_name=faction["faction_name"],
             user=interaction.user,
-            details=f"{interaction.user.mention} added {member.mention} to faction `{faction['faction_name']}` (Map: `{map_key}`)."
+            details=f"{interaction.user.mention} added {member.mention} to faction `{faction['faction_name']}` (Map: `{map_key}`).",
+            map_key=map_key,
         )
 
         # ✅ Confirmation
@@ -101,7 +106,7 @@ class FactionMembers(commands.Cog):
         # ✅ Normalize map key for consistent logging
         map_key = faction["map"].lower()
 
-        members = faction["member_ids"] or []
+        members = list(faction["member_ids"] or [])
         if str(member.id) not in members:
             return await interaction.followup.send(f"⚠️ {member.mention} is not in `{faction_name}`.", ephemeral=True)
 
@@ -111,16 +116,21 @@ class FactionMembers(commands.Cog):
             await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
         # 🎭 Remove role
-        if (role := guild.get_role(int(faction["role_id"]))):
-            await member.remove_roles(role)
+        role = guild.get_role(int(faction["role_id"]))
+        if role:
+            try:
+                await member.remove_roles(role, reason="Removed from faction")
+            except Exception as e:
+                print(f"⚠️ Failed to remove role from {member}: {e}")
 
-        # 🪵 Log event
+        # 🪵 Log event (✅ include map_key)
         await utils.log_faction_action(
             guild,
             action="Member Removed",
             faction_name=faction["faction_name"],
             user=interaction.user,
-            details=f"{interaction.user.mention} removed {member.mention} from faction `{faction['faction_name']}` (Map: `{map_key}`)."
+            details=f"{interaction.user.mention} removed {member.mention} from faction `{faction['faction_name']}` (Map: `{map_key}`).",
+            map_key=map_key,
         )
 
         # ✅ Confirmation
