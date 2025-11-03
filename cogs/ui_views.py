@@ -11,7 +11,7 @@ class FlagManageView(View):
     """Persistent interactive control panel for flag assignment and release."""
 
     def __init__(self, guild: discord.Guild, map_key: str, bot: commands.Bot):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # ✅ Required for persistence
         self.guild = guild
         self.map_key = map_key
         self.bot = bot
@@ -43,15 +43,13 @@ class FlagManageView(View):
     # ----------------------------
     def _role_options(self) -> list[discord.SelectOption]:
         roles = [r for r in self.guild.roles if not r.is_default() and not r.managed]
-        # Sort by position (top first) then name for nicer UX
         roles.sort(key=lambda r: (-r.position, r.name.lower()))
-        opts = [discord.SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:MAX_SELECT_OPTIONS]]
-        return opts
+        return [discord.SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:MAX_SELECT_OPTIONS]]
 
     # ----------------------------
-    # 🟩 Assign Flag
+    # 🟩 Assign Flag (persistent)
     # ----------------------------
-    @button(label="🟩 Assign Flag", style=discord.ButtonStyle.success)
+    @button(label="🟩 Assign Flag", style=discord.ButtonStyle.success, custom_id="assign_flag_btn")
     async def assign_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("🚫 Admins only.", ephemeral=True)
@@ -65,23 +63,16 @@ class FlagManageView(View):
         if not unclaimed:
             return await interaction.followup.send("⚠️ No unclaimed flags available.", ephemeral=True)
 
-        # Build step-1 select (flags)
-        flag_options = [
-            discord.SelectOption(label=f["flag"], value=f["flag"])
-            for f in unclaimed[:MAX_SELECT_OPTIONS]
-        ]
-        flag_select = Select(placeholder="🏴 Select a flag to assign", options=flag_options, min_values=1, max_values=1)
+        flag_options = [discord.SelectOption(label=f["flag"], value=f["flag"]) for f in unclaimed[:MAX_SELECT_OPTIONS]]
+        flag_select = Select(placeholder="🏴 Select a flag to assign", options=flag_options)
 
         step1_view = View()
         step1_view.add_item(flag_select)
 
         async def flag_chosen(inter2: discord.Interaction):
-            # Acknowledge quickly to avoid "Interaction failed"
             await inter2.response.defer(ephemeral=True)
-
             selected_flag = flag_select.values[0]
 
-            # Race condition guard: verify it's still unclaimed
             row_now = await utils.get_flag(guild_id, self.map_key, selected_flag)
             if not row_now or row_now["status"] != "✅":
                 return await inter2.followup.edit_message(
@@ -90,7 +81,6 @@ class FlagManageView(View):
                     view=None
                 )
 
-            # Move to step-2 (role select). Replace the view entirely.
             role_opts = self._role_options()
             if not role_opts:
                 return await inter2.followup.edit_message(
@@ -110,17 +100,16 @@ class FlagManageView(View):
 
             async def role_chosen(inter3: discord.Interaction):
                 await inter3.response.defer(ephemeral=True)
-
                 role_id = int(role_select.values[0])
                 role = self.guild.get_role(role_id)
-                if role is None:
+
+                if not role:
                     return await inter3.followup.edit_message(
                         message_id=inter2.message.id,
                         content="⚠️ That role no longer exists.",
                         view=None
                     )
 
-                # Double-check availability at the moment of assignment
                 row_now2 = await utils.get_flag(guild_id, self.map_key, selected_flag)
                 if not row_now2 or row_now2["status"] != "✅":
                     return await inter3.followup.edit_message(
@@ -129,7 +118,6 @@ class FlagManageView(View):
                         view=None
                     )
 
-                # Update flag + faction link
                 await utils.set_flag(guild_id, self.map_key, selected_flag, "❌", str(role.id))
                 async with utils.db_pool.acquire() as conn:
                     await conn.execute(
@@ -144,9 +132,9 @@ class FlagManageView(View):
                     description=f"🏴 `{selected_flag}` assigned to {role.mention} by {interaction.user.mention}.",
                 )
 
-                # Disable the step-2 menu and confirm
                 for child in step2_view.children:
                     child.disabled = True
+
                 await inter3.followup.edit_message(
                     message_id=inter2.message.id,
                     content=f"✅ Successfully assigned `{selected_flag}` to {role.mention}!",
@@ -162,23 +150,17 @@ class FlagManageView(View):
             )
 
         flag_select.callback = flag_chosen
-
-        await interaction.followup.send(
-            "Select a flag to assign:",
-            view=step1_view,
-            ephemeral=True
-        )
+        await interaction.followup.send("Select a flag to assign:", view=step1_view, ephemeral=True)
 
     # ----------------------------
-    # 🟥 Release Flag
+    # 🟥 Release Flag (persistent)
     # ----------------------------
-    @button(label="🟥 Release Flag", style=discord.ButtonStyle.danger)
+    @button(label="🟥 Release Flag", style=discord.ButtonStyle.danger, custom_id="release_flag_btn")
     async def release_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("🚫 Admins only.", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
-
         guild_id = str(self.guild.id)
         all_flags = await utils.get_all_flags(guild_id, self.map_key)
         claimed = [f for f in all_flags if f["status"] == "❌"]
@@ -186,11 +168,8 @@ class FlagManageView(View):
         if not claimed:
             return await interaction.followup.send("⚠️ No claimed flags to release.", ephemeral=True)
 
-        flag_options = [
-            discord.SelectOption(label=f["flag"], value=f["flag"])
-            for f in claimed[:MAX_SELECT_OPTIONS]
-        ]
-        flag_select = Select(placeholder="🏳️ Select a flag to release", options=flag_options, min_values=1, max_values=1)
+        flag_options = [discord.SelectOption(label=f["flag"], value=f["flag"]) for f in claimed[:MAX_SELECT_OPTIONS]]
+        flag_select = Select(placeholder="🏳️ Select a flag to release", options=flag_options)
         step_view = View()
         step_view.add_item(flag_select)
 
@@ -198,7 +177,6 @@ class FlagManageView(View):
             await inter2.response.defer(ephemeral=True)
             flag_value = flag_select.values[0]
 
-            # Guard: ensure it's still claimed
             row_now = await utils.get_flag(guild_id, self.map_key, flag_value)
             if not row_now or row_now["status"] != "❌":
                 return await inter2.followup.edit_message(
@@ -207,7 +185,6 @@ class FlagManageView(View):
                     view=None
                 )
 
-            # Release and unlink
             await utils.release_flag(guild_id, self.map_key, flag_value)
             async with utils.db_pool.acquire() as conn:
                 await conn.execute(
@@ -222,7 +199,6 @@ class FlagManageView(View):
                 description=f"🏳️ `{flag_value}` released by {interaction.user.mention}.",
             )
 
-            # Disable the menu and confirm
             for child in step_view.children:
                 child.disabled = True
             await inter2.followup.edit_message(
@@ -232,9 +208,4 @@ class FlagManageView(View):
             )
 
         flag_select.callback = flag_chosen
-
-        await interaction.followup.send(
-            "Select a flag to release:",
-            view=step_view,
-            ephemeral=True
-        )
+        await interaction.followup.send("Select a flag to release:", view=step_view, ephemeral=True)
