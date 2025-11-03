@@ -25,6 +25,7 @@ class Setup(commands.Cog):
         map_key = normalize_map(selected_map)
         map_info = MAP_DATA[map_key]
 
+        category_name = map_info["name"]
         flags_channel_name = f"flags-{map_key}"
         logs_channel_name = f"{map_key}-logs"
 
@@ -57,12 +58,24 @@ class Setup(commands.Cog):
                 )
 
             # =============================
-            # 🧭 Create or reuse channels
+            # 📂 Create or reuse category
+            # =============================
+            category = discord.utils.get(guild.categories, name=category_name)
+            if not category:
+                category = await guild.create_category(
+                    name=category_name,
+                    reason=f"Auto-created for {map_info['name']} map setup"
+                )
+                await asyncio.sleep(0.5)
+
+            # =============================
+            # 🧭 Create or reuse channels inside category
             # =============================
             flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
             if not flags_channel:
                 flags_channel = await guild.create_text_channel(
                     name=flags_channel_name,
+                    category=category,
                     reason=f"Auto-created for {map_info['name']} setup"
                 )
                 await flags_channel.send(f"📜 Flag ownership for **{map_info['name']}**.")
@@ -71,9 +84,14 @@ class Setup(commands.Cog):
             if not log_channel:
                 log_channel = await guild.create_text_channel(
                     name=logs_channel_name,
+                    category=category,
                     reason=f"Log channel for {map_info['name']} flag activity"
                 )
                 await log_channel.send(f"🗒️ Logs for **{map_info['name']}** setup.")
+
+            # ✅ Sync permissions to category (optional but clean)
+            await flags_channel.edit(sync_permissions=True)
+            await log_channel.edit(sync_permissions=True)
 
             # =============================
             # 🏁 Initialize all flags cleanly
@@ -122,8 +140,9 @@ class Setup(commands.Cog):
                 title="__SETUP COMPLETE__",
                 description=(
                     f"✅ **{map_info['name']}** setup finished successfully.\n\n"
-                    f"📁 Flags channel: {flags_channel.mention}\n"
-                    f"🧭 Log channel: {log_channel.mention}\n"
+                    f"📂 **Category:** {category.name}\n"
+                    f"📁 **Flags channel:** {flags_channel.mention}\n"
+                    f"🧭 **Log channel:** {log_channel.mention}\n"
                     f"🧾 Flag message refreshed.\n\n"
                     f"🟩 **Admins can manage flags below the embed!**"
                 ),
@@ -146,6 +165,7 @@ class Setup(commands.Cog):
                 title="Map Setup Complete",
                 description=(
                     f"✅ **{map_info['name']}** setup by {interaction.user.mention}.\n\n"
+                    f"📂 Category: {category.name}\n"
                     f"📁 Flags: {flags_channel.mention}\n"
                     f"🧭 Logs: {log_channel.mention}"
                 ),
@@ -163,6 +183,7 @@ class Setup(commands.Cog):
                 description=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```",
                 color=0xE74C3C
             )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Setup(bot))
