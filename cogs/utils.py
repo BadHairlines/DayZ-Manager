@@ -1,6 +1,7 @@
 import asyncpg
 import os
 import ssl
+import asyncio
 import discord
 
 # ======================================================
@@ -26,7 +27,26 @@ CUSTOM_EMOJIS = {flag: f":{flag}:" for flag in FLAGS}
 
 
 # ======================================================
-# 🧩 Database Initialization (with auto-migration)
+# 🧠 Auto-Healing Connection Helper
+# ======================================================
+async def ensure_connection():
+    """Ensure db_pool is alive and reconnect if lost."""
+    global db_pool
+    if db_pool is None:
+        print("⚠️ DB pool not found — initializing...")
+        await init_db()
+        return
+
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("SELECT 1;")
+    except Exception as e:
+        print(f"⚠️ Lost DB connection — reconnecting: {e}")
+        await init_db()
+
+
+# ======================================================
+# 🧩 Database Initialization (with auto-migration + retries)
 # ======================================================
 async def init_db():
     """Initialize PostgreSQL connection and ensure all tables/columns exist."""
@@ -49,11 +69,16 @@ async def init_db():
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
     print("🔌 Connecting to PostgreSQL…")
-    try:
-        db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
-        raise
+    for attempt in range(3):
+        try:
+            db_pool = await asyncpg.create_pool(db_url, ssl=ssl_ctx)
+            break
+        except Exception as e:
+            wait = 5 * (attempt + 1)
+            print(f"⚠️ Database connection failed (attempt {attempt+1}/3): {e}")
+            await asyncio.sleep(wait)
+    else:
+        raise RuntimeError("❌ Could not connect to PostgreSQL after 3 attempts.")
 
     async with db_pool.acquire() as conn:
         try:
@@ -102,7 +127,6 @@ async def init_db():
                     UNIQUE (guild_id, faction_name)
                 );
             """)
-            # ✅ Ensure backwards compatibility
             col_check = await conn.fetchval("""
                 SELECT column_name FROM information_schema.columns
                 WHERE table_name='factions' AND column_name='claimed_flag';
@@ -149,7 +173,7 @@ def require_db():
 # ⚙️ Flag CRUD Operations
 # ======================================================
 async def set_flag(guild_id: str, map_name: str, flag: str, status: str, role_id: str | None):
-    require_db()
+    await ensure_connection()
     async with db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO flags (guild_id, map, flag, status, role_id)
@@ -160,7 +184,7 @@ async def set_flag(guild_id: str, map_name: str, flag: str, status: str, role_id
 
 
 async def get_flag(guild_id: str, map_name: str, flag: str):
-    require_db()
+    await ensure_connection()
     async with db_pool.acquire() as conn:
         return await conn.fetchrow("""
             SELECT status, role_id FROM flags
@@ -169,7 +193,7 @@ async def get_flag(guild_id: str, map_name: str, flag: str):
 
 
 async def get_all_flags(guild_id: str, map_name: str):
-    require_db()
+    await ensure_connection()
     async with db_pool.acquire() as conn:
         return await conn.fetch("""
             SELECT flag, status, role_id FROM flags
@@ -182,14 +206,13 @@ async def release_flag(guild_id: str, map_name: str, flag: str):
 
 
 async def reset_map_flags(guild_id: str, map_name: str):
-    require_db()
+    await ensure_connection()
     async with db_pool.acquire() as conn:
         await conn.execute("""
             UPDATE flags
             SET status='✅', role_id=NULL
             WHERE guild_id=$1 AND map=$2;
         """, guild_id, map_name)
-        # Also clear claimed_flag for all factions on that map
         await conn.execute("""
             UPDATE factions
             SET claimed_flag=NULL
@@ -201,8 +224,7 @@ async def reset_map_flags(guild_id: str, map_name: str):
 # 🧭 Faction ↔ Flag Sync Utilities
 # ======================================================
 async def sync_faction_claims(guild_id: str):
-    """Ensure factions.claimed_flag matches actual flag ownership."""
-    require_db()
+    await ensure_connection()
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT f.map, f.flag, f.role_id
@@ -219,8 +241,7 @@ async def sync_faction_claims(guild_id: str):
 
 
 async def get_faction_by_flag(guild_id: str, flag: str):
-    """Return the faction that owns a given flag."""
-    require_db()
+    await ensure_connection()
     async with db_pool.acquire() as conn:
         return await conn.fetchrow(
             "SELECT * FROM factions WHERE guild_id=$1 AND claimed_flag=$2",
@@ -232,7 +253,7 @@ async def get_faction_by_flag(guild_id: str, flag: str):
 # 🧱 Shared Flag Embed Builder
 # ======================================================
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
-    require_db()
+    await ensure_connection()
     records = await get_all_flags(guild_id, map_key)
     db_flags = {r["flag"]: r for r in records}
 
@@ -260,7 +281,7 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 # 🪵 Structured Logging (Flag System)
 # ======================================================
 async def log_action(guild: discord.Guild, map_key: str, title="Event Log", description="", color=None):
-    require_db()
+    await ensure_connection()
     guild_id = str(guild.id)
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -304,110 +325,3 @@ async def log_action(guild: discord.Guild, map_key: str, title="Event Log", desc
         await log_channel.send(embed=embed)
     except Exception as e:
         print(f"⚠️ Failed to send embed log for {guild.name} ({map_key}): {e}")
-
-
-# ======================================================
-# 📜 Faction Logging System
-# ======================================================
-async def log_faction_action(
-    guild: discord.Guild,
-    action: str,
-    faction_name: str | None = None,
-    user: discord.Member | None = None,
-    details: str | None = None
-):
-    """Store faction actions in DB and send embed to #faction-logs."""
-    if db_pool is None:
-        print("⚠️ Skipping faction log — DB not ready.")
-        return
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO faction_logs (guild_id, action, faction_name, user_id, details)
-            VALUES ($1, $2, $3, $4, $5)
-        """, str(guild.id), action, faction_name, str(user.id) if user else None, details)
-
-    log_channel = discord.utils.get(guild.text_channels, name="faction-logs")
-    if not log_channel:
-        try:
-            log_channel = await guild.create_text_channel("faction-logs", reason="Faction logging channel auto-created.")
-            print(f"🆕 Created #faction-logs channel in {guild.name}")
-        except Exception as e:
-            print(f"⚠️ Could not create #faction-logs in {guild.name}: {e}")
-            return
-
-    color_map = {
-        "create": 0x2ECC71,
-        "delete": 0xE74C3C,
-        "assign": 0xF1C40F,
-        "update": 0x3498DB,
-        "release": 0x95A5A6,
-    }
-    color = next((v for k, v in color_map.items() if k in action.lower()), 0x95A5A6)
-
-    embed = discord.Embed(
-        title=f"📜 Faction Log — {action}",
-        description=(
-            f"**Faction:** `{faction_name}`\n"
-            f"**User:** {user.mention if user else '*System*'}\n"
-            f"**Details:** {details or '*No details provided.*'}"
-        ),
-        color=color,
-        timestamp=discord.utils.utcnow()
-    )
-    embed.set_footer(
-        text="DayZ Manager • Faction Logs",
-        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-    )
-
-    try:
-        await log_channel.send(embed=embed)
-    except Exception as e:
-        print(f"⚠️ Failed to send faction log to {guild.name}: {e}")
-
-
-# ======================================================
-# 🧹 Auto-Cleanup of Deleted Roles
-# ======================================================
-async def cleanup_deleted_roles(guild: discord.Guild):
-    if not db_pool:
-        print("⚠️ Database not initialized. Skipping cleanup.")
-        return
-
-    guild_id = str(guild.id)
-    cleaned_count = 0
-
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT map, flag, role_id FROM flags
-            WHERE guild_id = $1 AND role_id IS NOT NULL;
-        """, guild_id)
-
-        for row in rows:
-            map_key, flag, role_id = row["map"], row["flag"], row["role_id"]
-
-            if not guild.get_role(int(role_id)):
-                await conn.execute("""
-                    UPDATE flags
-                    SET status = '✅', role_id = NULL
-                    WHERE guild_id = $1 AND map = $2 AND flag = $3;
-                """, guild_id, map_key, flag)
-
-                # 🧩 Also clear claimed_flag for factions with this role
-                await conn.execute(
-                    "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND role_id=$2",
-                    guild_id, str(role_id)
-                )
-
-                cleaned_count += 1
-                print(f"🧹 Cleaned up deleted role {role_id} for flag {flag} ({map_key})")
-
-                await log_action(
-                    guild,
-                    map_key,
-                    title="Auto-Cleanup",
-                    description=f"🧹 `{flag}` reset to ✅ — deleted role <@&{role_id}> was removed."
-                )
-
-    if cleaned_count > 0:
-        print(f"✅ Auto-Cleanup complete: {cleaned_count} cleaned in {guild.name}")
