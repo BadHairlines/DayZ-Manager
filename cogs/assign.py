@@ -6,7 +6,6 @@ from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 from cogs import utils
 import asyncio
 
-
 class Assign(commands.Cog, BaseCog):
     """Assign a flag to a faction or role."""
 
@@ -108,7 +107,6 @@ class Assign(commands.Cog, BaseCog):
             author_name="Flag Assignment"
         )
         await interaction.followup.send(embed=embed)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Assign(bot))
