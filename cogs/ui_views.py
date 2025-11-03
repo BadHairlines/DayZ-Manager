@@ -7,20 +7,17 @@ MAX_SELECT_OPTIONS = 25  # Discord limit
 
 
 class FlagManageView(View):
-    """Persistent interactive control panel for flag assignment and release."""
-
-    # Prevent overlapping assign/release sessions per GUILD+MAP (not just map)
+    """Persistent control panel for flag assignment and release."""
+    # Lock per guild+map to prevent overlap
     active_sessions: dict[str, bool] = {}
 
     def __init__(self, guild: discord.Guild, map_key: str, bot: commands.Bot):
-        super().__init__(timeout=None)  # ✅ Required for persistence
+        super().__init__(timeout=None)
         self.guild = guild
         self.map_key = map_key
         self.bot = bot
 
-    # ----------------------------
-    # 🔐 Session helpers
-    # ----------------------------
+    # --- session helpers ---
     @property
     def _session_key(self) -> str:
         return f"{self.guild.id}:{self.map_key}"
@@ -34,9 +31,7 @@ class FlagManageView(View):
     def _unlock(self) -> None:
         self.active_sessions.pop(self._session_key, None)
 
-    # ----------------------------
-    # 🔄 Refresh Display
-    # ----------------------------
+    # --- display refresh ---
     async def refresh_flag_embed(self):
         guild_id = str(self.guild.id)
         try:
@@ -56,17 +51,16 @@ class FlagManageView(View):
         except Exception as e:
             print(f"⚠️ Failed to refresh flag embed: {e}")
 
-    # ----------------------------
-    # 🧰 Helpers
-    # ----------------------------
+    # --- helpers ---
     def _role_options(self) -> list[discord.SelectOption]:
         roles = [r for r in self.guild.roles if not r.is_default() and not r.managed]
         roles.sort(key=lambda r: (-r.position, r.name.lower()))
-        return [discord.SelectOption(label=r.name[:100], value=str(r.id)) for r in roles[:MAX_SELECT_OPTIONS]]
+        return [
+            discord.SelectOption(label=r.name[:100], value=str(r.id))
+            for r in roles[:MAX_SELECT_OPTIONS]
+        ]
 
-    # ----------------------------
-    # 🟩 Assign Flag
-    # ----------------------------
+    # --- assign flag ---
     @button(label="🟩 Assign Flag", style=discord.ButtonStyle.success, custom_id="assign_flag_btn")
     async def assign_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
@@ -81,15 +75,16 @@ class FlagManageView(View):
 
         try:
             await interaction.response.defer(ephemeral=True)
+
             guild_id = str(self.guild.id)
             all_flags = await utils.get_all_flags(guild_id, self.map_key)
             unclaimed = [f for f in all_flags if f["status"] == "✅"]
-
             if not unclaimed:
                 return await interaction.followup.send("⚠️ No unclaimed flags available.", ephemeral=True)
 
             flag_options = [
-                discord.SelectOption(label=f"🟩 {f['flag']}", value=f["flag"]) for f in unclaimed[:MAX_SELECT_OPTIONS]
+                discord.SelectOption(label=f"🟩 {f['flag']}", value=f["flag"])
+                for f in unclaimed[:MAX_SELECT_OPTIONS]
             ]
             flag_select = Select(placeholder="🏴 Select a flag to assign", options=flag_options)
             cancel_button = discord.ui.Button(label="❌ Cancel", style=discord.ButtonStyle.secondary)
@@ -176,8 +171,7 @@ class FlagManageView(View):
                         )
                         await inter3.followup.edit_message(message_id=inter2.message.id, embed=embed, view=None)
 
-                        # ❌ Do NOT react to ephemeral messages (not supported)
-
+                        # Do not react to ephemeral messages
                     finally:
                         self._unlock()
 
@@ -191,13 +185,11 @@ class FlagManageView(View):
             flag_select.callback = flag_chosen
             await interaction.followup.send("Select a flag to assign:", view=step1_view, ephemeral=True)
 
-        except Exception as e:
+        except Exception:
             self._unlock()
-            raise e
+            raise
 
-    # ----------------------------
-    # 🟥 Release Flag
-    # ----------------------------
+    # --- release flag ---
     @button(label="🟥 Release Flag", style=discord.ButtonStyle.danger, custom_id="release_flag_btn")
     async def release_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
@@ -212,15 +204,16 @@ class FlagManageView(View):
 
         try:
             await interaction.response.defer(ephemeral=True)
+
             guild_id = str(self.guild.id)
             all_flags = await utils.get_all_flags(guild_id, self.map_key)
             claimed = [f for f in all_flags if f["status"] == "❌"]
-
             if not claimed:
                 return await interaction.followup.send("⚠️ No claimed flags to release.", ephemeral=True)
 
             flag_options = [
-                discord.SelectOption(label=f"🟥 {f['flag']}", value=f["flag"]) for f in claimed[:MAX_SELECT_OPTIONS]
+                discord.SelectOption(label=f"🟥 {f['flag']}", value=f["flag"])
+                for f in claimed[:MAX_SELECT_OPTIONS]
             ]
             flag_select = Select(placeholder="🏳️ Select a flag to release", options=flag_options)
             cancel_button = discord.ui.Button(label="❌ Cancel", style=discord.ButtonStyle.secondary)
@@ -268,14 +261,13 @@ class FlagManageView(View):
                     )
                     await inter2.followup.edit_message(message_id=inter2.message.id, embed=embed, view=None)
 
-                    # ❌ Do NOT react to ephemeral messages
-
+                    # Do not react to ephemeral messages
                 finally:
                     self._unlock()
 
             flag_select.callback = flag_chosen
             await interaction.followup.send("Select a flag to release:", view=step_view, ephemeral=True)
 
-        except Exception as e:
+        except Exception:
             self._unlock()
-            raise e
+            raise
