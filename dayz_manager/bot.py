@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 
 from .config import DISCORD_TOKEN
-from .cogs.utils import init_db, db_pool
+from dayz_manager.cogs.utils.database import init_db, db_pool
 
 # =========================
 # 🧾 Logging
