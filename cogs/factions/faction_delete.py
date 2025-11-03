@@ -12,7 +12,10 @@ class FactionDelete(commands.Cog):
     # ============================================
     # 🗑️ /delete-faction
     # ============================================
-    @app_commands.command(name="delete-faction", description="Delete a faction and remove it from the database.")
+    @app_commands.command(
+        name="delete-faction",
+        description="Delete a faction and remove it from the database."
+    )
     async def delete_faction(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
 
@@ -38,13 +41,16 @@ class FactionDelete(commands.Cog):
         if not faction:
             return await interaction.followup.send(f"❌ Faction `{name}` not found.", ephemeral=True)
 
+        # ✅ Normalize map key (to match DB + flag consistency)
+        map_key = faction["map"].lower()
+
         # 🏳️ If this faction claimed a flag — free it
         claimed_flag = faction.get("claimed_flag") or None
         if claimed_flag:
             try:
                 await utils.set_flag(
                     guild_id,
-                    faction["map"],
+                    map_key,
                     claimed_flag,
                     "✅",  # mark flag as available
                     None   # remove owner
@@ -52,18 +58,18 @@ class FactionDelete(commands.Cog):
 
                 await utils.log_action(
                     guild,
-                    faction["map"],
+                    map_key,
                     title="Flag Released (Faction Deleted)",
                     description=f"🏳️ Flag **{claimed_flag}** was freed after `{name}` disbanded."
                 )
 
                 # 🧭 Try updating flag display
                 try:
-                    embed = await utils.create_flag_embed(guild_id, faction["map"])
+                    embed = await utils.create_flag_embed(guild_id, map_key)
                     async with utils.db_pool.acquire() as conn:
                         row = await conn.fetchrow(
                             "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
-                            guild_id, faction["map"]
+                            guild_id, map_key
                         )
                     if row:
                         ch = guild.get_channel(int(row["channel_id"]))
