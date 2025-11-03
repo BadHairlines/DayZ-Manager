@@ -1,13 +1,16 @@
 import discord
-from dayz_manager.cogs.utils.database import db_pool
+from dayz_manager.cogs.utils import database as db  # ✅ live import so db.db_pool stays current
+
 
 async def ensure_faction_table():
-    if db_pool is None:
+    """Ensure the factions table exists and is up to date."""
+    if db.db_pool is None:
         print("⚠️ Database pool not initialized — skipping faction table creation.")
         return
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("""            CREATE TABLE IF NOT EXISTS factions (
+    async with db.db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS factions (
                 id BIGSERIAL PRIMARY KEY,
                 guild_id TEXT NOT NULL,
                 map TEXT NOT NULL,
@@ -22,9 +25,17 @@ async def ensure_faction_table():
                 UNIQUE (guild_id, faction_name)
             );
         """)
-        await conn.execute("ALTER TABLE factions ADD COLUMN IF NOT EXISTS claimed_flag TEXT;")
+
+        # Make sure claimed_flag exists (for older migrations)
+        await conn.execute(
+            "ALTER TABLE factions ADD COLUMN IF NOT EXISTS claimed_flag TEXT;"
+        )
+
+        # Normalize map names for consistency
         try:
-            await conn.execute("UPDATE factions SET map = LOWER(map) WHERE map != LOWER(map);")
+            await conn.execute(
+                "UPDATE factions SET map = LOWER(map) WHERE map != LOWER(map);"
+            )
             print("🧩 Normalized existing faction map entries to lowercase.")
         except Exception as e:
             print(f"⚠️ Could not normalize faction map names: {e}")
@@ -33,8 +44,12 @@ async def ensure_faction_table():
 
 
 def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
+    """Return a consistent styled embed for faction operations."""
     embed = discord.Embed(title=title, description=desc, color=color)
     embed.set_author(name="🎭 Faction Manager")
-    embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
+    embed.set_footer(
+        text="DayZ Manager",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
     embed.timestamp = discord.utils.utcnow()
     return embed
