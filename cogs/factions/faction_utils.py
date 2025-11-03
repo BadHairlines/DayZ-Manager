@@ -12,6 +12,7 @@ async def ensure_faction_table():
         return
 
     async with utils.db_pool.acquire() as conn:
+        # ✅ Create or verify the table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS factions (
                 id BIGSERIAL PRIMARY KEY,
@@ -23,15 +24,28 @@ async def ensure_faction_table():
                 leader_id TEXT NOT NULL,
                 member_ids TEXT[],
                 color TEXT,
-                claimed_flag TEXT,              -- ✅ NEW COLUMN: stores flag assigned at creation
+                claimed_flag TEXT,              -- ✅ Stores claimed flag name
                 created_at TIMESTAMP DEFAULT NOW(),
                 UNIQUE (guild_id, faction_name)
             );
         """)
-        # Ensure column exists for older tables
+
+        # ✅ Ensure backward compatibility with older schemas
         await conn.execute("""
             ALTER TABLE factions ADD COLUMN IF NOT EXISTS claimed_flag TEXT;
         """)
+
+        # ✅ Optional data cleanup: normalize map values to lowercase
+        try:
+            await conn.execute("""
+                UPDATE factions
+                SET map = LOWER(map)
+                WHERE map != LOWER(map);
+            """)
+            print("🧩 Normalized existing faction map entries to lowercase.")
+        except Exception as e:
+            print(f"⚠️ Could not normalize faction map names: {e}")
+
     print("✅ Verified factions table exists (with claimed_flag column).")
 
 
@@ -46,6 +60,7 @@ def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
         text="DayZ Manager",
         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
     )
+    embed.timestamp = discord.utils.utcnow()
     return embed
 
 
