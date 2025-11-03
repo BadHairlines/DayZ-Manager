@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from dayz_manager.cogs.utils.database import db_pool, log_faction_action
+from dayz_manager.cogs.utils import db_pool, log_faction_action
 from .utils import ensure_faction_table, make_embed
 
 class FactionMembers(commands.Cog):
