@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord.ui import View, button, Select
 
-from dayz_manager.cogs.utils import create_flag_embed, log_action, db_pool
+from dayz_manager.cogs.utils.database import create_flag_embed, log_action, db_pool
 
 class FlagManageView(View):
     """Persistent interactive control panel for flag assignment and release."""
