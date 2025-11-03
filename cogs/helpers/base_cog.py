@@ -1,4 +1,3 @@
-# cogs/helpers/base_cog.py
 import discord
 from cogs import utils
 
