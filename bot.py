@@ -24,9 +24,10 @@ log = logging.getLogger("dayz-manager")
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
-intents.guild_messages = True
+# ✅ Correct intents fields:
+intents.messages = True
 intents.message_content = True
-intents.guild_reactions = True
+intents.reactions = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.synced = False  # track slash sync once
@@ -63,6 +64,7 @@ async def register_persistent_views():
         log.warning("⚠️ DB not initialized; skipping persistent view registration.")
         return
 
+    # Pull all flag message rows
     async with utils.db_pool.acquire() as conn:
         try:
             rows = await conn.fetch("SELECT guild_id, map, message_id FROM flag_messages;")
@@ -76,8 +78,9 @@ async def register_persistent_views():
         if not guild:
             continue
         try:
-            # We don't know which specific flag the message represents; view still provides release/close UI per-flag elsewhere
-            view = FlagManageView(guild, row["map"], "N/A", bot)
+            # ✅ Correct constructor: (guild, map_key, bot)
+            view = FlagManageView(guild, row["map"], bot)
+            # ✅ Bind the persistent view to the specific message id
             bot.add_view(view, message_id=int(row["message_id"]))
             registered += 1
         except Exception as e:
@@ -168,14 +171,12 @@ async def main():
     # ✅ Load all cogs
     await load_cogs()
 
-    # ✅ (Optional) Pre-register FlagManageView to remove warning
+    # ✅ (Optional) just verify the class exists; don't instantiate without args
     try:
-        from cogs.ui_views import FlagManageView
-        # Note: The default constructor here requires args; this is only to quiet logs if you provide a no-arg overload.
-        bot.add_view(FlagManageView())  # Will no-op if your class requires args (caught below)
-        log.info("✅ Pre-registered FlagManageView for persistent buttons.")
-    except Exception:
-        log.warning("⚠️ Could not pre-register FlagManageView (optional).")
+        from cogs.ui_views import FlagManageView  # noqa: F401
+        log.info("✅ FlagManageView available — will attach dynamically after setup.")
+    except Exception as e:
+        log.warning(f"⚠️ Could not import FlagManageView (optional): {e}")
 
     # ✅ Start bot
     token = os.getenv("DISCORD_TOKEN")
