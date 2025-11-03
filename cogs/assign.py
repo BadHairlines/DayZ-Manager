@@ -3,8 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 from cogs.helpers.base_cog import BaseCog
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-from cogs.helpers.flag_manager import FlagManager  # ✅ NEW
-import asyncio
+from cogs.helpers.flag_manager import FlagManager
+
 
 class Assign(commands.Cog, BaseCog):
     """Assign a flag to a faction or role."""
@@ -59,6 +59,7 @@ class Assign(commands.Cog, BaseCog):
         )
 
         await interaction.followup.send(embed=embed)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Assign(bot))
