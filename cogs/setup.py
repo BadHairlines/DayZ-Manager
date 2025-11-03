@@ -34,11 +34,13 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
         ephemeral=True
     )
 
+    # ✅ Ensure DB pool exists
     if db_pool is None:
         await interaction.followup.send("❌ Database not initialized. Please restart the bot.")
         return
 
     try:
+        # 🗃️ Ensure flag_messages table exists
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS flag_messages (
@@ -55,6 +57,7 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
                 guild_id, map_key
             )
 
+        # ✅ Create or reuse flag display channel
         flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
         if not flags_channel:
             flags_channel = await guild.create_text_channel(
@@ -63,6 +66,7 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
             )
             await flags_channel.send(f"📜 This channel displays flag ownership for **{map_info['name']}**.")
 
+        # ✅ Create or reuse log channel
         log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
         if not log_channel:
             log_channel = await guild.create_text_channel(
@@ -71,13 +75,16 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
             )
             await log_channel.send(f"🗒️ Log channel created for **{map_info['name']}** setup.")
 
+        # ✅ Initialize all flags in DB
         for flag in FLAGS:
             await set_flag(guild_id, map_key, flag, "✅", None)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)  # smooth pacing to avoid DB spam
 
+        # ✅ Create unified flag embed + interactive view
         embed = await create_flag_embed(guild_id, map_key)
         view = FlagManageView(guild, map_key, interaction.client)
 
+        # ✅ Update or recreate the live message
         msg = None
         if row:
             try:
@@ -91,6 +98,7 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
         if not msg:
             msg = await flags_channel.send(embed=embed, view=view)
 
+        # ✅ Store or update DB with both flag + log channel IDs
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
@@ -102,6 +110,7 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
                     log_channel_id = EXCLUDED.log_channel_id;
             """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
+        # ✅ Create success embed
         complete_embed = Embed(
             title="__SETUP COMPLETE__",
             description=(
@@ -123,6 +132,7 @@ async def setup(self, interaction: Interaction, selected_map: app_commands.Choic
 
         await interaction.edit_original_response(content=None, embed=complete_embed)
 
+        # 🪵 Log action
         await log_action(
             guild,
             map_key,
