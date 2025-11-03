@@ -1,8 +1,7 @@
+import asyncio
 import discord
 from discord.ext import commands
 from cogs.utils import db_pool, MAP_DATA, create_flag_embed
-import asyncio
-
 
 class AutoRefresh(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -114,7 +113,6 @@ class AutoRefresh(commands.Cog):
                 print(f"⚠️ Error during refresh for {guild.name}: {e}")
 
         print("✅ DayZ Manager finished auto-refresh & recovery of flag messages.")
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AutoRefresh(bot))
