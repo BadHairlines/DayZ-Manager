@@ -1,4 +1,8 @@
-import discord  # ensure this is at the top of utils.py
+import discord  # keep this at the top of utils.py
+
+# make sure utils.py defines (or imports) these:
+# - db_pool: asyncpg.Pool | None
+# - ensure_connection(): awaits/creates db_pool
 
 async def log_faction_action(
     guild: discord.Guild,
@@ -9,7 +13,9 @@ async def log_faction_action(
     map_key: str,
 ):
     """Write a faction log entry to DB and post an embed to the map-specific logs channel."""
-    require_db()
+    # ❌ require_db()
+    # ✅ ensure the pool exists
+    await ensure_connection()
 
     mk = (map_key or "").strip().lower()
     full_details = f"[map: {mk}] {details}" if mk else details
@@ -23,10 +29,15 @@ async def log_faction_action(
             str(guild.id), action, faction_name, str(user.id), full_details
         )
 
+    # find/create the logs category
     category = discord.utils.get(guild.categories, name="📜 DayZ Manager Logs")
     if not category:
-        category = await guild.create_category("📜 DayZ Manager Logs", reason="Auto-created for faction logs")
+        category = await guild.create_category(
+            "📜 DayZ Manager Logs",
+            reason="Auto-created for faction logs"
+        )
 
+    # find/create the map-specific log channel
     channel_name = f"factions-{mk}-logs" if mk else "factions-logs"
     log_channel = discord.utils.get(guild.text_channels, name=channel_name)
     if not log_channel:
@@ -42,7 +53,8 @@ async def log_faction_action(
         except Exception:
             pass
 
-    al = action.lower()
+    # color mapping
+    al = (action or "").lower()
     if "create" in al:
         color = 0x2ECC71
     elif "delete" in al or "disband" in al:
@@ -52,6 +64,7 @@ async def log_faction_action(
     else:
         color = 0x3498DB
 
+    # embed
     embed = discord.Embed(title=f"🪵 {action}", color=color)
     if faction_name:
         embed.add_field(name="🏳️ Faction", value=f"**{faction_name}**", inline=True)
