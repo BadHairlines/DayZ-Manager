@@ -9,15 +9,13 @@ class AutoRefresh(commands.Cog):
         self.bot = bot
 
     async def ensure_flag_message(self, guild: discord.Guild, map_key: str):
-        """Safely refresh existing flag messages without creating anything new."""
+        """Refresh existing flag message for a given map without creating anything new."""
         guild_id = str(guild.id)
 
-        # ✅ Skip unknown maps
         if map_key not in MAP_DATA:
             print(f"⚠️ Skipping unknown map '{map_key}' for {guild.name}")
             return
 
-        # 🧩 Get stored info
         async with db_pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
@@ -58,12 +56,10 @@ class AutoRefresh(commands.Cog):
         self.bot._refresh_done = True
 
         print("🚀 DayZ Manager starting flag auto-refresh...")
-
         await asyncio.sleep(5)
 
         for guild in self.bot.guilds:
             guild_id = str(guild.id)
-
             try:
                 async with db_pool.acquire() as conn:
                     rows = await conn.fetch(
