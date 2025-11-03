@@ -5,11 +5,13 @@ import asyncio
 import discord
 
 # ======================================================
-# 🗃 Database connection pool (shared globally)
+# 🗃️ Global Database Pool
 # ======================================================
 db_pool: asyncpg.Pool | None = None
 
-# ✅ Official 25 flags only
+# ======================================================
+# 🏴 Official Flag & Map Data
+# ======================================================
 FLAGS = [
     "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
     "CHEL", "Chedaki", "CMC", "Crook", "HunterZ", "NAPA", "NSahrani",
@@ -23,14 +25,11 @@ MAP_DATA = {
     "sakhal": {"name": "Sakhal", "image": "https://i.postimg.cc/HkBSpS8j/Sakhal.png"},
 }
 
-CUSTOM_EMOJIS = {flag: f":{flag}:" for flag in FLAGS}
-
-
 # ======================================================
-# 🧠 Auto-Healing Connection Helper
+# 🔁 Connection Guard
 # ======================================================
 async def ensure_connection():
-    """Ensure db_pool is alive and reconnect if lost."""
+    """Ensure db_pool exists and reconnect if lost."""
     global db_pool
     if db_pool is None:
         print("⚠️ DB pool not found — initializing...")
@@ -41,28 +40,22 @@ async def ensure_connection():
         async with db_pool.acquire() as conn:
             await conn.execute("SELECT 1;")
     except Exception as e:
-        print(f"⚠️ Lost DB connection — reconnecting: {e}")
+        print(f"⚠️ Lost DB connection, reconnecting: {e}")
         await init_db()
 
-
 # ======================================================
-# 🧩 Database Initialization (with auto-migration + retries)
+# 🧩 Initialize Database
 # ======================================================
 async def init_db():
-    """Initialize PostgreSQL connection and ensure all tables/columns exist."""
+    """Connect to PostgreSQL and ensure all tables/columns exist."""
     global db_pool
-
     if db_pool is not None:
         print("⚙️ Database pool already initialized.")
         return
 
-    db_url = (
-        os.getenv("DATABASE_URL")
-        or os.getenv("POSTGRES_URL")
-        or os.getenv("PG_URL")
-    )
+    db_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("PG_URL")
     if not db_url:
-        raise RuntimeError("❌ DATABASE_URL not found in environment variables!")
+        raise RuntimeError("❌ DATABASE_URL not set in environment!")
 
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
@@ -75,7 +68,7 @@ async def init_db():
             break
         except Exception as e:
             wait = 5 * (attempt + 1)
-            print(f"⚠️ Database connection failed (attempt {attempt+1}/3): {e}")
+            print(f"⚠️ Connection failed (attempt {attempt+1}/3): {e}")
             await asyncio.sleep(wait)
     else:
         raise RuntimeError("❌ Could not connect to PostgreSQL after 3 attempts.")
@@ -110,7 +103,7 @@ async def init_db():
             # ==========================
             # 🏴‍☠️ Factions Table
             # ==========================
-            print("⚙️ Creating or verifying factions table...")
+            print("⚙️ Verifying factions table...")
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS factions (
                     id BIGSERIAL PRIMARY KEY,
@@ -127,19 +120,11 @@ async def init_db():
                     UNIQUE (guild_id, faction_name)
                 );
             """)
-            col_check = await conn.fetchval("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name='factions' AND column_name='claimed_flag';
-            """)
-            if not col_check:
-                await conn.execute("ALTER TABLE factions ADD COLUMN claimed_flag TEXT;")
-                print("🧩 Added missing column: claimed_flag → factions table.")
-            print("✅ Factions table verified successfully.")
 
             # ==========================
             # 📜 Faction Logs Table
             # ==========================
-            print("⚙️ Creating or verifying faction_logs table...")
+            print("⚙️ Verifying faction_logs table...")
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS faction_logs (
                     id BIGSERIAL PRIMARY KEY,
@@ -151,29 +136,25 @@ async def init_db():
                     timestamp TIMESTAMP DEFAULT NOW()
                 );
             """)
-            print("✅ Faction logs table verified successfully.")
+            print("✅ Database tables verified successfully.")
 
         except Exception as e:
             print(f"❌ Database migration error: {e}")
             raise
 
-    print("✅ Connected to PostgreSQL and ensured all tables/columns exist (Flags + Factions + Logs).")
-
+    print("✅ PostgreSQL connected and ready (Flags + Factions + Logs).")
 
 # ======================================================
-# ⚙️ Database Access Safety Helper
+# 🧰 Utility Safety Wrapper
 # ======================================================
 def require_db():
-    """Ensure the DB is initialized before any query."""
     if db_pool is None:
-        raise RuntimeError("❌ Database not initialized yet. Run init_db() before using DB functions.")
-
+        raise RuntimeError("❌ Database not initialized yet.")
 
 # ======================================================
-# ⚙️ FLAG MANAGEMENT
+# ⚙️ FLAG FUNCTIONS
 # ======================================================
 async def get_flag(guild_id: str, map_key: str, flag: str):
-    """Fetch a single flag record."""
     require_db()
     async with db_pool.acquire() as conn:
         return await conn.fetchrow(
@@ -181,9 +162,7 @@ async def get_flag(guild_id: str, map_key: str, flag: str):
             guild_id, map_key, flag
         )
 
-
 async def get_all_flags(guild_id: str, map_key: str):
-    """Fetch all flags for a given guild/map."""
     require_db()
     async with db_pool.acquire() as conn:
         return await conn.fetch(
@@ -191,9 +170,7 @@ async def get_all_flags(guild_id: str, map_key: str):
             guild_id, map_key
         )
 
-
 async def set_flag(guild_id: str, map_key: str, flag: str, status: str, role_id: str | None):
-    """Set or update a flag (assign or release)."""
     require_db()
     async with db_pool.acquire() as conn:
         await conn.execute("""
@@ -205,9 +182,7 @@ async def set_flag(guild_id: str, map_key: str, flag: str, status: str, role_id:
                 role_id = EXCLUDED.role_id;
         """, guild_id, map_key, flag, status, role_id)
 
-
 async def release_flag(guild_id: str, map_key: str, flag: str):
-    """Mark a flag as unclaimed."""
     require_db()
     async with db_pool.acquire() as conn:
         await conn.execute("""
@@ -216,12 +191,10 @@ async def release_flag(guild_id: str, map_key: str, flag: str):
             WHERE guild_id=$1 AND map=$2 AND flag=$3;
         """, guild_id, map_key, flag)
 
-
 # ======================================================
 # 🧩 FACTION UTILITIES
 # ======================================================
 async def get_faction_by_flag(guild_id: str, flag: str):
-    """Return the faction currently claiming this flag, if any."""
     require_db()
     async with db_pool.acquire() as conn:
         return await conn.fetchrow(
@@ -229,12 +202,10 @@ async def get_faction_by_flag(guild_id: str, flag: str):
             guild_id, flag
         )
 
-
 # ======================================================
-# 🧾 EMBED CREATION
+# 🧾 EMBEDS
 # ======================================================
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
-    """Generate a live flag ownership embed for the map."""
     require_db()
     async with db_pool.acquire() as conn:
         records = await conn.fetch(
@@ -260,15 +231,13 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
         else:
             lines.append(f"✅ **{row['flag']}** — *Unclaimed*")
 
-    embed.description = "\n".join(lines) or "No flags found."
+    embed.description = "\n".join(lines) or "_No flags found._"
     return embed
 
-
 # ======================================================
-# 🪵 LOGGING UTILITIES
+# 🪵 LOGGING
 # ======================================================
 async def log_action(guild: discord.Guild, map_key: str, title: str, description: str, color: int = 0x2ECC71):
-    """Send a log embed to the map's log channel."""
     require_db()
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -276,13 +245,9 @@ async def log_action(guild: discord.Guild, map_key: str, title: str, description
             str(guild.id), map_key
         )
 
-    if not row:
-        print(f"⚠️ No log channel for {guild.name}/{map_key}")
-        return
-
-    log_channel = guild.get_channel(int(row["log_channel_id"])) if row["log_channel_id"] else None
+    log_channel = guild.get_channel(int(row["log_channel_id"])) if row and row["log_channel_id"] else None
     if not log_channel:
-        print(f"⚠️ Log channel missing for {guild.name}/{map_key}")
+        print(f"⚠️ Missing log channel for {guild.name}/{map_key}")
         return
 
     embed = discord.Embed(title=title, description=description, color=color)
@@ -290,9 +255,7 @@ async def log_action(guild: discord.Guild, map_key: str, title: str, description
     embed.set_footer(text=f"Map: {MAP_DATA[map_key]['name']}")
     await log_channel.send(embed=embed)
 
-
 async def log_faction_action(guild: discord.Guild, action: str, faction_name: str | None, user: discord.Member, details: str):
-    """Store a structured faction log in DB."""
     require_db()
     async with db_pool.acquire() as conn:
         await conn.execute("""
