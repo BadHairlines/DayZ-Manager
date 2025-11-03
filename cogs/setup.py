@@ -2,9 +2,13 @@ import asyncio
 import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
-from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action, ensure_connection
+from cogs.utils import (
+    FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed,
+    log_action, ensure_connection
+)
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 from cogs.ui_views import FlagManageView
+
 
 class Setup(commands.Cog):
     """Handles setup and initialization of flag systems per map."""
@@ -33,13 +37,9 @@ class Setup(commands.Cog):
             ephemeral=True
         )
 
-        # 🧩 Ensure DB connected (auto-reconnect)
         await ensure_connection()
 
         try:
-            # =============================
-            # 🗃️ Ensure flag_messages table
-            # =============================
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS flag_messages (
@@ -56,9 +56,6 @@ class Setup(commands.Cog):
                     guild_id, map_key
                 )
 
-            # =============================
-            # 📜 Universal Logs Category
-            # =============================
             logs_category_name = "📜 DayZ Manager Logs"
             logs_category = discord.utils.get(guild.categories, name=logs_category_name)
             if not logs_category:
@@ -68,7 +65,6 @@ class Setup(commands.Cog):
                 )
                 await asyncio.sleep(0.5)
 
-            # ✅ Create or reuse per-map log channel inside universal category
             log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
             if not log_channel:
                 log_channel = await guild.create_text_channel(
@@ -79,9 +75,6 @@ class Setup(commands.Cog):
                 await log_channel.send(f"🗒️ Logs for **{map_info['name']}** initialized.")
                 await asyncio.sleep(0.5)
 
-            # =============================
-            # 📁 Universal Flags Category
-            # =============================
             flags_category_name = "📁 DayZ Manager Flags"
             flags_category = discord.utils.get(guild.categories, name=flags_category_name)
             if not flags_category:
@@ -91,9 +84,6 @@ class Setup(commands.Cog):
                 )
                 await asyncio.sleep(0.5)
 
-            # =============================
-            # 🧭 Create or reuse flags channel per map
-            # =============================
             flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
             if not flags_channel:
                 flags_channel = await guild.create_text_channel(
@@ -103,20 +93,13 @@ class Setup(commands.Cog):
                 )
                 await flags_channel.send(f"📜 Flag ownership for **{map_info['name']}**.")
 
-            # ✅ Sync permissions for organization
             await flags_channel.edit(sync_permissions=True)
             await log_channel.edit(sync_permissions=True)
 
-            # =============================
-            # 🏁 Initialize all flags
-            # =============================
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
                 await asyncio.sleep(0.05)
 
-            # =============================
-            # 🖼️ Create embed + view
-            # =============================
             embed = await create_flag_embed(guild_id, map_key)
             view = FlagManageView(guild, map_key, self.bot)
 
@@ -133,9 +116,6 @@ class Setup(commands.Cog):
             if not msg:
                 msg = await flags_channel.send(embed=embed, view=view)
 
-            # =============================
-            # 💾 Save message + log IDs
-            # =============================
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
@@ -147,9 +127,6 @@ class Setup(commands.Cog):
                         log_channel_id = EXCLUDED.log_channel_id;
                 """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-            # =============================
-            # ✅ Success confirmation
-            # =============================
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
@@ -172,7 +149,6 @@ class Setup(commands.Cog):
 
             await interaction.edit_original_response(content=None, embed=complete_embed)
 
-            # 🪵 Log setup to logs
             await log_action(
                 guild,
                 map_key,
@@ -197,6 +173,7 @@ class Setup(commands.Cog):
                 description=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```",
                 color=0xE74C3C
             )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Setup(bot))
