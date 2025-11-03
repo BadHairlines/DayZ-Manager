@@ -1,7 +1,6 @@
 import discord
 from discord.ui import View, button
-from cogs.utils import release_flag, log_action, MAP_DATA, create_flag_embed, db_pool
-
+from cogs.utils import release_flag, log_action, create_flag_embed, db_pool
 
 class FlagManageView(View):
     """Interactive management buttons for flag control (reassign removed)."""
@@ -24,6 +23,8 @@ class FlagManageView(View):
         if not row:
             return
         channel = guild.get_channel(int(row["channel_id"]))
+        if not channel:
+            return
         try:
             msg = await channel.fetch_message(int(row["message_id"]))
             await msg.edit(embed=embed)
@@ -36,7 +37,9 @@ class FlagManageView(View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
+        # ✅ Defer immediately to avoid Unknown Interaction
         await interaction.response.defer(ephemeral=True)
+
         guild_id = str(self.guild.id)
         await release_flag(guild_id, self.map_key, self.flag)
         await self.update_flag_display(self.guild, self.map_key)
@@ -48,6 +51,7 @@ class FlagManageView(View):
             description=f"🏳️ {self.flag} released by {interaction.user.mention}"
         )
 
+        # ✅ Safe follow-up after deferring
         await interaction.followup.send(f"✅ **{self.flag}** released successfully!", ephemeral=True)
 
     @button(label="❌ Close", style=discord.ButtonStyle.danger)
@@ -56,6 +60,7 @@ class FlagManageView(View):
             await interaction.response.send_message("❌ Admins only.", ephemeral=True)
             return
 
+        # ✅ Defer first
         await interaction.response.defer(ephemeral=True)
 
         try:
