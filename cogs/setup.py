@@ -1,10 +1,9 @@
+import asyncio
 import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from cogs.utils import FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed, log_action
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-import asyncio
-
 
 class Setup(commands.Cog):
     """Handles setup and initialization of flag systems per map."""
