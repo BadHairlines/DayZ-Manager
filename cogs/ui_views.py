@@ -87,7 +87,17 @@ class FlagManageView(View):
                 title="Flag Assigned (UI)",
                 description=f"🏴 `{flag_value}` assigned to {role.mention} by {interaction.user.mention}.",
             )
-            await inter2.response.edit_message(content=f"✅ Assigned `{flag_value}` to {role.mention}.", view=None)
+
+            # ✅ Proper interaction acknowledgment
+            try:
+                await inter2.response.defer()
+            except discord.InteractionResponded:
+                pass
+
+            await inter2.edit_original_response(
+                content=f"✅ Assigned `{flag_value}` to {role.mention}.",
+                view=None
+            )
 
         confirm_view = View()
         confirm_view.add_item(flag_select)
@@ -134,7 +144,17 @@ class FlagManageView(View):
                 title="Flag Released (UI)",
                 description=f"🏳️ `{flag_value}` released by {interaction.user.mention}.",
             )
-            await inter2.response.edit_message(content=f"✅ Released `{flag_value}`.", view=None)
+
+            # ✅ Proper interaction acknowledgment
+            try:
+                await inter2.response.defer()
+            except discord.InteractionResponded:
+                pass
+
+            await inter2.edit_original_response(
+                content=f"✅ Released `{flag_value}`.",
+                view=None
+            )
 
         release_view = View()
         release_view.add_item(flag_select)
