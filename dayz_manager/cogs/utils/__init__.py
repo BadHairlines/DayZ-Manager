@@ -5,6 +5,6 @@ from .database import (
     require_db,
 )
 
-# These are defined in other utils modules
+# Pull these from their actual files (not database.py)
 from .embeds import create_flag_embed
 from .logging import log_action, log_faction_action
