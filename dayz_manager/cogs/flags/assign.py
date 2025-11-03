@@ -4,7 +4,7 @@ from discord.ext import commands
 
 from dayz_manager.cogs.helpers.base_cog import BaseCog
 from dayz_manager.cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-from dayz_manager.cogs.utils import db_pool, log_action, log_faction_action, create_flag_embed
+from dayz_manager.cogs.utils.database import db_pool, log_action, log_faction_action, create_flag_embed
 from dayz_manager.config import FLAGS as ALL_FLAGS
 
 class Assign(commands.Cog, BaseCog):
