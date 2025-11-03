@@ -38,6 +38,9 @@ def resolve_flag_manage_view():
 
 async def register_persistent_views():
     """Re-register saved flag panels for all guilds/maps."""
+    # ✅ make sure DB pool exists before querying
+    await utils.ensure_connection()
+
     FlagManageView = resolve_flag_manage_view()
     if not FlagManageView or utils.db_pool is None:
         log.warning("Cannot register persistent views — missing FlagManageView or DB pool.")
@@ -121,8 +124,12 @@ async def on_ready():
         except Exception as e:
             log.error(f"Slash-sync failed: {e}")
 
+    # (Optional) Try to connect now if not connected yet
     if utils.db_pool is None:
-        log.error("Database not connected!")
+        try:
+            await utils.ensure_connection()
+        except Exception as e:
+            log.error(f"Database not connected! {e}")
 
     await asyncio.sleep(2)  # allow caches to warm
     await register_persistent_views()
@@ -131,7 +138,8 @@ async def on_ready():
 
 async def main():
     await asyncio.sleep(1)  # small Railway delay
-    await utils.init_db()
+    # ⛏️ FIX: use ensure_connection instead of the removed init_db
+    await utils.ensure_connection()
     await load_cogs()
 
     token = os.getenv("DISCORD_TOKEN")
