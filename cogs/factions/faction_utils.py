@@ -1,10 +1,7 @@
 import discord
-from cogs import utils  # ✅ use the full utils module now
+from cogs import utils
 
 
-# ======================================================
-# 🧩 Ensure Faction Table Exists
-# ======================================================
 async def ensure_faction_table():
     """Ensure factions table exists (safe to call multiple times)."""
     if utils.db_pool is None:
@@ -12,7 +9,6 @@ async def ensure_faction_table():
         return
 
     async with utils.db_pool.acquire() as conn:
-        # ✅ Create or verify the table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS factions (
                 id BIGSERIAL PRIMARY KEY,
@@ -24,18 +20,16 @@ async def ensure_faction_table():
                 leader_id TEXT NOT NULL,
                 member_ids TEXT[],
                 color TEXT,
-                claimed_flag TEXT,              -- ✅ Stores claimed flag name
+                claimed_flag TEXT,
                 created_at TIMESTAMP DEFAULT NOW(),
                 UNIQUE (guild_id, faction_name)
             );
         """)
 
-        # ✅ Ensure backward compatibility with older schemas
         await conn.execute("""
             ALTER TABLE factions ADD COLUMN IF NOT EXISTS claimed_flag TEXT;
         """)
 
-        # ✅ Optional data cleanup: normalize map values to lowercase
         try:
             await conn.execute("""
                 UPDATE factions
@@ -49,9 +43,6 @@ async def ensure_faction_table():
     print("✅ Verified factions table exists (with claimed_flag column).")
 
 
-# ======================================================
-# 🎨 Embed Helpers
-# ======================================================
 def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
     """Helper to create embeds with consistent faction style."""
     embed = discord.Embed(title=title, description=desc, color=color)
@@ -65,10 +56,7 @@ def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
 
 
 def make_log_embed(action: str, details: str, user: discord.Member, color: int = 0xF1C40F) -> discord.Embed:
-    """
-    Helper to create log embeds for faction events.
-    Example: creation, deletion, member added/removed.
-    """
+    """Helper to create log embeds for faction events."""
     embed = discord.Embed(
         title=f"🪵 {action}",
         description=details,
