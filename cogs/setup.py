@@ -80,17 +80,6 @@ class Setup(commands.Cog):
                 await log_channel.send(f"🗒️ Logs for **{map_info['name']}** initialized.")
                 await asyncio.sleep(0.5)
 
-            # ✅ Create or reuse general factions log channel once
-            factions_log = discord.utils.get(guild.text_channels, name="factions-logs")
-            if not factions_log:
-                factions_log = await guild.create_text_channel(
-                    name="factions-logs",
-                    category=logs_category,
-                    reason="Auto-created general faction log channel"
-                )
-                await factions_log.send("🪵 This channel logs all faction activity across maps.")
-                await asyncio.sleep(0.5)
-
             # =============================
             # 📂 Map Category
             # =============================
