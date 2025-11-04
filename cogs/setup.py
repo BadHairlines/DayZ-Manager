@@ -30,7 +30,7 @@ class Setup(commands.Cog):
         map_info = MAP_DATA[map_key]
 
         flags_channel_name = f"flags-{map_key}"
-        logs_channel_name = f"flags-{map_key}-logs"
+        logs_channel_name = f"{map_key}-logs"
 
         await interaction.response.send_message(
             f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
