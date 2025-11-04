@@ -6,7 +6,9 @@ import discord
 from discord.ext import commands
 from cogs import utils
 
-# Basic logging
+# ==============================
+# 📜 Logging setup
+# ==============================
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s]: %(message)s",
@@ -14,7 +16,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("dayz-manager")
 
-# Bot setup
+# ==============================
+# 🤖 Bot setup
+# ==============================
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -26,6 +30,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 bot.synced = False  # track slash sync once
 
 
+# ==============================
+# 🧱 Helpers
+# ==============================
 def resolve_flag_manage_view():
     """Import FlagManageView safely."""
     try:
@@ -38,7 +45,6 @@ def resolve_flag_manage_view():
 
 async def register_persistent_views():
     """Re-register saved flag panels for all guilds/maps."""
-    # ✅ make sure DB pool exists before querying
     await utils.ensure_connection()
 
     FlagManageView = resolve_flag_manage_view()
@@ -93,6 +99,9 @@ async def register_persistent_views():
     log.info(f"Persistent views registered: {count}")
 
 
+# ==============================
+# ⚙️ Cog loader
+# ==============================
 SKIP_FILES = {"__init__.py", "utils.py", "faction_utils.py", "ui_views.py"}
 
 async def load_cogs():
@@ -112,6 +121,9 @@ async def load_cogs():
     log.info(f"Total cogs loaded: {loaded}")
 
 
+# ==============================
+# 🚀 Events
+# ==============================
 @bot.event
 async def on_ready():
     log.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -124,22 +136,42 @@ async def on_ready():
         except Exception as e:
             log.error(f"Slash-sync failed: {e}")
 
-    # (Optional) Try to connect now if not connected yet
     if utils.db_pool is None:
         try:
             await utils.ensure_connection()
         except Exception as e:
             log.error(f"Database not connected! {e}")
 
-    await asyncio.sleep(2)  # allow caches to warm
+    await asyncio.sleep(2)
     await register_persistent_views()
-    log.info("Ready")
+    log.info("Ready ✅")
 
 
+# ==============================
+# 🧠 Main entry
+# ==============================
 async def main():
     await asyncio.sleep(1)  # small Railway delay
-    # ⛏️ FIX: use ensure_connection instead of the removed init_db
-    await utils.ensure_connection()
+
+    # --- Normalize DATABASE_URL ---
+    raw_dsn = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("PG_URL")
+    if raw_dsn and raw_dsn.startswith("postgres://"):
+        os.environ["DATABASE_URL"] = raw_dsn.replace("postgres://", "postgresql://", 1)
+
+    # --- Retry DB connection ---
+    for attempt in range(5):
+        try:
+            await utils.ensure_connection()
+            log.info("✅ Connected to database.")
+            break
+        except Exception as e:
+            wait = 5 * (attempt + 1)
+            log.warning(f"⚠️ DB connection failed (attempt {attempt+1}/5): {e}")
+            log.info(f"🔁 Retrying in {wait}s...")
+            await asyncio.sleep(wait)
+    else:
+        raise RuntimeError("❌ Could not connect to Postgres after several retries.")
+
     await load_cogs()
 
     token = os.getenv("DISCORD_TOKEN")
@@ -160,6 +192,9 @@ async def main():
                     raise
 
 
+# ==============================
+# ▶️ Entry point
+# ==============================
 if __name__ == "__main__":
     try:
         asyncio.run(main())
