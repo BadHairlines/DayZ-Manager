@@ -87,24 +87,32 @@ async def init_db() -> asyncpg.Pool:
 # 🗺️ Static game data
 # ==============================
 
+# ==============================
+# 🏴 Official Flag & Map Data
+# ==============================
+
 FLAGS: List[str] = [
-    "Wolf", "APA", "NAPA", "Coyote", "Bear", "Raven", "Boar", "Eagle", "Stag", "Viper"
+    "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
+    "CHEL", "Chedaki", "CMC", "Crook", "HunterZ", "NAPA", "NSahrani",
+    "Pirates", "Rex", "Refuge", "Rooster", "RSTA", "Snake",
+    "TEC", "UEC", "Wolf", "Zagorky", "Zenit"
 ]
 
 MAP_DATA: Dict[str, Dict[str, Any]] = {
     "livonia": {
         "name": "Livonia",
-        "image": "https://i.postimg.cc/0jv3QWZ3/livonia.png",
+        "image": "https://i.postimg.cc/QN9vfr9m/Livonia.jpg",
     },
     "chernarus": {
         "name": "Chernarus",
-        "image": "https://i.postimg.cc/Px6qkJVz/chernarus.png",
+        "image": "https://i.postimg.cc/3RWzMsLK/Chernarus.jpg",
     },
     "sakhal": {
         "name": "Sakhal",
-        "image": "https://i.postimg.cc/0y9wDd0v/sakhal.png",
+        "image": "https://i.postimg.cc/HkBSpS8j/Sakhal.png",
     },
 }
+
 
 # ==============================
 # 🧱 Flag storage helpers
