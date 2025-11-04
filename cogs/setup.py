@@ -29,8 +29,9 @@ class Setup(commands.Cog):
         map_key = normalize_map(selected_map)
         map_info = MAP_DATA[map_key]
 
+        # ✅ Updated naming convention
         flags_channel_name = f"flags-{map_key}"
-        logs_channel_name = f"{map_key}-logs"
+        logs_channel_name = f"flaglogs-{map_key}"
 
         await interaction.response.send_message(
             f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
@@ -65,7 +66,19 @@ class Setup(commands.Cog):
                 )
                 await asyncio.sleep(0.5)
 
-            log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
+            # ✅ Try renaming old logs channel if it exists
+            old_logs_channel = discord.utils.get(guild.text_channels, name=f"{map_key}-logs")
+            if old_logs_channel:
+                try:
+                    await old_logs_channel.edit(name=logs_channel_name)
+                    log_channel = old_logs_channel
+                except discord.Forbidden:
+                    log_channel = old_logs_channel
+                    print(f"⚠️ Missing permission to rename {old_logs_channel.name}.")
+            else:
+                log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
+
+            # ✅ Create log channel if none found
             if not log_channel:
                 log_channel = await guild.create_text_channel(
                     name=logs_channel_name,
@@ -75,6 +88,7 @@ class Setup(commands.Cog):
                 await log_channel.send(f"🗒️ Logs for **{map_info['name']}** initialized.")
                 await asyncio.sleep(0.5)
 
+            # ✅ Flags category setup
             flags_category_name = "📁 DayZ Manager Flags"
             flags_category = discord.utils.get(guild.categories, name=flags_category_name)
             if not flags_category:
@@ -96,6 +110,7 @@ class Setup(commands.Cog):
             await flags_channel.edit(sync_permissions=True)
             await log_channel.edit(sync_permissions=True)
 
+            # ✅ Reset flags
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
                 await asyncio.sleep(0.05)
