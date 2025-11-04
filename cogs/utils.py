@@ -163,57 +163,48 @@ def _split_claims(rows: List[asyncpg.Record]) -> Tuple[List[str], List[Tuple[str
 
 
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
-    """
-    Build a rich, user-facing embed for all flags on a map.
-    Keeps logic the same but restores the polished DayZ Manager visual style.
-    """
+    """Build a clean single-list flag ownership embed (classic DayZ Manager style)."""
     await ensure_connection()
     rows = await get_all_flags(guild_id, map_key)
 
+    # seed flags if empty
     if not rows:
-        for f in FLAGS:
-            await set_flag(guild_id, map_key, f, "✅", None)
+        for flag in FLAGS:
+            await set_flag(guild_id, map_key, flag, "✅", None)
         rows = await get_all_flags(guild_id, map_key)
 
     map_info = MAP_DATA.get(map_key, {"name": map_key.title(), "image": None})
-    unclaimed, claimed = _split_claims(rows)
 
     embed = discord.Embed(
-        title=f"🏴 Territory Control — {map_info['name']}",
-        description="Manage your faction’s flags below. Use the buttons to assign or release flags.",
-        color=0x2B90D9,
+        title=f"🏴 Flag Ownership — {map_info['name']}",
+        color=0x3498DB
     )
-    embed.set_author(
-        name="🧭 DayZ Manager • Flag Overview",
-        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-    )
-    embed.set_footer(
-        text="DayZ Manager • Interactive Flag System",
-        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-    )
-    embed.timestamp = discord.utils.utcnow()
 
     if map_info.get("image"):
         embed.set_image(url=map_info["image"])
 
-    # Claimed
-    if claimed:
-        lines = [f"❌ **{flag}** — <@&{rid}>" if rid else f"❌ **{flag}** — *(unknown)*" for flag, rid in claimed]
-        claimed_text = "\n".join(lines)
-    else:
-        claimed_text = "*(none)*"
-    embed.add_field(name="🏳️‍🌈 Claimed Flags", value=claimed_text[:1024], inline=False)
+    embed.set_footer(
+        text="DayZ Manager",
+        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+    )
+    embed.timestamp = discord.utils.utcnow()
 
-    # Unclaimed
-    if unclaimed:
-        unclaimed_text = ", ".join([f"✅ {f}" for f in unclaimed])[:1024]
-    else:
-        unclaimed_text = "*(none)*"
-    embed.add_field(name="🪖 Available Flags", value=unclaimed_text, inline=False)
+    # sort claimed on top, then unclaimed
+    claimed = [r for r in rows if r["role_id"]]
+    unclaimed = [r for r in rows if not r["role_id"]]
+    ordered = claimed + unclaimed
 
-    embed.add_field(name="🗺️ Map", value=f"**{map_info['name']}**", inline=True)
+    lines = []
+    for r in ordered:
+        flag = r["flag"]
+        role_id = r["role_id"]
+        if role_id:
+            lines.append(f"❌ **{flag}** — <@&{role_id}>")
+        else:
+            lines.append(f"✅ **{flag}** — *Unclaimed*")
+
+    embed.description = "\n".join(lines) if lines else "_No flags found._"
     return embed
-
 
 # ==============================
 # 🪵 Logging utilities
