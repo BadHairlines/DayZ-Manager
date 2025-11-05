@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import io
 import json
+import asyncio
 
 class Teleporter(commands.Cog):
     """Generate teleporter JSON configuration files."""
@@ -22,8 +23,14 @@ class Teleporter(commands.Cog):
         """
         Creates two teleporter JSON files using user-supplied coordinates.
         """
-        # Defer response (non-ephemeral → visible to everyone)
-        await interaction.response.defer(ephemeral=False)
+        # Defer response (ephemeral → only visible to command user)
+        await interaction.response.defer(ephemeral=True)
+
+        # --- Temporary "processing" message ---
+        progress_msg = await interaction.followup.send(
+            "⚙️ Generating teleporter JSON files, please wait...",
+            ephemeral=True
+        )
 
         # --- Normalize user input ---
         def normalize(pos: str):
@@ -36,8 +43,8 @@ class Teleporter(commands.Cog):
             pos_a = normalize(position_a)
             pos_b = normalize(position_b)
         except Exception:
-            await interaction.followup.send(
-                "❌ Invalid position format. Use `[x, y, z]` or `x,y,z`."
+            await progress_msg.edit(
+                content="❌ Invalid position format. Use `[x, y, z]` or `x,y,z`."
             )
             return
 
@@ -64,10 +71,13 @@ class Teleporter(commands.Cog):
         file1 = discord.File(io.BytesIO(json1.encode("utf-8")), filename="Teleporter1.json")
         file2 = discord.File(io.BytesIO(json2.encode("utf-8")), filename="Teleporter2.json")
 
-        # --- Send both files as attachments (visible to everyone) ---
-        await interaction.followup.send(
+        # Simulate a short "loading" delay for realism
+        await asyncio.sleep(1.5)
+
+        # --- Edit message to show success + send files ---
+        await progress_msg.edit(
             content="✅ Teleporter JSON files generated successfully!",
-            files=[file1, file2]
+            attachments=[file1, file2]
         )
 
 async def setup(bot: commands.Bot):
