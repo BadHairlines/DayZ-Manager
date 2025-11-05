@@ -30,11 +30,11 @@ class Teleporter(commands.Cog):
     ):
         """
         Creates two teleporter JSON files using user-supplied coordinates.
-        Automatically reverses the name for the second file.
+        Automatically reverses the name for the second file and includes file path examples.
         """
         await interaction.response.defer(ephemeral=True)
 
-        # Show a temporary progress message
+        # Show progress message
         progress_msg = await interaction.followup.send(
             "⚙️ Generating teleporter JSON files, please wait...",
             ephemeral=True
@@ -56,9 +56,8 @@ class Teleporter(commands.Cog):
             )
             return
 
-        # --- Handle name swapping (e.g. Base2NWAF -> NWAF2Base) ---
+        # --- Swap file name (Base2NWAF -> NWAF2Base or BaseToNWAF -> NWAFToBase) ---
         def swap_name(base_name: str) -> str:
-            # Split at the first '2' or 'To' (case-insensitive)
             match = re.split(r'2|to', base_name, maxsplit=1, flags=re.IGNORECASE)
             if len(match) == 2:
                 part1, part2 = match
@@ -68,7 +67,7 @@ class Teleporter(commands.Cog):
         name_a_to_b = name.replace(" ", "_")
         name_b_to_a = swap_name(name_a_to_b)
 
-        # --- Build JSON structures ---
+        # --- Build JSONs ---
         teleporter1 = {
             "areaName": "RestrictedAreaWarheadStorage",
             "PRABoxes": [[[1, 1, 1], [90, 0, 0], pos_a]],
@@ -91,18 +90,28 @@ class Teleporter(commands.Cog):
         file1_name = f"Teleporter_{name_a_to_b}.json"
         file2_name = f"Teleporter_{name_b_to_a}.json"
 
-        # --- Create in-memory files ---
+        # --- Create files in memory ---
         file1 = discord.File(io.BytesIO(json1.encode("utf-8")), filename=file1_name)
         file2 = discord.File(io.BytesIO(json2.encode("utf-8")), filename=file2_name)
 
+        # --- UX delay ---
         await asyncio.sleep(1.2)
 
-        # --- Edit message to show success ---
+        # --- Copy-paste helper text ---
+        copy_lines = (
+            f"```c\n"
+            f'    "./custom/{file1_name}",\n'
+            f'    "./custom/{file2_name}",\n'
+            f"```"
+        )
+
+        # --- Edit final message ---
         await progress_msg.edit(
             content=(
-                f"✅ Teleporter JSON files generated successfully!\n"
+                f"✅ **Teleporter JSON files generated successfully!**\n"
                 f"📄 `{file1_name}`\n"
-                f"📄 `{file2_name}`"
+                f"📄 `{file2_name}`\n\n"
+                f"**Copy & Paste into your config:**\n{copy_lines}"
             ),
             attachments=[file1, file2]
         )
