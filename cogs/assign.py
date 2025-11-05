@@ -19,7 +19,7 @@ class Assign(commands.Cog, BaseCog):
 
     # Optional autocomplete for convenience
     @staticmethod
-    async def flag_autocomplete(interaction: discord.Interaction, current: str):
+async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
         results = [f for f in FLAGS if current.lower() in f.lower()]
         return [app_commands.Choice(name=f, value=f) for f in results[:25]]
 
