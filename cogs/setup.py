@@ -1,10 +1,11 @@
-import asyncio
+# cogs/setup.py
+from asyncio import sleep
 import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from cogs.utils import (
-    FLAGS, MAP_DATA, set_flag, db_pool, create_flag_embed,
-    log_action, ensure_connection
+    FLAGS, MAP_DATA, set_flag, create_flag_embed,
+    log_action, ensure_connection, safe_acquire
 )
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 from cogs.ui_views import FlagManageView
@@ -15,6 +16,31 @@ class Setup(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    # ---------- small helpers ----------
+    async def _get_or_create_category(self, guild: discord.Guild, name: str, reason: str) -> discord.CategoryChannel:
+        cat = discord.utils.get(guild.categories, name=name)
+        if not cat:
+            cat = await guild.create_category(name=name, reason=reason)
+            # tiny pause avoids occasional race conditions with immediate child-creates
+            await sleep(0.5)
+        return cat
+
+    async def _get_or_create_text_channel(
+        self,
+        guild: discord.Guild,
+        name: str,
+        category: discord.CategoryChannel,
+        reason: str,
+        seed_message: str | None = None,
+    ) -> discord.TextChannel:
+        ch = discord.utils.get(guild.text_channels, name=name)
+        if not ch:
+            ch = await guild.create_text_channel(name=name, category=category, reason=reason)
+            if seed_message:
+                await ch.send(seed_message)
+            await sleep(0.2)
+        return ch
 
     @app_commands.command(
         name="setup",
@@ -29,7 +55,6 @@ class Setup(commands.Cog):
         map_key = normalize_map(selected_map)
         map_info = MAP_DATA[map_key]
 
-        # ✅ Updated naming convention
         flags_channel_name = f"flags-{map_key}"
         logs_channel_name = f"flaglogs-{map_key}"
 
@@ -38,10 +63,12 @@ class Setup(commands.Cog):
             ephemeral=True
         )
 
+        # Ensure DB is live and migrations/tables exist
         await ensure_connection()
 
         try:
-            async with db_pool.acquire() as conn:
+            # Ensure the metadata table exists and fetch any previous message location
+            async with safe_acquire() as conn:
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS flag_messages (
                         guild_id TEXT NOT NULL,
@@ -57,81 +84,75 @@ class Setup(commands.Cog):
                     guild_id, map_key
                 )
 
-            logs_category_name = "📜 DayZ Manager Logs"
-            logs_category = discord.utils.get(guild.categories, name=logs_category_name)
-            if not logs_category:
-                logs_category = await guild.create_category(
-                    name=logs_category_name,
-                    reason="Auto-created universal DayZ Manager log category"
-                )
-                await asyncio.sleep(0.5)
+            # ----- Logs category + channel (rename old if needed) -----
+            logs_category = await self._get_or_create_category(
+                guild, "📜 DayZ Manager Logs", "Auto-created universal DayZ Manager log category"
+            )
 
-            # ✅ Try renaming old logs channel if it exists
+            # If a legacy "{map}-logs" exists, rename it once
             old_logs_channel = discord.utils.get(guild.text_channels, name=f"{map_key}-logs")
             if old_logs_channel:
                 try:
                     await old_logs_channel.edit(name=logs_channel_name)
                     log_channel = old_logs_channel
                 except discord.Forbidden:
+                    # No rename perms? keep using old channel
                     log_channel = old_logs_channel
                     print(f"⚠️ Missing permission to rename {old_logs_channel.name}.")
             else:
                 log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
 
-            # ✅ Create log channel if none found
             if not log_channel:
-                log_channel = await guild.create_text_channel(
-                    name=logs_channel_name,
-                    category=logs_category,
-                    reason=f"Auto-created log channel for {map_info['name']} activity"
+                log_channel = await self._get_or_create_text_channel(
+                    guild,
+                    logs_channel_name,
+                    logs_category,
+                    reason=f"Auto-created log channel for {map_info['name']} activity",
+                    seed_message=f"🗒️ Logs for **{map_info['name']}** initialized."
                 )
-                await log_channel.send(f"🗒️ Logs for **{map_info['name']}** initialized.")
-                await asyncio.sleep(0.5)
 
-            # ✅ Flags category setup
-            flags_category_name = "📁 DayZ Manager Flags"
-            flags_category = discord.utils.get(guild.categories, name=flags_category_name)
-            if not flags_category:
-                flags_category = await guild.create_category(
-                    name=flags_category_name,
-                    reason="Auto-created universal category for all flag embed channels"
-                )
-                await asyncio.sleep(0.5)
+            # ----- Flags category + channel -----
+            flags_category = await self._get_or_create_category(
+                guild, "📁 DayZ Manager Flags", "Auto-created universal category for all flag embed channels"
+            )
+            flags_channel = await self._get_or_create_text_channel(
+                guild,
+                flags_channel_name,
+                flags_category,
+                reason=f"Auto-created for {map_info['name']} setup",
+                seed_message=f"📜 Flag ownership for **{map_info['name']}**."
+            )
 
-            flags_channel = discord.utils.get(guild.text_channels, name=flags_channel_name)
-            if not flags_channel:
-                flags_channel = await guild.create_text_channel(
-                    name=flags_channel_name,
-                    category=flags_category,
-                    reason=f"Auto-created for {map_info['name']} setup"
-                )
-                await flags_channel.send(f"📜 Flag ownership for **{map_info['name']}**.")
-
+            # Keep perms in sync with category defaults (optional but nice)
             await flags_channel.edit(sync_permissions=True)
             await log_channel.edit(sync_permissions=True)
 
-            # ✅ Reset flags
+            # ----- Reset flags to unclaimed for this map -----
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await asyncio.sleep(0.05)
+                await sleep(0.02)  # tiny yield to avoid bursty DB writes
 
+            # ----- Build (or update) the live embed + persistent view -----
             embed = await create_flag_embed(guild_id, map_key)
             view = FlagManageView(guild, map_key, self.bot)
 
             msg = None
             if row:
-                try:
-                    old_channel = guild.get_channel(int(row["channel_id"]))
-                    if old_channel:
+                old_channel = guild.get_channel(int(row["channel_id"]))
+                if old_channel:
+                    try:
                         msg = await old_channel.fetch_message(int(row["message_id"]))
                         await msg.edit(embed=embed, view=view)
-                except Exception:
-                    msg = None
+                    except discord.NotFound:
+                        msg = None  # message was deleted
+                    except discord.Forbidden:
+                        msg = None  # no perms to edit; we'll post a new one
 
             if not msg:
                 msg = await flags_channel.send(embed=embed, view=view)
 
-            async with db_pool.acquire() as conn:
+            # Persist the location for this map’s message
+            async with safe_acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
                     VALUES ($1, $2, $3, $4, $5)
@@ -142,6 +163,7 @@ class Setup(commands.Cog):
                         log_channel_id = EXCLUDED.log_channel_id;
                 """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
+            # ----- Final confirmation to the invoker -----
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
@@ -178,9 +200,11 @@ class Setup(commands.Cog):
             )
 
         except Exception as e:
+            # User-facing error
             await interaction.edit_original_response(
                 content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
             )
+            # Logged error
             await log_action(
                 guild,
                 map_key,
