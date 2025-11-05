@@ -1,4 +1,3 @@
-# cogs/release.py
 import logging
 import discord
 from discord import app_commands
@@ -18,8 +17,7 @@ class Release(commands.Cog, BaseCog):
         self.bot = bot
 
     # Optional autocomplete for convenience (same as Assign)
-    @staticmethod
-async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
         results = [f for f in FLAGS if current.lower() in f.lower()]
         return [app_commands.Choice(name=f, value=f) for f in results[:25]]
 
@@ -43,7 +41,10 @@ async def flag_autocomplete(self, interaction: discord.Interaction, current: str
         await interaction.response.defer(thinking=True)
 
         if not interaction.guild:
-            return await interaction.followup.send("❌ This command can only be used inside a server.", ephemeral=True)
+            return await interaction.followup.send(
+                "❌ This command can only be used inside a server.",
+                ephemeral=True
+            )
 
         guild = interaction.guild
         map_key = normalize_map(selected_map)
