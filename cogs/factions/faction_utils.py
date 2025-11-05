@@ -1,14 +1,19 @@
+# cogs/helpers/faction_utils.py
 import discord
+import logging
 from cogs import utils
 
+log = logging.getLogger("dayz-manager")
 
-async def ensure_faction_table():
-    """Ensure factions table exists (safe to call multiple times)."""
+
+async def ensure_faction_table(debug: bool = True):
+    """Ensure factions table exists and has required columns. Safe to call multiple times."""
     if utils.db_pool is None:
-        print("⚠️ Database pool not initialized — skipping faction table creation.")
+        log.warning("⚠️ Database pool not initialized — skipping faction table creation.")
         return
 
-    async with utils.db_pool.acquire() as conn:
+    async with utils.safe_acquire() as conn:
+        # --- Create main factions table ---
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS factions (
                 id BIGSERIAL PRIMARY KEY,
@@ -26,29 +31,43 @@ async def ensure_faction_table():
             );
         """)
 
+        # --- Add columns if missing ---
         await conn.execute("""
             ALTER TABLE factions ADD COLUMN IF NOT EXISTS claimed_flag TEXT;
         """)
 
+        # --- Create indexes for performance ---
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_factions_guild_map
+            ON factions (guild_id, map);
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_factions_name
+            ON factions (LOWER(faction_name));
+        """)
+
+        # --- Normalize map keys ---
         try:
             await conn.execute("""
                 UPDATE factions
                 SET map = LOWER(map)
                 WHERE map != LOWER(map);
             """)
-            print("🧩 Normalized existing faction map entries to lowercase.")
+            if debug:
+                log.info("🧩 Normalized existing faction map entries to lowercase.")
         except Exception as e:
-            print(f"⚠️ Could not normalize faction map names: {e}")
+            log.warning(f"⚠️ Could not normalize faction map names: {e}")
 
-    print("✅ Verified factions table exists (with claimed_flag column).")
+    if debug:
+        log.info("✅ Verified factions table exists and columns are up to date.")
 
 
 def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
-    """Helper to create embeds with consistent faction style."""
+    """Create a consistent DayZ Manager faction embed."""
     embed = discord.Embed(title=title, description=desc, color=color)
     embed.set_author(name="🎭 Faction Manager")
     embed.set_footer(
-        text="DayZ Manager",
+        text="DayZ Manager • Faction System",
         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
     )
     embed.timestamp = discord.utils.utcnow()
@@ -56,7 +75,7 @@ def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
 
 
 def make_log_embed(action: str, details: str, user: discord.Member, color: int = 0xF1C40F) -> discord.Embed:
-    """Helper to create log embeds for faction events."""
+    """Create a standardized embed for faction-related logs."""
     embed = discord.Embed(
         title=f"🪵 {action}",
         description=details,
