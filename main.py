@@ -14,6 +14,7 @@ logging.basicConfig(
     format="[%(asctime)s] [%(levelname)s]: %(message)s",
     datefmt="%H:%M:%S",
 )
+discord.utils.setup_logging(level=logging.INFO)
 log = logging.getLogger("dayz-manager")
 
 # ==============================
@@ -27,7 +28,7 @@ intents.message_content = True
 intents.reactions = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.synced = False  # track slash sync once
+bot.synced = False  # Track slash sync once
 
 
 # ==============================
@@ -136,7 +137,7 @@ async def load_cogs():
                 log.info(f"Loaded cog: {module_path}")
                 loaded += 1
             except Exception as e:
-                log.error(f"Failed to load {module_path}: {e}")
+                log.exception(f"Failed to load {module_path}")
     log.info(f"Total cogs loaded: {loaded}")
 
 
@@ -174,12 +175,13 @@ async def on_ready():
 # 🧠 Main entry
 # ==============================
 async def main():
+    log.info("Starting DayZ Manager bot...")
     await asyncio.sleep(1)  # small Railway delay
 
-    # --- Normalize DATABASE_URL ---
-    raw_dsn = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("PG_URL")
-    if raw_dsn and raw_dsn.startswith("postgres://"):
-        os.environ["DATABASE_URL"] = raw_dsn.replace("postgres://", "postgresql://", 1)
+    # --- Ensure DATABASE_URL is present ---
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("❌ DATABASE_URL not set.")
 
     # --- Retry DB connection ---
     for attempt in range(5):
@@ -189,8 +191,8 @@ async def main():
             break
         except Exception as e:
             wait = 5 * (attempt + 1)
-            log.warning(f"⚠️ DB connection failed (attempt {attempt+1}/5): {e}")
-            log.info(f"🔁 Retrying in {wait}s...")
+            log.warning(f"DB connection failed (attempt {attempt+1}/5): {e!s}")
+            log.info(f"Retrying in {wait}s...")
             await asyncio.sleep(wait)
     else:
         raise RuntimeError("❌ Could not connect to Postgres after several retries.")
@@ -229,5 +231,5 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        log.info("Bot manually stopped.")
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        log.info("Bot stopped cleanly.")
