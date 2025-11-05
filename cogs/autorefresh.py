@@ -1,50 +1,61 @@
+# cogs/auto_refresh.py
 import asyncio
+import logging
 import discord
 from discord.ext import commands
-from cogs.utils import db_pool, MAP_DATA, create_flag_embed
+from cogs import utils
+from cogs.ui_views import FlagManageView
+
+log = logging.getLogger("dayz-manager")
 
 
 class AutoRefresh(commands.Cog):
+    """Automatically refreshes all active flag embeds on startup (no new channels created)."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     async def ensure_flag_message(self, guild: discord.Guild, map_key: str):
-        """Refresh existing flag message for a given map without creating anything new."""
+        """Refresh existing flag message for a given map, restoring persistent view."""
         guild_id = str(guild.id)
 
-        if map_key not in MAP_DATA:
-            print(f"⚠️ Skipping unknown map '{map_key}' for {guild.name}")
+        if map_key not in utils.MAP_DATA:
+            log.warning(f"⚠️ Skipping unknown map '{map_key}' for {guild.name}")
             return
 
-        async with db_pool.acquire() as conn:
+        async with utils.safe_acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
                 guild_id, map_key
             )
 
         if not row:
-            print(f"⏭️ {MAP_DATA[map_key]['name']} not set up yet in {guild.name}.")
+            log.info(f"⏭️ {utils.MAP_DATA[map_key]['name']} not set up yet in {guild.name}.")
             return
 
         channel = guild.get_channel(int(row["channel_id"]))
         if not channel:
-            print(f"⚠️ Channel missing for {guild.name} ({MAP_DATA[map_key]['name']}); skipping refresh.")
-            print(f"   💡 Run `/setup {MAP_DATA[map_key]['name']}` to rebuild it.")
+            log.warning(f"⚠️ Channel missing for {guild.name} ({map_key}); skipping refresh.")
+            log.info(f"   💡 Run `/setup {utils.MAP_DATA[map_key]['name']}` to rebuild it.")
             return
 
-        embed = await create_flag_embed(guild_id, map_key)
-
         try:
+            embed = await utils.create_flag_embed(guild_id, map_key)
+            embed.timestamp = discord.utils.utcnow()
             msg = await channel.fetch_message(int(row["message_id"]))
-            await msg.edit(embed=embed)
-            print(f"🔄 Refreshed flag display for {guild.name} - {MAP_DATA[map_key]['name']}")
+
+            # Restore persistent view
+            view = FlagManageView(guild, map_key, self.bot)
+            await msg.edit(embed=embed, view=view)
+
+            log.info(f"🔄 Refreshed flag display for {guild.name} → {utils.MAP_DATA[map_key]['name']}")
         except discord.NotFound:
-            print(f"⚠️ Flag message missing for {guild.name} - {MAP_DATA[map_key]['name']}. Skipping.")
-            print(f"   💡 Use `/setup {MAP_DATA[map_key]['name']}` to recreate it.")
+            log.warning(f"⚠️ Flag message missing for {guild.name} ({map_key}). Skipping.")
+            log.info(f"   💡 Use `/setup {utils.MAP_DATA[map_key]['name']}` to recreate it.")
         except discord.Forbidden:
-            print(f"⚠️ Missing permission to edit flag message in {guild.name} - {MAP_DATA[map_key]['name']}")
+            log.error(f"🚫 Missing permission to edit flag message in {guild.name} ({map_key})")
         except Exception as e:
-            print(f"⚠️ Unexpected error updating message for {guild.name} ({map_key}): {e}")
+            log.error(f"❌ Unexpected error updating message for {guild.name} ({map_key}): {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -55,32 +66,32 @@ class AutoRefresh(commands.Cog):
             return
         self.bot._refresh_done = True
 
-        print("🚀 DayZ Manager starting flag auto-refresh...")
+        log.info("🚀 DayZ Manager starting flag auto-refresh...")
         await asyncio.sleep(5)
 
+        # Refresh flags for each guild
         for guild in self.bot.guilds:
             guild_id = str(guild.id)
             try:
-                async with db_pool.acquire() as conn:
-                    rows = await conn.fetch(
-                        "SELECT map FROM flag_messages WHERE guild_id=$1",
-                        guild_id
-                    )
+                async with utils.safe_acquire() as conn:
+                    rows = await conn.fetch("SELECT map FROM flag_messages WHERE guild_id=$1", guild_id)
 
                 if not rows:
-                    print(f"⚠️ No maps set up for {guild.name}. Skipping.")
+                    log.info(f"⚠️ No maps set up for {guild.name}. Skipping.")
                     continue
 
-                print(f"🔍 Found maps in DB for {guild.name}: {[r['map'] for r in rows]}")
+                map_keys = [r["map"] for r in rows]
+                log.info(f"🔍 Found maps in DB for {guild.name}: {map_keys}")
 
-                for row in rows:
-                    await self.ensure_flag_message(guild, row["map"])
+                # Refresh sequentially (safer for Discord rate limits)
+                for map_key in map_keys:
+                    await self.ensure_flag_message(guild, map_key)
                     await asyncio.sleep(1)
 
             except Exception as e:
-                print(f"⚠️ Error during refresh for {guild.name}: {e}")
+                log.error(f"⚠️ Error during refresh for {guild.name}: {e}", exc_info=True)
 
-        print("✅ Auto-refresh complete (no channels or messages created).")
+        log.info("✅ Auto-refresh complete (no channels or messages created).")
 
 
 async def setup(bot: commands.Bot):
