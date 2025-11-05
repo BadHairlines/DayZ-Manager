@@ -13,25 +13,19 @@ import contextlib
 # ==============================
 
 db_pool: Optional[asyncpg.Pool] = None
-DEFAULT_DB_ENV_KEYS = ("DATABASE_URL", "POSTGRES_URL", "PG_URL")
-
 
 async def ensure_connection() -> asyncpg.Pool:
-    """
-    Ensure a global asyncpg pool exists and core tables are created.
-    Reconnect automatically if the pool was closed.
-    """
+    """Ensure a global asyncpg pool exists and core tables are created."""
     global db_pool
 
-    # Reconnect if pool is closed or missing
     if db_pool and not db_pool._closed:
         return db_pool
 
-    dsn = next((os.getenv(k) for k in DEFAULT_DB_ENV_KEYS if os.getenv(k)), None)
+    dsn = os.getenv("DATABASE_URL")
     if not dsn:
-        raise RuntimeError("No database URL found. Set one of: DATABASE_URL, POSTGRES_URL, PG_URL")
+        raise RuntimeError("❌ DATABASE_URL not set — please define it in your environment.")
 
-    # Normalize URL prefix for Railway/Heroku
+    # Optional: normalize just in case
     if dsn.startswith("postgres://"):
         dsn = dsn.replace("postgres://", "postgresql://", 1)
 
