@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 import asyncio
-from typing import Optional, List, Dict, Any, Tuple, AsyncIterator, ContextManager
-
+from typing import Optional, List, Dict, Any, AsyncIterator
 import asyncpg
 import discord
 import contextlib
@@ -13,6 +12,7 @@ import contextlib
 # ==============================
 
 db_pool: Optional[asyncpg.Pool] = None
+
 
 async def ensure_connection() -> asyncpg.Pool:
     """Ensure a global asyncpg pool exists and core tables are created."""
@@ -25,13 +25,12 @@ async def ensure_connection() -> asyncpg.Pool:
     if not dsn:
         raise RuntimeError("❌ DATABASE_URL not set — please define it in your environment.")
 
-    # Optional: normalize just in case
     if dsn.startswith("postgres://"):
         dsn = dsn.replace("postgres://", "postgresql://", 1)
 
     db_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
 
-    # Create tables
+    # Create tables if missing
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
@@ -167,7 +166,6 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     await ensure_connection()
     rows = await get_all_flags(guild_id, map_key)
 
-    # Seed default flags if none exist
     if not rows:
         for flag in FLAGS:
             await set_flag(guild_id, map_key, flag, "✅", None)
@@ -215,11 +213,20 @@ async def _resolve_logs_channel(guild: discord.Guild, map_key: Optional[str] = N
             except discord.Forbidden:
                 category = None
 
-        base_name = f"{map_key}-logs" if map_key else "dayz-manager-logs"
+        # ✅ Updated naming pattern (no more {map}-logs)
+        base_name = f"flaglogs-{map_key}" if map_key else "dayz-manager-logs"
         channel = discord.utils.get(guild.text_channels, name=base_name)
+
         if channel is None and category:
-            channel = await guild.create_text_channel(base_name, category=category, reason="Auto-created DayZ Manager logs")
+            channel = await guild.create_text_channel(
+                base_name,
+                category=category,
+                reason="Auto-created DayZ Manager logs"
+            )
+            await channel.send(f"🗒️ Logs for **{map_key.title() if map_key else 'All Maps'}** initialized.")
+
         return channel or guild.system_channel
+
     except Exception as e:
         print(f"⚠️ Failed resolving logs channel: {e}")
         return guild.system_channel
@@ -272,13 +279,13 @@ async def log_faction_action(
     except Exception as e:
         print(f"⚠️ Failed to write faction_logs row: {e}")
 
-    # Prepare channel
     try:
         category = discord.utils.get(guild.categories, name="📜 DayZ Manager Logs")
         if category is None:
             category = await guild.create_category("📜 DayZ Manager Logs", reason="Auto-created for faction logs")
 
-        channel_name = f"factions-{mk}-logs" if mk else "factions-logs"
+        # ✅ Updated pattern for faction logs too
+        channel_name = f"factions-{mk}-flaglogs" if mk else "factions-flaglogs"
         log_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if log_channel is None:
             log_channel = await guild.create_text_channel(channel_name, category=category)
@@ -287,7 +294,6 @@ async def log_faction_action(
         print(f"⚠️ Error resolving faction log channel: {e}")
         log_channel = guild.system_channel
 
-    # Embed
     color_map = {
         "create": 0x2ECC71,
         "delete": 0xE74C3C,
