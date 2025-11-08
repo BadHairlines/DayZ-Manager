@@ -213,7 +213,6 @@ async def _resolve_logs_channel(guild: discord.Guild, map_key: Optional[str] = N
             except discord.Forbidden:
                 category = None
 
-        # ✅ Updated naming pattern (no more {map}-logs)
         base_name = f"flaglogs-{map_key}" if map_key else "dayz-manager-logs"
         channel = discord.utils.get(guild.text_channels, name=base_name)
 
@@ -265,11 +264,14 @@ async def log_faction_action(
     details: str,
     map_key: str,
 ) -> None:
-    """Log faction actions both to DB and Discord."""
+    """Log faction actions both to DB and Discord.
+    Only posts if an existing faction log channel is found — never auto-creates it.
+    """
     await ensure_connection()
     mk = (map_key or "").strip().lower()
     full_details = f"[map: {mk}] {details}" if mk else details
 
+    # Log to database
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -279,20 +281,25 @@ async def log_faction_action(
     except Exception as e:
         print(f"⚠️ Failed to write faction_logs row: {e}")
 
-    try:
-        category = discord.utils.get(guild.categories, name="📜 DayZ Manager Logs")
-        if category is None:
-            category = await guild.create_category("📜 DayZ Manager Logs", reason="Auto-created for faction logs")
+    # Only send to Discord if a faction log channel already exists
+    category = discord.utils.get(guild.categories, name="📜 DayZ Manager Logs")
+    log_channel = None
+    if category:
+        possible_names = [
+            f"factions-{mk}-flaglogs",
+            f"factions-{mk}-logs",
+            "factions-flaglogs",
+            "factions-logs"
+        ]
+        for name in possible_names:
+            ch = discord.utils.get(guild.text_channels, name=name)
+            if ch:
+                log_channel = ch
+                break
 
-        # ✅ Updated pattern for faction logs too
-        channel_name = f"factions-{mk}-flaglogs" if mk else "factions-flaglogs"
-        log_channel = discord.utils.get(guild.text_channels, name=channel_name)
-        if log_channel is None:
-            log_channel = await guild.create_text_channel(channel_name, category=category)
-            await log_channel.send(f"🪵 This channel logs faction activity for **{mk.title() or 'All Maps'}**.")
-    except Exception as e:
-        print(f"⚠️ Error resolving faction log channel: {e}")
-        log_channel = guild.system_channel
+    if not log_channel:
+        print(f"ℹ️ No faction log channel found for {guild.name}/{mk}. Skipping message.")
+        return
 
     color_map = {
         "create": 0x2ECC71,
