@@ -22,7 +22,6 @@ class Setup(commands.Cog):
         cat = discord.utils.get(guild.categories, name=name)
         if not cat:
             cat = await guild.create_category(name=name, reason=reason)
-            # tiny pause avoids occasional race conditions with immediate child-creates
             await sleep(0.5)
         return cat
 
@@ -63,11 +62,10 @@ class Setup(commands.Cog):
             ephemeral=True
         )
 
-        # Ensure DB is live and migrations/tables exist
         await ensure_connection()
 
         try:
-            # Ensure the metadata table exists and fetch any previous message location
+            # Ensure metadata table exists
             async with safe_acquire() as conn:
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS flag_messages (
@@ -84,21 +82,23 @@ class Setup(commands.Cog):
                     guild_id, map_key
                 )
 
-            # ----- Logs category + channel (rename old if needed) -----
+            # ----- Logs category + channel -----
             logs_category = await self._get_or_create_category(
                 guild, "📜 DayZ Manager Logs", "Auto-created universal DayZ Manager log category"
             )
 
-            # If a legacy "{map}-logs" exists, rename it once
+            # Clean up any legacy "{map}-logs" channels
             old_logs_channel = discord.utils.get(guild.text_channels, name=f"{map_key}-logs")
-            if old_logs_channel:
+            if old_logs_channel and old_logs_channel.name != logs_channel_name:
                 try:
                     await old_logs_channel.edit(name=logs_channel_name)
                     log_channel = old_logs_channel
-                except discord.Forbidden:
-                    # No rename perms? keep using old channel
-                    log_channel = old_logs_channel
-                    print(f"⚠️ Missing permission to rename {old_logs_channel.name}.")
+                except (discord.Forbidden, discord.HTTPException):
+                    try:
+                        await old_logs_channel.delete(reason="Replaced by new flaglogs channel")
+                    except discord.Forbidden:
+                        print(f"⚠️ Missing permission to delete old log channel: {old_logs_channel.name}")
+                    log_channel = None
             else:
                 log_channel = discord.utils.get(guild.text_channels, name=logs_channel_name)
 
@@ -115,6 +115,7 @@ class Setup(commands.Cog):
             flags_category = await self._get_or_create_category(
                 guild, "📁 DayZ Manager Flags", "Auto-created universal category for all flag embed channels"
             )
+
             flags_channel = await self._get_or_create_text_channel(
                 guild,
                 flags_channel_name,
@@ -123,16 +124,15 @@ class Setup(commands.Cog):
                 seed_message=f"📜 Flag ownership for **{map_info['name']}**."
             )
 
-            # Keep perms in sync with category defaults (optional but nice)
             await flags_channel.edit(sync_permissions=True)
             await log_channel.edit(sync_permissions=True)
 
-            # ----- Reset flags to unclaimed for this map -----
+            # ----- Reset flags -----
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-                await sleep(0.02)  # tiny yield to avoid bursty DB writes
+                await sleep(0.02)
 
-            # ----- Build (or update) the live embed + persistent view -----
+            # ----- Embed + view -----
             embed = await create_flag_embed(guild_id, map_key)
             view = FlagManageView(guild, map_key, self.bot)
 
@@ -143,15 +143,13 @@ class Setup(commands.Cog):
                     try:
                         msg = await old_channel.fetch_message(int(row["message_id"]))
                         await msg.edit(embed=embed, view=view)
-                    except discord.NotFound:
-                        msg = None  # message was deleted
-                    except discord.Forbidden:
-                        msg = None  # no perms to edit; we'll post a new one
+                    except (discord.NotFound, discord.Forbidden):
+                        msg = None
 
             if not msg:
                 msg = await flags_channel.send(embed=embed, view=view)
 
-            # Persist the location for this map’s message
+            # Persist message info
             async with safe_acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
@@ -163,7 +161,7 @@ class Setup(commands.Cog):
                         log_channel_id = EXCLUDED.log_channel_id;
                 """, guild_id, map_key, str(flags_channel.id), str(msg.id), str(log_channel.id))
 
-            # ----- Final confirmation to the invoker -----
+            # ----- Confirmation -----
             complete_embed = Embed(
                 title="__SETUP COMPLETE__",
                 description=(
@@ -200,11 +198,9 @@ class Setup(commands.Cog):
             )
 
         except Exception as e:
-            # User-facing error
             await interaction.edit_original_response(
                 content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
             )
-            # Logged error
             await log_action(
                 guild,
                 map_key,
