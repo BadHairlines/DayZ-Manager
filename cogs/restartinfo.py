@@ -1,5 +1,6 @@
 import discord
 from discord import app_commands
+from discord.ext import commands
 from datetime import datetime, timezone
 
 class RestartInfo(commands.Cog):
@@ -24,7 +25,7 @@ class RestartInfo(commands.Cog):
 
         seconds_since_midnight = hour * 3600 + minute * 60 + second
         last_restart_unix = now_ts + ((last_restart_hour * 3600) - seconds_since_midnight)
-        next_restart_unix = last_restart_unix + 14400  # 4 hours
+        next_restart_unix = last_restart_unix + 14400
 
         msg = (
             f"⏰ **__Last Restart__:** <t:{int(last_restart_unix)}:t> - "
@@ -34,7 +35,6 @@ class RestartInfo(commands.Cog):
         )
 
         await interaction.response.send_message(msg)
-
 
 async def setup(bot):
     await bot.add_cog(RestartInfo(bot))
