@@ -17,12 +17,20 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
+# ==============================
+# 🔥 /sync COMMAND GROUP
+# ==============================
+class SyncGroup(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="sync", description="Sync external data into the bot.")
+
 
 class FactionSync(commands.Cog):
     """Sync manually-created factions into the DayZ Manager DB."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.bot.tree.add_command(SyncGroup())  # registers /sync group
 
     # Re-use same flag autocomplete style
     async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
@@ -32,8 +40,11 @@ class FactionSync(commands.Cog):
             if current.lower() in flag.lower()
         ][:25]
 
-    @app_commands.command(
-        name="sync-faction",
+    # ==============================
+    # /sync faction
+    # ==============================
+    @SyncGroup.command(
+        name="faction",
         description="Sync an existing faction (role + channel) into the bot."
     )
     @app_commands.choices(map=MAP_CHOICES)
@@ -43,7 +54,7 @@ class FactionSync(commands.Cog):
         role="Existing faction role",
         channel="Existing faction HQ text channel",
         flag="Flag to claim for this faction (optional)",
-        leader="Faction leader (optional, defaults to you or first member)"
+        leader="Faction leader (optional, defaults to auto-detect)"
     )
     async def sync_faction(
         self,
@@ -82,7 +93,7 @@ class FactionSync(commands.Cog):
         # Auto-detect members = everyone who has that role
         members = [m for m in guild.members if role in m.roles]
 
-        # Leader priority: explicit arg > interaction user (if they have role) > first member > None
+        # Leader detection
         if leader is None:
             if role in interaction.user.roles:
                 leader = interaction.user
@@ -91,15 +102,15 @@ class FactionSync(commands.Cog):
 
         if leader is None:
             return await interaction.followup.send(
-                "❌ I couldn't determine a leader. Please specify one in the command.",
+                "❌ I couldn't determine a leader. Please specify one.",
                 ephemeral=True,
             )
 
-        # Faction color from role color (fallback to green)
+        # Faction color from role color
         role_color = role.color if role.color.value != 0 else discord.Color(0x2ECC71)
 
         try:
-            # --- Check if faction already exists ---
+            # --- Check duplicates ---
             async with utils.safe_acquire() as conn:
                 existing = await conn.fetchrow(
                     "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
@@ -109,13 +120,13 @@ class FactionSync(commands.Cog):
 
             if existing:
                 return await interaction.followup.send(
-                    f"⚠️ Faction **{faction_name}** already exists in the database "
+                    f"⚠️ Faction **{faction_name}** already exists in the DB "
                     f"(map: `{existing['map']}`).",
                     ephemeral=True,
                 )
 
             # --- Optional flag validation ---
-            claimed_flag: str | None = None
+            claimed_flag = None
             if flag:
                 flags = await utils.get_all_flags(guild_id, map_key)
                 flag_row = next(
@@ -124,17 +135,15 @@ class FactionSync(commands.Cog):
                 )
                 if not flag_row:
                     return await interaction.followup.send(
-                        f"🚫 Flag `{flag}` not found on `{map_key}`.",
+                        f"🚫 Flag `{flag}` not found for `{map_key}`.",
                         ephemeral=True,
                     )
                 if flag_row["status"] == "❌":
-                    current_owner = flag_row["role_id"]
                     return await interaction.followup.send(
-                        f"⚠️ Flag `{flag}` is already owned by <@&{current_owner}>.",
+                        f"⚠️ Flag `{flag}` is already owned by <@&{flag_row['role_id']}>.",
                         ephemeral=True,
                     )
-
-                claimed_flag = flag_row["flag"]  # use canonical case
+                claimed_flag = flag_row["flag"]
 
             # --- Insert into DB ---
             member_ids = [str(m.id) for m in members]
@@ -161,9 +170,10 @@ class FactionSync(commands.Cog):
                     claimed_flag,
                 )
 
-            # --- Claim flag + refresh embed if a flag was provided ---
+            # --- Claim flag ---
             if claimed_flag:
                 await utils.set_flag(guild_id, map_key, claimed_flag, "❌", str(role.id))
+
                 async with utils.safe_acquire() as conn:
                     row = await conn.fetchrow(
                         "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
@@ -178,10 +188,7 @@ class FactionSync(commands.Cog):
                             embed = await utils.create_flag_embed(guild_id, map_key)
                             await msg.edit(embed=embed)
                         except Exception as e:
-                            log.warning(
-                                f"⚠️ Failed to refresh flag embed during sync "
-                                f"for {guild.name}/{map_key}: {e}"
-                            )
+                            log.warning(f"Flag embed refresh failed: {e}")
 
             # --- Log to faction logs ---
             members_mentions = ", ".join(m.mention for m in members) or "*None*"
@@ -195,35 +202,30 @@ class FactionSync(commands.Cog):
 
             await utils.log_faction_action(
                 guild,
-                action="Faction Synced (Manual)",
+                action="Faction Synced",
                 faction_name=faction_name,
                 user=interaction.user,
                 details=details,
                 map_key=map_key,
             )
 
-            # --- Confirmation embed for the admin ---
-            created_ts = int(datetime.utcnow().timestamp())
+            # --- Confirmation embed ---
+            ts = int(datetime.utcnow().timestamp())
             confirm = make_embed(
                 "__Faction Synced__",
                 (
-                    f"✅ **{faction_name}** has been synced into the DayZ Manager DB.\n\n"
+                    f"✅ **{faction_name}** has been synced.\n\n"
                     f"🗺️ **Map:** `{map.value}`\n"
                     f"🎭 **Role:** {role.mention}\n"
                     f"🏠 **Channel:** {channel.mention}\n"
                     f"👑 **Leader:** {leader.mention}\n"
                     f"🏳️ **Flag:** `{claimed_flag or 'None'}`\n\n"
                     f"👥 **Members:** {members_mentions}\n\n"
-                    f"🕓 **Synced:** <t:{created_ts}:f>"
+                    f"🕓 **Synced:** <t:{ts}:f>"
                 ),
                 color=role_color.value,
             )
             await interaction.followup.send(embed=confirm, ephemeral=True)
-
-            log.info(
-                f"✅ Synced faction '{faction_name}' on {map_key} in {guild.name}. "
-                f"Members: {len(members)}; Flag: {claimed_flag or 'None'}"
-            )
 
         except Exception as e:
             log.error(f"❌ Faction sync failed in {guild.name}: {e}", exc_info=True)
