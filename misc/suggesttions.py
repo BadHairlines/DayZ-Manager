@@ -5,22 +5,22 @@ from discord.ext import commands
 
 
 class Suggestions(commands.Cog):
-    """Handles user suggestions with a polished embed + reactions."""
+    """Handles user suggestions with a polished embed + reactions + discussion threads."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # Small helper to resolve or create the #suggestions channel
+    # Small helper to resolve or create #suggestions
     async def _get_or_create_suggestions_channel(
         self,
         guild: discord.Guild
     ) -> discord.TextChannel | None:
-        # Try to find an existing "suggestions" channel
+        # Try to find existing #suggestions
         ch = discord.utils.get(guild.text_channels, name="suggestions")
         if isinstance(ch, discord.TextChannel):
             return ch
 
-        # Otherwise, try to create it
+        # Otherwise create it
         try:
             ch = await guild.create_text_channel(
                 "suggestions",
@@ -28,7 +28,6 @@ class Suggestions(commands.Cog):
             )
             return ch
         except discord.Forbidden:
-            # Missing Manage Channels permission
             return None
         except Exception as e:
             print(f"⚠️ Failed to create #suggestions in {guild.name}: {e}")
@@ -38,11 +37,8 @@ class Suggestions(commands.Cog):
         name="suggest",
         description="Submit a suggestion for the server."
     )
-    @app_commands.describe(
-        suggestion="What would you like to suggest?"
-    )
+    @app_commands.describe(suggestion="What would you like to suggest?")
     async def suggest(self, interaction: discord.Interaction, suggestion: str):
-        """Slash command to submit a suggestion."""
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild:
@@ -54,25 +50,26 @@ class Suggestions(commands.Cog):
         guild = interaction.guild
         user = interaction.user
 
-        # Resolve or create target channel (#suggestions)
+        # Create or get #suggestions
         target_channel = await self._get_or_create_suggestions_channel(guild)
         if not target_channel:
             return await interaction.followup.send(
                 "❌ I couldn't find or create a `#suggestions` channel.\n"
-                "Make sure I have permission to manage channels.",
+                "Please ensure I have permission to manage channels.",
                 ephemeral=True
             )
 
-        # Build a nice embed
+        # Build cleaner embed
         embed = discord.Embed(
-            title="💡 New Suggestion Submitted!",
-            description=(
-                f"**Suggestion:**\n"
-                f"{suggestion}\n\n"
-                f"**Suggested By:**\n"
-                f"{user.mention} (`{user.id}`)"
-            ),
+            title="💡 New Suggestion",
+            description=suggestion,
             color=random.randint(0, 0xFFFFFF)
+        )
+
+        # Author = user (avatar + name)
+        embed.set_author(
+            name=user.display_name,
+            icon_url=user.display_avatar.url,
         )
 
         embed.set_footer(
@@ -81,37 +78,53 @@ class Suggestions(commands.Cog):
         )
         embed.timestamp = discord.utils.utcnow()
 
-        # Avoid pinging roles/users in the suggestion message
+        # Prevent @ mentions inside the suggestion text from firing
         allowed_mentions = discord.AllowedMentions.none()
 
-        # Send to #suggestions channel
+        # Send suggestion to #suggestions
         try:
             msg = await target_channel.send(
                 embed=embed,
                 allowed_mentions=allowed_mentions
             )
-            # Add voting reactions
             await msg.add_reaction("👍")
             await msg.add_reaction("👎")
-        except discord.Forbidden:
-            return await interaction.followup.send(
-                "❌ I don't have permission to send messages or add reactions "
-                f"in {target_channel.mention}.",
-                ephemeral=True
-            )
         except Exception as e:
             return await interaction.followup.send(
-                f"❌ Failed to post your suggestion:\n```{e}```",
+                f"❌ Failed to send suggestion:\n```{e}```",
                 ephemeral=True
             )
 
-        # Ephemeral confirmation to the user (in the channel they used the cmd)
+        # Create a discussion thread off the suggestion message
+        thread = None
+        try:
+            thread_name = f"💬 {user.display_name}'s suggestion"
+            thread = await msg.create_thread(
+                name=thread_name,
+                auto_archive_duration=1440  # 24h archive; tweak if you want
+            )
+            # Starter message in thread
+            await thread.send(
+                f"{user.mention} thanks for your suggestion! 🧠\n"
+                f"Use this thread to discuss, refine, or vote on the idea."
+            )
+        except discord.Forbidden:
+            # No permission to create threads – silently ignore
+            thread = None
+        except Exception as e:
+            print(f"⚠️ Failed to create discussion thread for suggestion in {guild.name}: {e}")
+            thread = None
+
+        # Ephemeral confirmation
+        desc_lines = [
+            f"Your suggestion has been posted in {target_channel.mention}."
+        ]
+        if thread:
+            desc_lines.append(f"A discussion thread was created: {thread.mention}")
+
         confirm_embed = discord.Embed(
             title="✅ Suggestion Submitted",
-            description=(
-                f"Your suggestion has been posted in {target_channel.mention}.\n\n"
-                f"📝 **Preview:**\n{suggestion}"
-            ),
+            description="\n".join(desc_lines),
             color=0x2ECC71
         )
         await interaction.followup.send(embed=confirm_embed, ephemeral=True)
