@@ -4,7 +4,7 @@ from discord import app_commands
 from discord.ext import commands
 
 
-class Slap(commands.Cog):
+class slap(commands.Cog):
     """Slap / Slap Command."""
 
     def __init__(self, bot: commands.Bot):
