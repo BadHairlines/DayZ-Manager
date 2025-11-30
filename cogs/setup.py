@@ -1,4 +1,3 @@
-# cogs/setup.py
 from asyncio import sleep
 import discord
 from discord import app_commands, Interaction, Embed
@@ -112,8 +111,12 @@ class Setup(commands.Cog):
                 )
 
             # ----- Flags category + channel -----
+            # Use the per-map Factions Hub instead of a standalone flags category
+            factions_category_name = f"🌍 {map_info['name']} Factions Hub"
             flags_category = await self._get_or_create_category(
-                guild, "📁 DayZ Manager Flags", "Auto-created universal category for all flag embed channels"
+                guild,
+                factions_category_name,
+                f"Auto-created {map_info['name']} factions hub for flags and HQs"
             )
 
             flags_channel = await self._get_or_create_text_channel(
