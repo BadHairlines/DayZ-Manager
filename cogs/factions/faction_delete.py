@@ -4,7 +4,7 @@ from discord import app_commands
 from discord.ext import commands
 import logging
 from cogs import utils
-from .faction_utils import ensure_faction_table, make_embed
+from cogs.helpers.faction_utils import ensure_faction_table, make_embed
 
 log = logging.getLogger("dayz-manager")
 
