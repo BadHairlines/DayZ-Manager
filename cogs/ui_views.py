@@ -51,13 +51,48 @@ class FlagManageView(View):
         except Exception as e:
             print(f"⚠️ Failed to refresh flag embed: {e}")
 
-    # --- role options ---
-    def _role_options(self) -> list[discord.SelectOption]:
-        roles = [r for r in self.guild.roles if not r.is_default() and not r.managed]
-        roles.sort(key=lambda r: (-r.position, r.name.lower()))
+    # --- role options (FACTION ROLES ONLY) ---
+    async def _role_options(self) -> list[discord.SelectOption]:
+        """
+        Build select options for faction roles on this map.
+        Falls back to all non-managed roles if the DB lookup fails.
+        """
+        guild_id = str(self.guild.id)
+
+        try:
+            await utils.ensure_connection()
+            async with utils.safe_acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT role_id
+                    FROM factions
+                    WHERE guild_id = $1 AND map = $2
+                    """,
+                    guild_id,
+                    self.map_key,
+                )
+
+            role_ids = {row["role_id"] for row in rows if row["role_id"]}
+            roles: list[discord.Role] = []
+
+            for rid in role_ids:
+                role = self.guild.get_role(int(rid))
+                if role and not role.is_default() and not role.managed:
+                    roles.append(role)
+
+            # Sort by position (top first) then name
+            roles.sort(key=lambda r: (-r.position, r.name.lower()))
+
+        except Exception as e:
+            # If something goes wrong (e.g. factions table missing),
+            # fall back to old behaviour so the UI still works.
+            print(f"⚠️ Failed to build faction role options, falling back to all roles: {e}")
+            roles = [r for r in self.guild.roles if not r.is_default() and not r.managed]
+            roles.sort(key=lambda r: (-r.position, r.name.lower()))
+
         return [
-            discord.SelectOption(label=r.name[:100], value=str(r.id))
-            for r in roles[:MAX_SELECT_OPTIONS]
+            discord.SelectOption(label=role.name[:100], value=str(role.id))
+            for role in roles[:MAX_SELECT_OPTIONS]
         ]
 
     # --- assign flag ---
@@ -110,11 +145,12 @@ class FlagManageView(View):
                             view=None
                         )
 
-                    role_opts = self._role_options()
+                    # NEW: only use faction roles for this map
+                    role_opts = await self._role_options()
                     if not role_opts:
                         return await inter2.followup.edit_message(
                             message_id=inter2.message.id,
-                            content="⚠️ No eligible roles found to assign.",
+                            content="⚠️ No eligible faction roles found to assign.",
                             view=None
                         )
 
