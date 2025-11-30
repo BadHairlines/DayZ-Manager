@@ -134,16 +134,32 @@ class FactionCreate(commands.Cog):
                     except discord.Forbidden:
                         log.warning(f"Missing permission to reposition role {role.name} in {guild.name}.")
 
-                # --- Create HQ channel ---
+                # --- Create HQ channel (PRIVATE with specific perms) ---
                 channel_name = name.lower().replace(" ", "-")
+
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(
+                        view_channel=False
+                    ),
+                    role: discord.PermissionOverwrite(
+                        view_channel=True,
+                        send_messages=True,
+                        read_message_history=True,
+                        add_reactions=True,
+                        attach_files=True,
+                        embed_links=True,
+                        use_application_commands=True,
+                    ),
+                }
+
                 channel = await guild.create_text_channel(
                     channel_name,
                     category=category,
-                    topic=f"Private HQ for {name} faction on {map.value}."
+                    topic=f"Private HQ for {name} faction on {map.value}.",
+                    overwrites=overwrites,
                 )
-                await channel.set_permissions(role, read_messages=True, send_messages=True)
-                await channel.set_permissions(guild.default_role, read_messages=False)
 
+                # Members get the faction role so they can see the HQ
                 members = [m for m in [leader, member1, member2, member3] if m]
                 for m in members:
                     try:
