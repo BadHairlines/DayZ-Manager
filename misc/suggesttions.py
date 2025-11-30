@@ -1,11 +1,7 @@
-import os
 import random
 import discord
 from discord import app_commands
 from discord.ext import commands
-
-
-SUGGESTIONS_CHANNEL_ENV = "SUGGESTIONS_CHANNEL_ID"  # optional env var
 
 
 class Suggestions(commands.Cog):
@@ -14,29 +10,29 @@ class Suggestions(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # Small helper to resolve the suggestions channel
-    def _get_suggestions_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
-        # 1) Prefer explicit channel ID via environment variable (if set)
-        chan_id = os.getenv(SUGGESTIONS_CHANNEL_ENV)
-        if chan_id and chan_id.isdigit():
-            ch = guild.get_channel(int(chan_id))
-            if isinstance(ch, discord.TextChannel):
-                return ch
+    # Small helper to resolve or create the #suggestions channel
+    async def _get_or_create_suggestions_channel(
+        self,
+        guild: discord.Guild
+    ) -> discord.TextChannel | None:
+        # Try to find an existing "suggestions" channel
+        ch = discord.utils.get(guild.text_channels, name="suggestions")
+        if isinstance(ch, discord.TextChannel):
+            return ch
 
-        # 2) Fallback: try common suggestion channel names
-        possible_names = [
-            "💡・suggestions",
-            "💡suggestions",
-            "suggestions",
-            "server-suggestions",
-        ]
-        for name in possible_names:
-            ch = discord.utils.get(guild.text_channels, name=name)
-            if isinstance(ch, discord.TextChannel):
-                return ch
-
-        # 3) If none found, just use the system channel (or None)
-        return guild.system_channel
+        # Otherwise, try to create it
+        try:
+            ch = await guild.create_text_channel(
+                "suggestions",
+                reason="Auto-created suggestions channel for /suggest"
+            )
+            return ch
+        except discord.Forbidden:
+            # Missing Manage Channels permission
+            return None
+        except Exception as e:
+            print(f"⚠️ Failed to create #suggestions in {guild.name}: {e}")
+            return None
 
     @app_commands.command(
         name="suggest",
@@ -58,12 +54,12 @@ class Suggestions(commands.Cog):
         guild = interaction.guild
         user = interaction.user
 
-        # Resolve target channel
-        target_channel = self._get_suggestions_channel(guild)
+        # Resolve or create target channel (#suggestions)
+        target_channel = await self._get_or_create_suggestions_channel(guild)
         if not target_channel:
             return await interaction.followup.send(
-                "❌ I couldn't find a suggestions channel for this server.\n"
-                "Ask an admin to set one up or define `SUGGESTIONS_CHANNEL_ID` in the bot environment.",
+                "❌ I couldn't find or create a `#suggestions` channel.\n"
+                "Make sure I have permission to manage channels.",
                 ephemeral=True
             )
 
@@ -88,7 +84,7 @@ class Suggestions(commands.Cog):
         # Avoid pinging roles/users in the suggestion message
         allowed_mentions = discord.AllowedMentions.none()
 
-        # Send to suggestions channel
+        # Send to #suggestions channel
         try:
             msg = await target_channel.send(
                 embed=embed,
@@ -109,7 +105,7 @@ class Suggestions(commands.Cog):
                 ephemeral=True
             )
 
-        # Ephemeral confirmation to the user
+        # Ephemeral confirmation to the user (in the channel they used the cmd)
         confirm_embed = discord.Embed(
             title="✅ Suggestion Submitted",
             description=(
