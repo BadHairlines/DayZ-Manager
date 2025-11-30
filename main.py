@@ -126,18 +126,30 @@ SKIP_FILES = {"__init__.py", "utils.py", "faction_utils.py", "ui_views.py"}
 
 async def load_cogs():
     loaded = 0
-    for root, dirs, files in os.walk("cogs"):
-        dirs[:] = [d for d in dirs if d not in ("__pycache__", "helpers")]
-        for filename in files:
-            if not filename.endswith(".py") or filename in SKIP_FILES or filename.startswith("_"):
-                continue
-            module_path = os.path.join(root, filename).replace(os.sep, ".")[:-3]
-            try:
-                await bot.load_extension(module_path)
-                log.info(f"Loaded cog: {module_path}")
-                loaded += 1
-            except Exception as e:
-                log.exception(f"Failed to load {module_path}")
+    # Folders to scan for extensions
+    folders = ["cogs", "misc"]
+
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue  # Skip if the folder doesn't exist
+
+        for root, dirs, files in os.walk(folder):
+            # Ignore Python cache & helper-only dirs
+            dirs[:] = [d for d in dirs if d not in ("__pycache__", "helpers")]
+
+            for filename in files:
+                if not filename.endswith(".py") or filename in SKIP_FILES or filename.startswith("_"):
+                    continue
+
+                module_path = os.path.join(root, filename).replace(os.sep, ".")[:-3]
+
+                try:
+                    await bot.load_extension(module_path)
+                    log.info(f"Loaded cog: {module_path}")
+                    loaded += 1
+                except Exception:
+                    log.exception(f"Failed to load {module_path}")
+
     log.info(f"Total cogs loaded: {loaded}")
 
 
