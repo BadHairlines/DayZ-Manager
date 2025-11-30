@@ -331,6 +331,26 @@ async def log_action(
         print(f"⚠️ Failed to send log embed: {e}")
 
 
+# ---- helper to pretty-print the details field ----
+
+def _prettify_details(details: str) -> str:
+    """
+    Turn a comma-separated 'Leader: ..., Map: ..., Flag: ..., Members: ...'
+    string into a multi-line block, and drop the redundant 'Map:' part
+    (Map already has its own embed field).
+    """
+    parts = [p.strip() for p in details.split(",") if p.strip()]
+    if len(parts) <= 1:
+        return details  # nothing fancy to do
+
+    # Remove the 'Map:' chunk to avoid duplication
+    filtered = [p for p in parts if not p.lower().startswith("map:")]
+    if not filtered:
+        filtered = parts
+
+    return "\n".join(filtered)
+
+
 async def log_faction_action(
     guild: discord.Guild,
     action: str,
@@ -391,7 +411,10 @@ async def log_faction_action(
         embed.add_field(name="🗺️ Map", value=mk.title(), inline=True)
 
     embed.add_field(name="👤 Action By", value=user.mention, inline=True)
-    embed.add_field(name="📋 Details", value=details, inline=False)
+
+    pretty_details = _prettify_details(details)
+    embed.add_field(name="📋 Details", value=pretty_details, inline=False)
+
     embed.add_field(
         name="🕓 Timestamp",
         value=f"<t:{int(discord.utils.utcnow().timestamp())}:f>",
