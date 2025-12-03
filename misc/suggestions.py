@@ -16,21 +16,21 @@ class Suggestions(commands.Cog):
         guild: discord.Guild
     ) -> discord.TextChannel | None:
         # Try to find existing #suggestions
-        ch = discord.utils.get(guild.text_channels, name="suggestions")
+        ch = discord.utils.get(guild.text_channels, name="❔┃suggestions")
         if isinstance(ch, discord.TextChannel):
             return ch
 
         # Otherwise create it
         try:
             ch = await guild.create_text_channel(
-                "suggestions",
+                "❔┃suggestions",
                 reason="Auto-created suggestions channel for /suggest"
             )
             return ch
         except discord.Forbidden:
             return None
         except Exception as e:
-            print(f"⚠️ Failed to create #suggestions in {guild.name}: {e}")
+            print(f"⚠️ Failed to create # in {guild.name}: {e}")
             return None
 
     @app_commands.command(
@@ -54,7 +54,7 @@ class Suggestions(commands.Cog):
         target_channel = await self._get_or_create_suggestions_channel(guild)
         if not target_channel:
             return await interaction.followup.send(
-                "❌ I couldn't find or create a `#suggestions` channel.\n"
+                "❌ I couldn't find or create a `❔┃suggestions` channel.\n"
                 "Please ensure I have permission to manage channels.",
                 ephemeral=True
             )
