@@ -10,7 +10,7 @@ class RestartInfo(commands.Cog):
 
     @app_commands.command(
         name="restartinfo",
-        description="Shows the last and next DayZ server restarts (8 PM EST then every 4 hours)."
+        description="Shows the last and next DayZ server restarts (8 PM EST then every 2 hours)."
     )
     async def restartinfo(self, interaction: discord.Interaction):
 
@@ -33,9 +33,10 @@ class RestartInfo(commands.Cog):
         else:
             baseline = first_restart_today - timedelta(days=1)
 
-        interval = timedelta(hours=4)
+        # CHANGE: 2-hour interval instead of 4 hours
+        interval = timedelta(hours=2)
 
-        # How many 4h intervals since that baseline?
+        # How many 2h intervals since that baseline?
         elapsed = now_local - baseline
         intervals_since = elapsed // interval  # floor division for timedeltas
 
