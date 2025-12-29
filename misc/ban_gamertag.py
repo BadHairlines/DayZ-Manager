@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import random
 
-class Moderation(commands.Cog):
+class GamertagBan(commands.Cog):  # ✅ fixed name
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -14,7 +14,7 @@ class Moderation(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(
         gamertag="Banned gamertag",
-        user="Linked Discord user (if any)",
+        user="Linked Discord user (optional)",
         reason="Reason for the ban",
         duration="Ban duration",
         bail="Bail amount",
@@ -24,18 +24,24 @@ class Moderation(commands.Cog):
         self,
         interaction: discord.Interaction,
         gamertag: str,
-        user: discord.User,
+        user: discord.User | None,  # ✅ optional
         reason: str,
         duration: str,
         bail: str,
         channel: discord.TextChannel
     ):
+        discord_line = (
+            f"__**DISCORD:**__ {user.mention}\n"
+            f"__**USER ID:**__ `{user.id}`\n\n"
+            if user else
+            "__**DISCORD:**__ *Not linked*\n\n"
+        )
+
         embed = discord.Embed(
             title="🎮 Gamertag Ban Notification 🎮",
             description=(
                 f"__**GAMERTAG:**__ `{gamertag}`\n\n"
-                f"__**DISCORD:**__ {user.mention}\n"
-                f"__**USER ID:**__ `{user.id}`\n\n"
+                f"{discord_line}"
                 f"__**REASON:**__ [{reason}](https://discord.com/channels/1109306235808911360/1109306236903633001)\n"
                 f"__**DURATION:**__ `{duration}`\n"
                 f"__**BAIL AMOUNT:**__ `{bail}`\n\n"
@@ -69,4 +75,4 @@ class Moderation(commands.Cog):
         )
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Moderation(bot))
+    await bot.add_cog(GamertagBan(bot))  # ✅ fixed
