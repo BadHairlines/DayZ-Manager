@@ -7,7 +7,10 @@ class Moderation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="ban_discord", description="Send a ban notification embed")
+    @app_commands.command(
+        name="ban_discord",
+        description="Send a Discord ban notification embed"
+    )
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(
         user="Banned user",
@@ -19,14 +22,14 @@ class Moderation(commands.Cog):
     async def ban_discord(
         self,
         interaction: discord.Interaction,
-        user: discord.Member,
+        user: discord.User,  # ✅ fixed
         reason: str,
         duration: str,
         bail: str,
         channel: discord.TextChannel
     ):
         embed = discord.Embed(
-            title="🔨 Ban Notification 🔨",
+            title="🔨 Discord Ban Notification 🔨",
             description=(
                 f"__**DISCORD:**__ {user.mention}\n"
                 f"__**USER ID:**__ `{user.id}`\n\n"
