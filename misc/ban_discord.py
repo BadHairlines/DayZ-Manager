@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import random
 
-class Moderation(commands.Cog):
+class DiscordBan(commands.Cog):  # ✅ fixed name
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -22,7 +22,7 @@ class Moderation(commands.Cog):
     async def ban_discord(
         self,
         interaction: discord.Interaction,
-        user: discord.User,  # ✅ fixed
+        user: discord.User,
         reason: str,
         duration: str,
         bail: str,
@@ -66,4 +66,4 @@ class Moderation(commands.Cog):
         )
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Moderation(bot))
+    await bot.add_cog(DiscordBan(bot))  # ✅ fixed
