@@ -3,7 +3,21 @@ from discord import app_commands
 from discord.ext import commands
 import random
 
-class GamertagBan(commands.Cog):  # ✅ fixed name
+STAFF_ROLE_ID = 1109306236110909567  # ✅ your staff role
+
+def staff_only():
+    async def predicate(interaction: discord.Interaction):
+        # Allow admins automatically
+        if interaction.user.guild_permissions.administrator:
+            return True
+
+        # Check for staff role
+        return any(role.id == STAFF_ROLE_ID for role in interaction.user.roles)
+
+    return app_commands.check(predicate)
+
+
+class GamertagBan(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -11,7 +25,7 @@ class GamertagBan(commands.Cog):  # ✅ fixed name
         name="ban_gamertag",
         description="Send a gamertag ban notification embed"
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @staff_only()  # ✅ staff role OR admin
     @app_commands.describe(
         gamertag="Banned gamertag",
         user="Linked Discord user (optional)",
@@ -74,5 +88,19 @@ class GamertagBan(commands.Cog):  # ✅ fixed name
             ephemeral=True
         )
 
+    # 🔔 Friendly permission error
+    @ban_gamertag.error
+    async def ban_gamertag_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError
+    ):
+        if isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message(
+                "❌ You must be **Staff or Admin** to use this command.",
+                ephemeral=True
+            )
+
+
 async def setup(bot: commands.Bot):
-    await bot.add_cog(GamertagBan(bot))  # ✅ fixed
+    await bot.add_cog(GamertagBan(bot))
