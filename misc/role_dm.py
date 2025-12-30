@@ -25,6 +25,7 @@ class RoleDM(commands.Cog):
         loadouts="Loadouts provided",
         final_prize="Final prize description",
         rules="Rules or warnings",
+        image="Optional image file to include in the embed",
         color="Optional hex color code for the embed (e.g., #FF0000)",
         footer="Optional footer text"
     )
@@ -40,6 +41,7 @@ class RoleDM(commands.Cog):
         loadouts: str,
         final_prize: str,
         rules: str,
+        image: discord.Attachment = None,
         color: str = "#0099ff",
         footer: str = None
     ):
@@ -61,6 +63,10 @@ class RoleDM(commands.Cog):
         embed.add_field(name=":gun: Loadouts", value=loadouts, inline=True)
         embed.add_field(name=":trophy: Final Prize", value=final_prize, inline=False)
         embed.add_field(name=":warning: Rules", value=rules, inline=False)
+
+        # Set image if provided
+        if image:
+            embed.set_image(url=image.url)
 
         if footer:
             embed.set_footer(text=footer)
