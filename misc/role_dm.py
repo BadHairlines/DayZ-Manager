@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
+# --- Predefined choices ---
 TITLE_CHOICES = [
     app_commands.Choice(name="King Of The Hill", value="King Of The Hill"),
     app_commands.Choice(name="Fight Night", value="Fight Night"),
@@ -21,6 +22,10 @@ LOADOUT_CHOICES = [
     app_commands.Choice(name="Not Provided", value="Not Provided")
 ]
 
+SERVER_CHOICES = [
+    app_commands.Choice(name="50x - Chernarus", value="Chernarus"),
+    app_commands.Choice(name="50x - Livonia", value="Livonia")
+]
 
 class RoleDM(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -38,13 +43,12 @@ class RoleDM(commands.Cog):
     )
     @app_commands.describe(
         role="The role to DM",
-        server_role="Optional role to show as the server in the embed",
+        server="Select the server",
         title="Event title",
         description="Embed description for the main body",
         location="Event location",
         kill_reward="Reward per kill",
         loadouts="Loadouts provided",
-        final_prize="Final prize description",
         rules="Rules or warnings",
         image="Optional image file to include in the embed",
         color="Optional hex color code for the embed (e.g., #FF0000)",
@@ -60,9 +64,8 @@ class RoleDM(commands.Cog):
         location: str,
         kill_reward: str,
         loadouts: str,
-        final_prize: str,
         rules: str,
-        server_role: discord.Role = None,
+        server: str,
         image: discord.Attachment = None,
         color: str = "#0099ff",
         footer: str = None
@@ -82,11 +85,8 @@ class RoleDM(commands.Cog):
         embed.add_field(name=":round_pushpin: Location", value=location, inline=True)
         embed.add_field(name=":moneybag: Kill Reward", value=kill_reward, inline=True)
         embed.add_field(name=":gun: Loadouts", value=loadouts, inline=True)
-        embed.add_field(name=":trophy: Final Prize", value=final_prize, inline=False)
         embed.add_field(name=":warning: Rules", value=rules, inline=False)
-
-        if server_role:
-            embed.add_field(name=":globe_with_meridians: Server", value=server_role.mention, inline=False)
+        embed.add_field(name=":globe_with_meridians: Server", value=server, inline=False)
 
         if image:
             embed.set_image(url=image.url)
@@ -120,6 +120,10 @@ class RoleDM(commands.Cog):
     @role_dm.autocomplete("loadouts")
     async def loadouts_autocomplete(self, interaction: discord.Interaction, current: str):
         return [choice for choice in LOADOUT_CHOICES if current.lower() in choice.name.lower()]
+
+    @role_dm.autocomplete("server")
+    async def server_autocomplete(self, interaction: discord.Interaction, current: str):
+        return [choice for choice in SERVER_CHOICES if current.lower() in choice.name.lower()]
 
 
 async def setup(bot: commands.Bot):
