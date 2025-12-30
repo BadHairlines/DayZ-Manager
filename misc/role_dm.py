@@ -18,7 +18,8 @@ class RoleDM(commands.Cog):
     )
     @app_commands.describe(
         role="The role to DM",
-        title="Embed title",
+        server_role="Optional role to show as the server in the embed",
+        title="Event title",
         description="Embed description for the main body",
         location="Event location",
         kill_reward="Reward per kill",
@@ -34,13 +35,14 @@ class RoleDM(commands.Cog):
         self,
         interaction: discord.Interaction,
         role: discord.Role,
-        title: str,
+        title: app_commands.Choice[str],
         description: str,
         location: str,
-        kill_reward: str,
-        loadouts: str,
+        kill_reward: app_commands.Choice[str],
+        loadouts: app_commands.Choice[str],
         final_prize: str,
         rules: str,
+        server_role: discord.Role = None,
         image: discord.Attachment = None,
         color: str = "#0099ff",
         footer: str = None
@@ -52,17 +54,21 @@ class RoleDM(commands.Cog):
             embed_color = discord.Color.blue()
 
         embed = discord.Embed(
-            title=title,
+            title=title.value,
             description=description,
             color=embed_color
         )
 
         # Adding structured fields
         embed.add_field(name=":round_pushpin: Location", value=location, inline=True)
-        embed.add_field(name=":moneybag: Kill Reward", value=kill_reward, inline=True)
-        embed.add_field(name=":gun: Loadouts", value=loadouts, inline=True)
+        embed.add_field(name=":moneybag: Kill Reward", value=kill_reward.value, inline=True)
+        embed.add_field(name=":gun: Loadouts", value=loadouts.value, inline=True)
         embed.add_field(name=":trophy: Final Prize", value=final_prize, inline=False)
         embed.add_field(name=":warning: Rules", value=rules, inline=False)
+
+        # Add server role field if provided
+        if server_role:
+            embed.add_field(name=":globe_with_meridians: Server", value=server_role.mention, inline=False)
 
         # Set image if provided
         if image:
@@ -85,6 +91,39 @@ class RoleDM(commands.Cog):
             f"✅ Embed sent to {sent_count} members. Failed to send to {failed_count}.",
             ephemeral=True
         )
+
+
+# --- Predefined choices ---
+TITLE_CHOICES = [
+    app_commands.Choice(name="King Of The Hill", value="King Of The Hill"),
+    app_commands.Choice(name="Fight Night", value="Fight Night"),
+    app_commands.Choice(name="Battle Royale", value="Battle Royale"),
+    app_commands.Choice(name="Swords vs Swords", value="Swords vs Swords")
+]
+
+KILL_REWARD_CHOICES = [
+    app_commands.Choice(name="50,000", value="50,000"),
+    app_commands.Choice(name="100,000", value="100,000"),
+    app_commands.Choice(name="150,000", value="150,000"),
+    app_commands.Choice(name="200,000", value="200,000")
+]
+
+LOADOUT_CHOICES = [
+    app_commands.Choice(name="Provided", value="Provided"),
+    app_commands.Choice(name="Not Provided", value="Not Provided")
+]
+
+
+# Register the choices for the command
+RoleDM.role_dm = app_commands.command(
+    name="role_dm",
+    description="DM everyone in a role with a rich embed (Admin Only)"
+)(RoleDM.role_dm)
+
+RoleDM.role_dm.autocomplete("title")(lambda _, __: TITLE_CHOICES)
+RoleDM.role_dm.autocomplete("kill_reward")(lambda _, __: KILL_REWARD_CHOICES)
+RoleDM.role_dm.autocomplete("loadouts")(lambda _, __: LOADOUT_CHOICES)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RoleDM(bot))
