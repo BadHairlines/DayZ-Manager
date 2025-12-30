@@ -75,7 +75,7 @@ class RoleDM(commands.Cog):
         embed_footer = "The Hive - 50x Servers"
 
         # Add start time to title
-        embed_title = f"`{title} - <t:{start_time}:R>`"
+        embed_title = f"`{title}` - <t:{start_time}:R>"
 
         embed = discord.Embed(
             title=embed_title,
