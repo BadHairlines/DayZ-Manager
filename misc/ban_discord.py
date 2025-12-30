@@ -3,7 +3,21 @@ from discord import app_commands
 from discord.ext import commands
 import random
 
-class DiscordBan(commands.Cog):  # ✅ fixed name
+STAFF_ROLE_ID = 1109306236110909567  # ✅ your staff role
+
+def staff_only():
+    async def predicate(interaction: discord.Interaction):
+        # Allow admins automatically
+        if interaction.user.guild_permissions.administrator:
+            return True
+
+        # Check for staff role
+        return any(role.id == STAFF_ROLE_ID for role in interaction.user.roles)
+
+    return app_commands.check(predicate)
+
+
+class DiscordBan(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -11,7 +25,7 @@ class DiscordBan(commands.Cog):  # ✅ fixed name
         name="ban_discord",
         description="Send a Discord ban notification embed"
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @staff_only()  # ✅ staff role OR admin
     @app_commands.describe(
         user="Banned user",
         reason="Reason for the ban",
@@ -65,5 +79,19 @@ class DiscordBan(commands.Cog):  # ✅ fixed name
             ephemeral=True
         )
 
+    # 🔔 Friendly error if someone without perms tries it
+    @ban_discord.error
+    async def ban_discord_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError
+    ):
+        if isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message(
+                "❌ You must be **Staff or Admin** to use this command.",
+                ephemeral=True
+            )
+
+
 async def setup(bot: commands.Bot):
-    await bot.add_cog(DiscordBan(bot))  # ✅ fixed
+    await bot.add_cog(DiscordBan(bot))
