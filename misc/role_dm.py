@@ -1,75 +1,59 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
+from discord import app_commands
 
 class RoleDM(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    def is_admin():
+        async def predicate(interaction: discord.Interaction):
+            return interaction.user.guild_permissions.administrator
+        return app_commands.check(predicate)
 
     @app_commands.command(
         name="role_dm",
-        description="ADMIN ONLY: DM everyone in a role with an embed"
+        description="DM everyone in a role with an embed (Admin Only)"
     )
     @app_commands.describe(
-        role="Role to DM",
+        role="The role to DM",
         title="Embed title",
-        message="Embed message",
-        color="Embed color (hex, optional)"
+        description="Embed description",
+        image="Optional image file to include in the embed"
     )
+    @is_admin()
     async def role_dm(
-        self,
-        interaction: discord.Interaction,
-        role: discord.Role,
-        title: str,
-        message: str,
-        color: str = "2F3136"
+        self, 
+        interaction: discord.Interaction, 
+        role: discord.Role, 
+        title: str, 
+        description: str,
+        image: discord.Attachment = None
     ):
-        # 🔒 HARD ADMIN CHECK
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message(
-                "❌ This command is **Administrator only**.",
-                ephemeral=True
-            )
-
-        await interaction.response.send_message(
-            f"📨 Sending DMs to **{len(role.members)}** members...",
-            ephemeral=True
-        )
-
-        # Embed color handling
-        try:
-            embed_color = int(color.replace("#", ""), 16)
-        except ValueError:
-            embed_color = 0x2F3136
-
+        """DMs everyone in a role with an embed"""
         embed = discord.Embed(
             title=title,
-            description=message,
-            color=embed_color
+            description=description,
+            color=discord.Color.blue()
         )
-        embed.set_footer(text=interaction.guild.name)
 
-        sent = 0
-        failed = 0
+        if image:
+            embed.set_image(url=image.url)  # Use attachment URL
+
+        sent_count = 0
+        failed_count = 0
 
         for member in role.members:
-            if member.bot:
-                continue
-
             try:
                 await member.send(embed=embed)
-                sent += 1
-            except discord.Forbidden:
-                failed += 1
-            except Exception:
-                failed += 1
+                sent_count += 1
+            except:
+                failed_count += 1
 
-        await interaction.followup.send(
-            f"✅ **Role DM Complete**\n"
-            f"📬 Sent: **{sent}**\n"
-            f"❌ Failed: **{failed}**",
+        await interaction.response.send_message(
+            f"Embed sent to {sent_count} members. Failed to send to {failed_count} members.", 
             ephemeral=True
         )
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(RoleDM(bot))
