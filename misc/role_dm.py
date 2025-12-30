@@ -45,6 +45,7 @@ class RoleDM(commands.Cog):
         role="The role to DM",
         server="Select the server",
         title="Event title",
+        start_time="Start time (Unix timestamp, e.g. 1767092438)",
         description="Embed description for the main body",
         location="Event location",
         kill_reward="Reward per kill",
@@ -60,6 +61,7 @@ class RoleDM(commands.Cog):
         interaction: discord.Interaction,
         role: discord.Role,
         title: str,
+        start_time: str,
         description: str,
         location: str,
         kill_reward: str,
@@ -76,8 +78,11 @@ class RoleDM(commands.Cog):
         except:
             embed_color = discord.Color.blue()
 
+        # Add start time to title
+        embed_title = f"`{title} - <t:{start_time}:R>`"
+
         embed = discord.Embed(
-            title=f"`{title}`",
+            title=embed_title,
             description=description,
             color=embed_color
         )
