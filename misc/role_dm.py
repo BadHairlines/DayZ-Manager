@@ -20,6 +20,11 @@ class RoleDM(commands.Cog):
         role="The role to DM",
         title="Embed title",
         description="Embed description for the main body",
+        location="Event location",
+        kill_reward="Reward per kill",
+        loadouts="Loadouts provided",
+        final_prize="Final prize description",
+        rules="Rules or warnings",
         color="Optional hex color code for the embed (e.g., #FF0000)",
         footer="Optional footer text"
     )
@@ -30,10 +35,15 @@ class RoleDM(commands.Cog):
         role: discord.Role,
         title: str,
         description: str,
+        location: str,
+        kill_reward: str,
+        loadouts: str,
+        final_prize: str,
+        rules: str,
         color: str = "#0099ff",
         footer: str = None
     ):
-        """DMs everyone in a role with a formatted embed with multiple fields"""
+        """DMs everyone in a role with a structured embed with multiple fields"""
         try:
             embed_color = discord.Color(int(color.strip("#"), 16))
         except:
@@ -45,18 +55,12 @@ class RoleDM(commands.Cog):
             color=embed_color
         )
 
-        # Example of adding multiple fields (your KOTH example)
-        embed.add_field(name=":round_pushpin: Location", value="NWAF", inline=True)
-        embed.add_field(name=":moneybag: Reward", value="100,000 Credits PER KILL", inline=True)
-        embed.add_field(name=":gun: Loadouts", value="Kitted Loadouts Provided", inline=True)
-
-        embed.add_field(name=":trophy: Final Prize", value=(
-            "At the end of the event, WHOEVER is at the very top of the KOTH will be "
-            "teleported to an Exit-Only Bunker, overflowing with High-Tier Rewards & Loot.\n\n"
-            "**IF YOU GET CAUGHT LOGGING OUT ON PURPOSE UPTOP TILL THE END YOU WILL BE PERMA BANNED FROM ALL EVENTS**"
-        ), inline=False)
-
-        embed.add_field(name=":fire: Motto", value="Kill. Hold. Dominate. Take it all.", inline=False)
+        # Adding structured fields
+        embed.add_field(name=":round_pushpin: Location", value=location, inline=True)
+        embed.add_field(name=":moneybag: Kill Reward", value=kill_reward, inline=True)
+        embed.add_field(name=":gun: Loadouts", value=loadouts, inline=True)
+        embed.add_field(name=":trophy: Final Prize", value=final_prize, inline=False)
+        embed.add_field(name=":warning: Rules", value=rules, inline=False)
 
         if footer:
             embed.set_footer(text=footer)
