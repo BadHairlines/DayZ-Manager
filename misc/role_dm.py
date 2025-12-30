@@ -75,7 +75,7 @@ class RoleDM(commands.Cog):
         embed_footer = "The Hive - 50x Servers"
 
         # Add start time to title
-        embed_title = f"`{title}` - {start_time}"
+        embed_title = f"`{title}` - <t:{start_time}:R>"
 
         embed = discord.Embed(
             title=embed_title,
@@ -88,6 +88,7 @@ class RoleDM(commands.Cog):
         embed.add_field(name=":gun: Loadouts", value=f"`{loadouts}`", inline=True)
         embed.add_field(name=":warning: Rules", value=f"`{rules}`", inline=False)
         embed.add_field(name=":globe_with_meridians: Server", value=f"`{server}`", inline=False)
+        embed.add_field(name="👉 Discord", value="[The Hive Discord](https://discord.com/invite/thehivedayz)", inline=False)
 
         if image:
             embed.set_image(url=image.url)
