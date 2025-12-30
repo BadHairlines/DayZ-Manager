@@ -85,8 +85,8 @@ class RoleDM(commands.Cog):
         embed.add_field(name=":round_pushpin: Location", value=location, inline=True)
         embed.add_field(name=":moneybag: Kill Reward", value=kill_reward, inline=True)
         embed.add_field(name=":gun: Loadouts", value=loadouts, inline=True)
-        embed.add_field(name=":warning: Rules", value=rules, inline=False)
-        embed.add_field(name=":globe_with_meridians: Server", value=server, inline=False)
+        embed.add_field(name=":warning: Rules", value=rules, inline=True)
+        embed.add_field(name=":globe_with_meridians: Server", value=server, inline=True)
 
         if image:
             embed.set_image(url=image.url)
