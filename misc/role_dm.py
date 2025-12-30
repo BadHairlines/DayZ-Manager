@@ -88,7 +88,7 @@ class RoleDM(commands.Cog):
         embed.add_field(name=":gun: Loadouts", value=f"`{loadouts}`", inline=True)
         embed.add_field(name=":warning: Rules", value=f"`{rules}`", inline=False)
         embed.add_field(name=":globe_with_meridians: Server", value=f"`{server}`", inline=False)
-        embed.add_field(name="👉 Discord", value="[The Hive Discord](https://discord.com/invite/thehivedayz)", inline=False)
+        embed.add_field(name="\u200b", value="[The Hive™ - DayZ Community](https://discord.com/invite/thehivedayz)", inline=False)
 
         if image:
             embed.set_image(url=image.url)
