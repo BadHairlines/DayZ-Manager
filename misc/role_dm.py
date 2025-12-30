@@ -23,8 +23,8 @@ LOADOUT_CHOICES = [
 ]
 
 SERVER_CHOICES = [
-    app_commands.Choice(name="50x - Chernarus", value="Chernarus"),
-    app_commands.Choice(name="50x - Livonia", value="Livonia")
+    app_commands.Choice(name="50x - Chernarus", value="50x - Chernarus"),
+    app_commands.Choice(name="50x - Livonia", value="50x - Livonia")
 ]
 
 class RoleDM(commands.Cog):
@@ -77,16 +77,16 @@ class RoleDM(commands.Cog):
             embed_color = discord.Color.blue()
 
         embed = discord.Embed(
-            title=title,
+            title=f"`{title}`",
             description=description,
             color=embed_color
         )
 
-        embed.add_field(name=":round_pushpin: Location", value=location, inline=True)
-        embed.add_field(name=":moneybag: Kill Reward", value=kill_reward, inline=True)
-        embed.add_field(name=":gun: Loadouts", value=loadouts, inline=True)
-        embed.add_field(name=":warning: Rules", value=rules, inline=True)
-        embed.add_field(name=":globe_with_meridians: Server", value=server, inline=True)
+        embed.add_field(name=":round_pushpin: Location", value=f"`{location}`", inline=True)
+        embed.add_field(name=":moneybag: Kill Reward", value=f"`{kill_reward}`", inline=True)
+        embed.add_field(name=":gun: Loadouts", value=f"`{loadouts}`", inline=True)
+        embed.add_field(name=":warning: Rules", value=f"`{rules}`", inline=True)
+        embed.add_field(name=":globe_with_meridians: Server", value=f"`{server}`", inline=True)
 
         if image:
             embed.set_image(url=image.url)
@@ -108,22 +108,22 @@ class RoleDM(commands.Cog):
             ephemeral=True
         )
 
-    # --- Autocomplete handlers for choices ---
+    # --- Autocomplete handlers ---
     @role_dm.autocomplete("title")
     async def title_autocomplete(self, interaction: discord.Interaction, current: str):
-        return [choice for choice in TITLE_CHOICES if current.lower() in choice.name.lower()]
+        return [c for c in TITLE_CHOICES if current.lower() in c.name.lower()]
 
     @role_dm.autocomplete("kill_reward")
     async def kill_reward_autocomplete(self, interaction: discord.Interaction, current: str):
-        return [choice for choice in KILL_REWARD_CHOICES if current.lower() in choice.name.lower()]
+        return [c for c in KILL_REWARD_CHOICES if current.lower() in c.name.lower()]
 
     @role_dm.autocomplete("loadouts")
     async def loadouts_autocomplete(self, interaction: discord.Interaction, current: str):
-        return [choice for choice in LOADOUT_CHOICES if current.lower() in choice.name.lower()]
+        return [c for c in LOADOUT_CHOICES if current.lower() in c.name.lower()]
 
     @role_dm.autocomplete("server")
     async def server_autocomplete(self, interaction: discord.Interaction, current: str):
-        return [choice for choice in SERVER_CHOICES if current.lower() in choice.name.lower()]
+        return [c for c in SERVER_CHOICES if current.lower() in c.name.lower()]
 
 
 async def setup(bot: commands.Bot):
