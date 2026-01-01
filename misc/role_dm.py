@@ -69,7 +69,6 @@ class RoleDM(commands.Cog):
         server: str,
         image: discord.Attachment = None
     ):
-        # ✅ Prevent slash timeout
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         embed_color = discord.Color.from_rgb(255, 204, 0)
@@ -104,38 +103,55 @@ class RoleDM(commands.Cog):
         failed = 0
 
         # Initial progress message
-        await interaction.edit_original_response(
-            content=f"📤 **Sending DMs…**\nProgress: **0 / {total}**"
+        progress_msg = await interaction.followup.send(
+            content=f"📤 **Sending DMs…**\nProgress: **0 / {total}**",
+            ephemeral=True
         )
 
         for index, member in enumerate(members, start=1):
             try:
-                await member.send(embed=embed)
-                sent += 1
-                await asyncio.sleep(1.1)  # SAFE rate limit
-            except (discord.Forbidden, discord.HTTPException):
+                # Attempt DM with retry
+                for attempt in range(3):
+                    try:
+                        await member.send(embed=embed)
+                        sent += 1
+                        break
+                    except (discord.Forbidden, discord.HTTPException):
+                        await asyncio.sleep(2 * (attempt + 1))  # exponential backoff
+                        if attempt == 2:
+                            failed += 1
+            except Exception:
                 failed += 1
-                await asyncio.sleep(2)
 
-            # Update progress every 10 users
-            if index % 10 == 0 or index == total:
-                await interaction.edit_original_response(
-                    content=(
-                        f"📤 **Sending DMs…**\n"
-                        f"Progress: **{index} / {total}**\n"
-                        f"✅ Sent: {sent} | ❌ Failed: {failed}"
+            # Rate limit safe delay
+            await asyncio.sleep(1.2)
+
+            # Update progress every 25 users to reduce edit spam
+            if index % 25 == 0 or index == total:
+                try:
+                    await progress_msg.edit(
+                        content=(
+                            f"📤 **Sending DMs…**\n"
+                            f"Progress: **{index} / {total}**\n"
+                            f"✅ Sent: {sent} | ❌ Failed: {failed}"
+                        )
                     )
-                )
+                except discord.HTTPException:
+                    # Ignore edit errors; we'll do a final summary anyway
+                    pass
 
-        # Final status
-        await interaction.edit_original_response(
-            content=(
-                f"✅ **Role DM Complete**\n\n"
-                f"📨 Sent: **{sent}**\n"
-                f"❌ Failed: **{failed}**\n"
-                f"👥 Total: **{total}**"
+        # Final summary
+        try:
+            await progress_msg.edit(
+                content=(
+                    f"✅ **Role DM Complete**\n\n"
+                    f"📨 Sent: **{sent}**\n"
+                    f"❌ Failed: **{failed}**\n"
+                    f"👥 Total: **{total}**"
+                )
             )
-        )
+        except discord.HTTPException:
+            pass
 
     # --- Autocomplete handlers ---
     @role_dm.autocomplete("title")
@@ -153,7 +169,6 @@ class RoleDM(commands.Cog):
     @role_dm.autocomplete("server")
     async def server_autocomplete(self, interaction: discord.Interaction, current: str):
         return [c for c in SERVER_CHOICES if current.lower() in c.name.lower()]
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RoleDM(bot))
