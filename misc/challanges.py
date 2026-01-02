@@ -84,18 +84,10 @@ class ChallengeDropdown(discord.ui.Select):
         selected_label = self.values[0]
         selected_desc = next((desc for label, desc in ALL_CHALLENGES if label == selected_label), "No description available.")
 
-        # Create challenge embed
+        # Only show challenge + reward
         challenge_embed = discord.Embed(
             title=f"🏆 {selected_label}",
-            description=(
-                f"{selected_desc}\n\n"
-                "**Reward:** $250,000 credits :moneybag: *(proof required)*\n\n"
-                "**Challenge Info:**\n"
-                "1️⃣ Must have kill-feed or recorded proof.\n"
-                "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
-                "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
-                "4️⃣ To redeem, open a support ticket and include your proof/video."
-            ),
+            description=f"{selected_desc}\n\n**Reward:** $250,000 credits :moneybag: *(proof required)*",
             color=EMBED_COLOR
         )
 
