@@ -15,6 +15,18 @@ BANNER_GIF = "https://i.makeagif.com/media/12-20-2014/Lo3Taj.gif"
 
 # ─── DROPDOWN CHOICES ────────────────────────────────────────────────────────
 
+REASON_CHOICES = [
+    app_commands.Choice(name="Harassment / Threats", value="Harassment / Threats"),
+    app_commands.Choice(name="Hate Speech / Slurs", value="Hate Speech / Slurs"),
+    app_commands.Choice(name="Spamming / Advertising", value="Spamming / Advertising"),
+    app_commands.Choice(name="Staff Disrespect", value="Staff Disrespect"),
+    app_commands.Choice(name="Impersonation", value="Impersonation"),
+    app_commands.Choice(name="Ban Evasion", value="Ban Evasion"),
+    app_commands.Choice(name="Scamming / Fraud", value="Scamming / Fraud"),
+    app_commands.Choice(name="NSFW / Inappropriate Content", value="NSFW / Inappropriate Content"),
+    app_commands.Choice(name="Other (See Rules)", value="Other (See Rules)"),
+]
+
 DURATION_CHOICES = [
     app_commands.Choice(name="6 Hours", value="6h"),
     app_commands.Choice(name="12 Hours", value="12h"),
@@ -68,6 +80,7 @@ class DiscordBan(commands.Cog):
         channel="Channel to send the ban notice (optional)"
     )
     @app_commands.choices(
+        reason=REASON_CHOICES,
         duration=DURATION_CHOICES,
         bail=BAIL_CHOICES
     )
@@ -75,7 +88,7 @@ class DiscordBan(commands.Cog):
         self,
         interaction: discord.Interaction,
         user: discord.User,
-        reason: str,
+        reason: app_commands.Choice[str],
         duration: app_commands.Choice[str],
         bail: app_commands.Choice[str],
         channel: discord.TextChannel | None = None
@@ -100,7 +113,7 @@ class DiscordBan(commands.Cog):
 
         embed.add_field(
             name="Reason",
-            value=f"[{reason}]({REASON_LINK})",
+            value=f"[{reason.value}]({REASON_LINK})",
             inline=False
         )
 
@@ -132,7 +145,6 @@ class DiscordBan(commands.Cog):
 
         await channel.send(embed=embed)
 
-        # ⚠️ Staff notice if permanent
         notice = (
             "⚠️ Permanent ban selected — bail was automatically disabled."
             if is_permanent else
