@@ -82,6 +82,10 @@ class DiscordBan(commands.Cog):
     ):
         channel = channel or interaction.channel
 
+        # 🚫 Disable bail if Permanent
+        is_permanent = duration.value.lower() == "permanent"
+        final_bail = "N/A (Permanent Ban)" if is_permanent else bail.value
+
         embed = discord.Embed(
             title="🔨 Discord Ban Notification",
             color=EMBED_COLOR,
@@ -101,11 +105,13 @@ class DiscordBan(commands.Cog):
         )
 
         embed.add_field(name="Duration", value=duration.value, inline=True)
-        embed.add_field(name="Bail Amount", value=bail.value, inline=True)
+        embed.add_field(name="Bail Amount", value=final_bail, inline=True)
 
         embed.add_field(
             name="Paying Bail",
             value=(
+                "Bail is not available for permanent bans."
+                if is_permanent else
                 f"Create a ticket in {TICKET_CHANNEL_URL}\n"
                 'Select **"Pay Bail"**'
             ),
@@ -126,16 +132,17 @@ class DiscordBan(commands.Cog):
 
         await channel.send(embed=embed)
 
+        # ⚠️ Staff notice if permanent
+        notice = (
+            "⚠️ Permanent ban selected — bail was automatically disabled."
+            if is_permanent else
+            f"✅ Ban notification sent to {channel.mention}"
+        )
+
         if interaction.response.is_done():
-            await interaction.followup.send(
-                f"✅ Ban notification sent to {channel.mention}",
-                ephemeral=True
-            )
+            await interaction.followup.send(notice, ephemeral=True)
         else:
-            await interaction.response.send_message(
-                f"✅ Ban notification sent to {channel.mention}",
-                ephemeral=True
-            )
+            await interaction.response.send_message(notice, ephemeral=True)
 
     # ─── ERRORS ────────────────────────────────────────────────────────────
 
@@ -145,10 +152,11 @@ class DiscordBan(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError
     ):
-        if isinstance(error, app_commands.CheckFailure):
-            msg = "❌ You must be **Staff or Admin** to use this command."
-        else:
-            msg = "❌ Something went wrong while running this command."
+        msg = (
+            "❌ You must be **Staff or Admin** to use this command."
+            if isinstance(error, app_commands.CheckFailure)
+            else "❌ Something went wrong while running this command."
+        )
 
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
