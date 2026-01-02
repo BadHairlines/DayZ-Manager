@@ -45,6 +45,25 @@ KILLSTREAK_CHALLENGES = [
     ("Master of Challenges", "Complete all challenges.")
 ]
 
+MISC_CHALLENGES = [
+    ("Broke", "Have $0 in-game."),
+    ("Builder", "Show off your building skills."),
+    ("Friendly", "Be friendly to others in-game."),
+    ("Hunter", "Capture 5 bears in eggs."),
+    ("Asshole", "Tie up & feed a geared player human meat."),
+    ("Sellable Hustler", "Sell $25M+ worth of items at once."),
+    ("Medic", "Revive/heal 5 different players in one session."),
+    ("Ghost", "3 stealth kills without being seen/heard."),
+    ("Hoarder", "Fill a tent/container with one weapon type."),
+    ("Pyromaniac", "Burn down a base with molotovs or gas grenades."),
+    ("Taxi Driver", "Give 5 safe rides to players without killing them."),
+    ("Loot Goblin", "Carry $1M+ in loot without dying."),
+    ("Rancher", "Tame or trap 10 animals alive."),
+    ("Scavenger", "Survive 3 days without a trader."),
+    ("Saboteur", "Destroy another player’s vehicle or base."),
+    ("Supply Runner", "Deliver supplies to 3 teammates under fire."),
+]
+
 # ─── DROPDOWN CLASSES ────────────────────────────────────────────────────────
 class ChallengeDropdown(discord.ui.Select):
     def __init__(self, category_name, options_list):
@@ -60,16 +79,21 @@ class ChallengeDropdown(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # Show full challenge info ephemeral
         selected_label = self.values[0]
-        selected_desc = next(
-            (desc for label, desc in COMBAT_CHALLENGES + MARKSMAN_CHALLENGES + KILLSTREAK_CHALLENGES
-             if label == selected_label),
-            "No description available."
-        )
+        all_challenges = COMBAT_CHALLENGES + MARKSMAN_CHALLENGES + KILLSTREAK_CHALLENGES + MISC_CHALLENGES
+        selected_desc = next((desc for label, desc in all_challenges if label == selected_label), "No description available.")
+        
         embed = discord.Embed(
             title=f"🏆 {selected_label}",
-            description=selected_desc + "\n\n**Reward:** $250,000 credits :moneybag: *(proof required)*",
+            description=(
+                f"{selected_desc}\n\n"
+                "**Reward:** $250,000 credits :moneybag: *(proof required)*\n\n"
+                "**Challenge Info:**\n"
+                "1️⃣ Must have kill-feed or recorded proof.\n"
+                "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
+                "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
+                "4️⃣ To redeem, open a support ticket and include your proof/video."
+            ),
             color=EMBED_COLOR
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -80,6 +104,7 @@ class ChallengeView(discord.ui.View):
         self.add_item(ChallengeDropdown("Combat", COMBAT_CHALLENGES))
         self.add_item(ChallengeDropdown("Marksman", MARKSMAN_CHALLENGES))
         self.add_item(ChallengeDropdown("Killstreak", KILLSTREAK_CHALLENGES))
+        self.add_item(ChallengeDropdown("Misc / Fun", MISC_CHALLENGES))  # Added new category
 
 # ─── COG ─────────────────────────────────────────────────────────────────────
 class Challenges(commands.Cog):
@@ -99,6 +124,7 @@ class Challenges(commands.Cog):
         embed.add_field(name=":crossed_swords: Combat Challenges", value="\u200b", inline=False)
         embed.add_field(name=":dart: Marksman Challenges", value="\u200b", inline=False)
         embed.add_field(name=":fire: Killstreak Challenges", value="\u200b", inline=False)
+        embed.add_field(name=":briefcase: Misc / Fun Challenges", value="\u200b", inline=False)  # New field
 
         await interaction.response.send_message(embed=embed, view=ChallengeView(), ephemeral=False)
 
