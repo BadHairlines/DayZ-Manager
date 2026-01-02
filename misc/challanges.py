@@ -141,44 +141,57 @@ class Challenges(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.challenge_message = None
+        self.channel = None
 
-    async def setup_challenges_channel(self):
-        await self.bot.wait_until_ready()
-        for guild in self.bot.guilds:
-            # Find or create #challenges channel
-            channel = discord.utils.get(guild.text_channels, name="challenges")
-            if not channel:
-                overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(send_messages=False)
-                }
-                channel = await guild.create_text_channel(
-                    "challenges", overwrites=overwrites, reason="Auto-created Challenges channel"
-                )
+    @app_commands.command(name="challenges", description="Create or show the Challenges menu")
+    async def challenges(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
+            )
+            return
 
-            # Post main menu if it doesn't already exist
-            existing = [m async for m in channel.history(limit=50) if m.author == self.bot.user]
+        # Find or create #challenges channel
+        if not self.channel:
+            self.channel = discord.utils.get(guild.text_channels, name="challenges")
+        if not self.channel:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(send_messages=False)
+            }
+            self.channel = await guild.create_text_channel(
+                "challenges", overwrites=overwrites, reason="Created Challenges channel"
+            )
+
+        # Check if main menu message already exists
+        if not self.challenge_message:
+            existing = [m async for m in self.channel.history(limit=50) if m.author == self.bot.user]
             if existing:
                 self.challenge_message = existing[0]
-                return
+            else:
+                # Build main embed
+                embed = discord.Embed(
+                    title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
+                    description=(
+                        "Select a category below to view challenges.\n"
+                        "Each completed challenge earns its respective reward :moneybag: *(proof required)*"
+                    ),
+                    color=EMBED_COLOR
+                )
+                rules_text = (
+                    "1️⃣ Must have kill-feed or recorded proof.\n"
+                    "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
+                    "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
+                    "4️⃣ To redeem, open a support ticket and include your proof/video."
+                )
+                embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
 
-            embed = discord.Embed(
-                title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
-                description=(
-                    "Select a category below to view challenges.\n"
-                    "Each completed challenge earns its respective reward :moneybag: *(proof required)*"
-                ),
-                color=EMBED_COLOR
-            )
-            rules_text = (
-                "1️⃣ Must have kill-feed or recorded proof.\n"
-                "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
-                "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
-                "4️⃣ To redeem, open a support ticket and include your proof/video."
-            )
-            embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
+                self.challenge_message = await self.channel.send(embed=embed, view=MainMenuView())
+                await self.challenge_message.pin()  # optional
 
-            self.challenge_message = await channel.send(embed=embed, view=MainMenuView())
-            await self.challenge_message.pin()  # optional
+        await interaction.response.send_message(
+            f"The challenges menu is ready in {self.channel.mention}.", ephemeral=True
+        )
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
