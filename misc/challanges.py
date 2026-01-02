@@ -71,8 +71,29 @@ class CloseMenuButton(discord.ui.Button):
         super().__init__(style=discord.ButtonStyle.secondary, label="Close Menu")
 
     async def callback(self, interaction: discord.Interaction):
-        # Works for ephemeral messages only
         await interaction.message.delete()
+
+
+class BackToCategoryButton(discord.ui.Button):
+    def __init__(self, category_name, challenges_list):
+        super().__init__(style=discord.ButtonStyle.primary, label="Back to Category")
+        self.category_name = category_name
+        self.challenges_list = challenges_list
+
+    async def callback(self, interaction: discord.Interaction):
+        # Build the dropdown view for this category
+        view = discord.ui.View()
+        view.add_item(ChallengeDropdown(self.category_name, self.challenges_list))
+        view.add_item(CloseMenuButton())
+
+        embed = discord.Embed(
+            title=f":clipboard: {self.category_name} Challenges",
+            description="Select a challenge from the dropdown below:",
+            color=EMBED_COLOR
+        )
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
 
 # ─── DROPDOWN ────────────────────────────────────────────────────────────────
 class ChallengeDropdown(discord.ui.Select):
@@ -82,6 +103,8 @@ class ChallengeDropdown(discord.ui.Select):
             for name, desc, reward in challenges_list
         ]
         super().__init__(placeholder=f"Select a {category_name} Challenge", min_values=1, max_values=1, options=options)
+        self.category_name = category_name
+        self.challenges_list = challenges_list
 
     async def callback(self, interaction: discord.Interaction):
         # Find selected challenge
@@ -102,10 +125,11 @@ class ChallengeDropdown(discord.ui.Select):
             color=EMBED_COLOR
         )
 
+        # Add Close + Back buttons
         view = discord.ui.View()
         view.add_item(CloseMenuButton())
+        view.add_item(BackToCategoryButton(self.category_name, self.challenges_list))
 
-        # EDIT the SAME ephemeral menu message
         await interaction.response.edit_message(embed=embed, view=view)
 
 
@@ -116,8 +140,6 @@ class CategoryButton(discord.ui.Button):
         self.challenges = challenges
 
     async def callback(self, interaction: discord.Interaction):
-        # Check if this interaction is from the main menu (public)
-        # We'll send ONE ephemeral menu to the user
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.label, self.challenges))
         view.add_item(CloseMenuButton())
@@ -128,7 +150,6 @@ class CategoryButton(discord.ui.Button):
             color=EMBED_COLOR
         )
 
-        # Send ephemeral menu only ONCE for this user
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         
 # ─── MAIN MENU VIEW ──────────────────────────────────────────────────────────
