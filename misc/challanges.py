@@ -97,13 +97,15 @@ class ChallengeDropdown(discord.ui.Select):
             color=EMBED_COLOR
         )
 
+        # Show challenge + back button
         await interaction.response.edit_message(embed=embed, view=BackButtonView(self.parent_view))
 
 # ─── VIEWS ───────────────────────────────────────────────────────────────────
 class CategoryButton(discord.ui.Button):
-    def __init__(self, label, challenges):
+    def __init__(self, label, challenges, parent_view):
         super().__init__(style=discord.ButtonStyle.primary, label=label)
         self.challenges = challenges
+        self.parent_view = parent_view
 
     async def callback(self, interaction: discord.Interaction):
         # Small embed for category
@@ -114,16 +116,17 @@ class CategoryButton(discord.ui.Button):
         )
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(view, self.label, self.challenges))
-        view.add_item(BackButton(self.parent_view))  # Add back button to category
+        view.add_item(BackButton(self.parent_view))  # back button now works
         await interaction.response.edit_message(embed=embed, view=view)
 
 class MainMenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(CategoryButton("Combat", COMBAT_CHALLENGES))
-        self.add_item(CategoryButton("Marksman", MARKSMAN_CHALLENGES))
-        self.add_item(CategoryButton("Killstreak", KILLSTREAK_CHALLENGES))
-        self.add_item(CategoryButton("Misc / Fun", MISC_CHALLENGES))
+        # pass self as parent_view for each button
+        self.add_item(CategoryButton("Combat", COMBAT_CHALLENGES, self))
+        self.add_item(CategoryButton("Marksman", MARKSMAN_CHALLENGES, self))
+        self.add_item(CategoryButton("Killstreak", KILLSTREAK_CHALLENGES, self))
+        self.add_item(CategoryButton("Misc / Fun", MISC_CHALLENGES, self))
 
 class BackButton(discord.ui.Button):
     def __init__(self, parent_view):
@@ -134,7 +137,7 @@ class BackButton(discord.ui.Button):
         main_embed = discord.Embed(
             title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
             description=(
-                "Prove your skill, earn your glory — and claim the rewards you deserve.\n"
+                "Select a category below to view challenges.\n"
                 "Each completed challenge earns **$250,000 credits** :moneybag: *(proof required)*"
             ),
             color=EMBED_COLOR
