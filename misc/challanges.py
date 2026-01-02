@@ -65,7 +65,7 @@ MISC_CHALLENGES = [
 
 ALL_CHALLENGES = COMBAT_CHALLENGES + MARKSMAN_CHALLENGES + KILLSTREAK_CHALLENGES + MISC_CHALLENGES
 
-# ─── EPHEMERAL CLOSE BUTTON ───────────────────────────────────────────────────
+# ─── BUTTONS ─────────────────────────────────────────────────────────────────
 class CloseMenuButton(discord.ui.Button):
     def __init__(self):
         super().__init__(style=discord.ButtonStyle.secondary, label="Close Menu")
@@ -73,31 +73,29 @@ class CloseMenuButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.message.delete()
 
-# ─── DROPDOWN MENU ───────────────────────────────────────────────────────────
+# ─── DROPDOWN ────────────────────────────────────────────────────────────────
 class ChallengeDropdown(discord.ui.Select):
-    def __init__(self, category_name, options_list):
+    def __init__(self, category_name, challenges_list):
         options = [
             discord.SelectOption(label=name, description=f"{desc[:80]} | Reward: ${reward:,}")
-            for name, desc, reward in options_list
+            for name, desc, reward in challenges_list
         ]
-        super().__init__(
-            placeholder=f"Select a {category_name} Challenge",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
+        super().__init__(placeholder=f"Select a {category_name} Challenge", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        selected_label = self.values[0]
-        selected = next(((n, d, r) for n, d, r in ALL_CHALLENGES if n == selected_label), None)
-        name, desc, reward = selected if selected else (selected_label, "No description available.", 0)
+        # Find selected challenge
+        selected_name = self.values[0]
+        selected = next((n, d, r) for n, d, r in ALL_CHALLENGES if n == selected_name)
+        name, desc, reward = selected
 
+        # Keep role mention if exists
         role_mention = ""
         if interaction.guild:
             role = discord.utils.get(interaction.guild.roles, name=name)
             if role:
                 role_mention = f"{role.mention}\n\n"
 
+        # Update SAME ephemeral message
         embed = discord.Embed(
             title=f"🏆 {name}",
             description=f"{role_mention}{desc}\n\n**Reward:** ${reward:,} credits :moneybag: *(proof required)*",
@@ -108,13 +106,14 @@ class ChallengeDropdown(discord.ui.Select):
         view.add_item(CloseMenuButton())
         await interaction.response.edit_message(embed=embed, view=view)
 
-# ─── CATEGORY BUTTONS ────────────────────────────────────────────────────────
+# ─── CATEGORY BUTTON ─────────────────────────────────────────────────────────
 class CategoryButton(discord.ui.Button):
     def __init__(self, label, emoji, challenges):
         super().__init__(style=discord.ButtonStyle.primary, label=label, emoji=emoji)
         self.challenges = challenges
 
     async def callback(self, interaction: discord.Interaction):
+        # Replace buttons with dropdown + close
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.label, self.challenges))
         view.add_item(CloseMenuButton())
@@ -126,7 +125,7 @@ class CategoryButton(discord.ui.Button):
         )
         await interaction.response.edit_message(embed=embed, view=view)
 
-# ─── MAIN MENU ───────────────────────────────────────────────────────────────
+# ─── MAIN MENU VIEW ──────────────────────────────────────────────────────────
 class MainMenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -142,19 +141,24 @@ class Challenges(commands.Cog):
 
     @app_commands.command(name="challenges", description="View The Hive Challenges")
     async def challenges(self, interaction: discord.Interaction):
-        # ephemeral per user, so multiple people can use menu at once
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
-                description=(
-                    "Select a category below to view challenges.\n"
-                    "Each completed challenge earns its respective reward :moneybag: *(proof required)*"
-                ),
-                color=EMBED_COLOR
+        embed = discord.Embed(
+            title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
+            description=(
+                "Select a category below to view challenges.\n"
+                "Each completed challenge earns its respective reward :moneybag: *(proof required)*"
             ),
-            view=MainMenuView(),
-            ephemeral=True
+            color=EMBED_COLOR
         )
+        rules_text = (
+            "1️⃣ Must have kill-feed or recorded proof.\n"
+            "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
+            "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
+            "4️⃣ To redeem, open a support ticket and include your proof/video."
+        )
+        embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
+
+        # **Send ephemeral once; updates happen in-place**
+        await interaction.response.send_message(embed=embed, view=MainMenuView(), ephemeral=True)
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
