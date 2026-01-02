@@ -5,7 +5,6 @@ from discord.ext import commands
 EMBED_COLOR = discord.Color.gold()
 
 # ─── CHALLENGE DATA WITH PAYOUTS ─────────────────────────────────────────────
-# Format: (Name, Description, Reward)
 COMBAT_CHALLENGES = [
     ("Pistolier", "Kill an enemy with a spawn pistol.", 50000),
     ("Brutalized", "Kill with a weapon buttstock.", 75000),
@@ -68,12 +67,11 @@ ALL_CHALLENGES = COMBAT_CHALLENGES + MARKSMAN_CHALLENGES + KILLSTREAK_CHALLENGES
 
 # ─── DROPDOWNS ───────────────────────────────────────────────────────────────
 class ChallengeDropdown(discord.ui.Select):
-    def __init__(self, parent_view, category_name, options_list):
-        self.parent_view = parent_view
+    def __init__(self, category_name, options_list):
         select_options = [
             discord.SelectOption(
                 label=name,
-                description=f"{desc[:80]} | Reward: ${reward:,}"  # show reward in dropdown
+                description=f"{desc[:80]} | Reward: ${reward:,}"
             )
             for name, desc, reward in options_list
         ]
@@ -104,41 +102,31 @@ class ChallengeDropdown(discord.ui.Select):
             color=EMBED_COLOR
         )
 
-        await interaction.response.edit_message(embed=embed, view=BackButtonView(self.parent_view))
+        await interaction.response.send_message(embed=embed, view=BackButtonView(), ephemeral=True)
 
 # ─── VIEWS ───────────────────────────────────────────────────────────────────
 class CategoryButton(discord.ui.Button):
-    def __init__(self, label, emoji, challenges, parent_view):
+    def __init__(self, label, emoji, challenges):
         super().__init__(style=discord.ButtonStyle.primary, label=label, emoji=emoji)
         self.challenges = challenges
-        self.parent_view = parent_view
 
     async def callback(self, interaction: discord.Interaction):
+        view = discord.ui.View()
+        view.add_item(ChallengeDropdown(self.label, self.challenges))
+        view.add_item(BackButton())
         embed = discord.Embed(
             title=f":clipboard: {self.label} Challenges",
             description="Select a challenge from the dropdown below:",
             color=EMBED_COLOR
         )
-        view = discord.ui.View()
-        view.add_item(ChallengeDropdown(view, self.label, self.challenges))
-        view.add_item(BackButton(self.parent_view))
-        await interaction.response.edit_message(embed=embed, view=view)
-
-class MainMenuView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(CategoryButton("Combat", "⚔️", COMBAT_CHALLENGES, self))
-        self.add_item(CategoryButton("Marksman", "🎯", MARKSMAN_CHALLENGES, self))
-        self.add_item(CategoryButton("Killstreak", "💥", KILLSTREAK_CHALLENGES, self))
-        self.add_item(CategoryButton("Misc / Fun", "🎲", MISC_CHALLENGES, self))
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 class BackButton(discord.ui.Button):
-    def __init__(self, parent_view):
+    def __init__(self):
         super().__init__(style=discord.ButtonStyle.secondary, label="⬅️ Back to Menu")
-        self.parent_view = parent_view
 
     async def callback(self, interaction: discord.Interaction):
-        main_embed = discord.Embed(
+        embed = discord.Embed(
             title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
             description=(
                 "Select a category below to view challenges.\n"
@@ -146,21 +134,27 @@ class BackButton(discord.ui.Button):
             ),
             color=EMBED_COLOR
         )
-
         rules_text = (
             "1️⃣ Must have kill-feed or recorded proof.\n"
             "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
             "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
             "4️⃣ To redeem, open a support ticket and include your proof/video."
         )
-        main_embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
+        embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
+        await interaction.response.send_message(embed=embed, view=MainMenuView(), ephemeral=True)
 
-        await interaction.response.edit_message(embed=main_embed, view=self.parent_view)
+class MainMenuView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(CategoryButton("Combat", "⚔️", COMBAT_CHALLENGES))
+        self.add_item(CategoryButton("Marksman", "🎯", MARKSMAN_CHALLENGES))
+        self.add_item(CategoryButton("Killstreak", "💥", KILLSTREAK_CHALLENGES))
+        self.add_item(CategoryButton("Misc / Fun", "🎲", MISC_CHALLENGES))
 
 class BackButtonView(discord.ui.View):
-    def __init__(self, parent_view):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(BackButton(parent_view))
+        self.add_item(BackButton())
 
 # ─── COG ─────────────────────────────────────────────────────────────────────
 class Challenges(commands.Cog):
@@ -169,6 +163,9 @@ class Challenges(commands.Cog):
 
     @app_commands.command(name="challenges", description="View The Hive Challenges")
     async def challenges(self, interaction: discord.Interaction):
+        # Defer the response so it doesn't show /challenges as used
+        await interaction.response.defer(ephemeral=False)
+
         main_embed = discord.Embed(
             title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
             description=(
@@ -186,7 +183,8 @@ class Challenges(commands.Cog):
         )
         main_embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
 
-        await interaction.response.send_message(embed=main_embed, view=MainMenuView(), ephemeral=False)
+        # Send the main embed as a followup (public)
+        await interaction.followup.send(embed=main_embed, view=MainMenuView(), ephemeral=False)
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
