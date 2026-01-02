@@ -84,10 +84,18 @@ class ChallengeDropdown(discord.ui.Select):
         selected_label = self.values[0]
         selected_desc = next((desc for label, desc in ALL_CHALLENGES if label == selected_label), "No description available.")
 
-        # Only show challenge + reward
+        # Find role in guild
+        guild = interaction.guild
+        role_mention = ""
+        if guild:
+            role = discord.utils.get(guild.roles, name=selected_label)
+            if role:
+                role_mention = f"{role.mention}\n\n"
+
+        # Only show challenge + reward + role mention
         challenge_embed = discord.Embed(
             title=f"🏆 {selected_label}",
-            description=f"{selected_desc}\n\n**Reward:** $250,000 credits :moneybag: *(proof required)*",
+            description=f"{role_mention}{selected_desc}\n\n**Reward:** $250,000 credits :moneybag: *(proof required)*",
             color=EMBED_COLOR
         )
 
@@ -109,7 +117,6 @@ class BackButton(discord.ui.Button):
         self.parent_view = parent_view
 
     async def callback(self, interaction: discord.Interaction):
-        # Go back to main menu
         main_embed = discord.Embed(
             title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
             description=(
