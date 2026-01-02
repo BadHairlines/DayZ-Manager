@@ -141,7 +141,6 @@ class Challenges(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.challenge_message = None
-        bot.loop.create_task(self.setup_challenges_channel())
 
     async def setup_challenges_channel(self):
         await self.bot.wait_until_ready()
