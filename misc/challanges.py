@@ -96,7 +96,7 @@ class ChallengeDropdown(discord.ui.Select):
             if role:
                 role_mention = f"{role.mention}\n\n"
 
-        # Send ephemeral message to the user
+        # Update the SAME ephemeral message instead of sending a new one
         embed = discord.Embed(
             title=f"🏆 {name}",
             description=f"{role_mention}{desc}\n\n**Reward:** ${reward:,} credits :moneybag: *(proof required)*",
@@ -105,7 +105,10 @@ class ChallengeDropdown(discord.ui.Select):
 
         view = discord.ui.View()
         view.add_item(CloseMenuButton())
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+        # Edit the message instead of sending a new ephemeral
+        await interaction.response.edit_message(embed=embed, view=view)
+
 
 # ─── CATEGORY BUTTON ─────────────────────────────────────────────────────────
 class CategoryButton(discord.ui.Button):
@@ -114,7 +117,7 @@ class CategoryButton(discord.ui.Button):
         self.challenges = challenges
 
     async def callback(self, interaction: discord.Interaction):
-        # Send ephemeral message with dropdown
+        # Replace buttons with dropdown + close button
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.label, self.challenges))
         view.add_item(CloseMenuButton())
@@ -124,8 +127,10 @@ class CategoryButton(discord.ui.Button):
             description="Select a challenge from the dropdown below:",
             color=EMBED_COLOR
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
+        # Edit the SAME ephemeral message instead of sending a new one
+        await interaction.response.edit_message(embed=embed, view=view)
+        
 # ─── MAIN MENU VIEW ──────────────────────────────────────────────────────────
 class MainMenuView(discord.ui.View):
     def __init__(self):
