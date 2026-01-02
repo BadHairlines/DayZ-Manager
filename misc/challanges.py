@@ -71,7 +71,7 @@ class CloseMenuButton(discord.ui.Button):
         super().__init__(style=discord.ButtonStyle.secondary, label="Close Menu")
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.message.delete()  # deletes ephemeral message
+        await interaction.message.delete()
 
 # ─── DROPDOWNS ───────────────────────────────────────────────────────────────
 class ChallengeDropdown(discord.ui.Select):
@@ -104,9 +104,10 @@ class ChallengeDropdown(discord.ui.Select):
             color=EMBED_COLOR
         )
 
+        # Edit the SAME ephemeral instead of sending new
         view = discord.ui.View()
-        view.add_item(CloseMenuButton())  # ephemeral close button
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.add_item(CloseMenuButton())
+        await interaction.response.edit_message(embed=embed, view=view)
 
 # ─── CATEGORY BUTTONS ────────────────────────────────────────────────────────
 class CategoryButton(discord.ui.Button):
@@ -117,13 +118,14 @@ class CategoryButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.label, self.challenges))
-        view.add_item(CloseMenuButton())  # ephemeral close button
+        view.add_item(CloseMenuButton())
+
         embed = discord.Embed(
             title=f":clipboard: {self.label} Challenges",
             description="Select a challenge from the dropdown below:",
             color=EMBED_COLOR
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.edit_message(embed=embed, view=view)
 
 # ─── MAIN MENU ───────────────────────────────────────────────────────────────
 class MainMenuView(discord.ui.View):
@@ -160,6 +162,7 @@ class Challenges(commands.Cog):
         )
         main_embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
 
+        # Send main menu PUBLICLY
         await interaction.followup.send(embed=main_embed, view=MainMenuView(), ephemeral=False)
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
