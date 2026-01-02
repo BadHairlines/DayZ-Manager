@@ -89,14 +89,13 @@ class ChallengeDropdown(discord.ui.Select):
         selected = next((n, d, r) for n, d, r in ALL_CHALLENGES if n == selected_name)
         name, desc, reward = selected
 
-        # Keep role mention if exists
+        # Role mention if exists
         role_mention = ""
         if interaction.guild:
             role = discord.utils.get(interaction.guild.roles, name=name)
             if role:
                 role_mention = f"{role.mention}\n\n"
 
-        # Update the SAME ephemeral message instead of sending a new one
         embed = discord.Embed(
             title=f"🏆 {name}",
             description=f"{role_mention}{desc}\n\n**Reward:** ${reward:,} credits :moneybag: *(proof required)*",
@@ -106,7 +105,7 @@ class ChallengeDropdown(discord.ui.Select):
         view = discord.ui.View()
         view.add_item(CloseMenuButton())
 
-        # Edit the message instead of sending a new ephemeral
+        # EDIT the SAME ephemeral menu message
         await interaction.response.edit_message(embed=embed, view=view)
 
 
@@ -117,7 +116,8 @@ class CategoryButton(discord.ui.Button):
         self.challenges = challenges
 
     async def callback(self, interaction: discord.Interaction):
-        # Replace buttons with dropdown + close button
+        # Check if this interaction is from the main menu (public)
+        # We'll send ONE ephemeral menu to the user
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.label, self.challenges))
         view.add_item(CloseMenuButton())
@@ -128,8 +128,8 @@ class CategoryButton(discord.ui.Button):
             color=EMBED_COLOR
         )
 
-        # Edit the SAME ephemeral message instead of sending a new one
-        await interaction.response.edit_message(embed=embed, view=view)
+        # Send ephemeral menu only ONCE for this user
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         
 # ─── MAIN MENU VIEW ──────────────────────────────────────────────────────────
 class MainMenuView(discord.ui.View):
