@@ -71,6 +71,7 @@ class CloseMenuButton(discord.ui.Button):
         super().__init__(style=discord.ButtonStyle.secondary, label="Close Menu")
 
     async def callback(self, interaction: discord.Interaction):
+        # Works for ephemeral messages only
         await interaction.message.delete()
 
 # ─── DROPDOWN ────────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ class ChallengeDropdown(discord.ui.Select):
             if role:
                 role_mention = f"{role.mention}\n\n"
 
-        # Update SAME ephemeral message
+        # Send ephemeral message to the user
         embed = discord.Embed(
             title=f"🏆 {name}",
             description=f"{role_mention}{desc}\n\n**Reward:** ${reward:,} credits :moneybag: *(proof required)*",
@@ -104,7 +105,7 @@ class ChallengeDropdown(discord.ui.Select):
 
         view = discord.ui.View()
         view.add_item(CloseMenuButton())
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 # ─── CATEGORY BUTTON ─────────────────────────────────────────────────────────
 class CategoryButton(discord.ui.Button):
@@ -113,7 +114,7 @@ class CategoryButton(discord.ui.Button):
         self.challenges = challenges
 
     async def callback(self, interaction: discord.Interaction):
-        # Replace buttons with dropdown + close
+        # Send ephemeral message with dropdown
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.label, self.challenges))
         view.add_item(CloseMenuButton())
@@ -123,7 +124,7 @@ class CategoryButton(discord.ui.Button):
             description="Select a challenge from the dropdown below:",
             color=EMBED_COLOR
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 # ─── MAIN MENU VIEW ──────────────────────────────────────────────────────────
 class MainMenuView(discord.ui.View):
@@ -157,8 +158,8 @@ class Challenges(commands.Cog):
         )
         embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
 
-        # **Send ephemeral once; updates happen in-place**
-        await interaction.response.send_message(embed=embed, view=MainMenuView(), ephemeral=True)
+        # Send the main menu publicly
+        await interaction.response.send_message(embed=embed, view=MainMenuView(), ephemeral=False)
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
