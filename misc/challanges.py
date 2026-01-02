@@ -121,13 +121,20 @@ class CategoryButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.label, self.challenges))
+
         embed = discord.Embed(
             title=f":clipboard: {self.label} Challenges",
             description="Select a challenge from the dropdown below:",
             color=EMBED_COLOR
         )
-        await interaction.response.edit_message(embed=embed, view=view)
 
+        # IMPORTANT: start a private session
+        await interaction.response.send_message(
+            embed=embed,
+            view=view,
+            ephemeral=True
+        )
+        
 class MainMenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
