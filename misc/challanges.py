@@ -65,7 +65,7 @@ MISC_CHALLENGES = [
 
 ALL_CHALLENGES = COMBAT_CHALLENGES + MARKSMAN_CHALLENGES + KILLSTREAK_CHALLENGES + MISC_CHALLENGES
 
-# ─── VIEWS ───────────────────────────────────────────────────────────────────
+# ─── DROPDOWNS ───────────────────────────────────────────────────────────────
 class ChallengeDropdown(discord.ui.Select):
     def __init__(self, parent_view, category_name, options_list):
         self.parent_view = parent_view
@@ -84,36 +84,50 @@ class ChallengeDropdown(discord.ui.Select):
         selected_label = self.values[0]
         selected_desc = next((desc for label, desc in ALL_CHALLENGES if label == selected_label), "No description available.")
 
-        # Find role in guild
-        guild = interaction.guild
+        # Ping the role if it exists
         role_mention = ""
-        if guild:
-            role = discord.utils.get(guild.roles, name=selected_label)
+        if interaction.guild:
+            role = discord.utils.get(interaction.guild.roles, name=selected_label)
             if role:
                 role_mention = f"{role.mention}\n\n"
 
-        # Only show challenge + reward + role mention
-        challenge_embed = discord.Embed(
+        embed = discord.Embed(
             title=f"🏆 {selected_label}",
             description=f"{role_mention}{selected_desc}\n\n**Reward:** $250,000 credits :moneybag: *(proof required)*",
             color=EMBED_COLOR
         )
 
-        # Replace the original menu with challenge embed + back button
-        back_view = BackButtonView(self.parent_view)
-        await interaction.response.edit_message(embed=challenge_embed, view=back_view)
+        await interaction.response.edit_message(embed=embed, view=BackButtonView(self.parent_view))
 
-class ChallengeView(discord.ui.View):
+# ─── VIEWS ───────────────────────────────────────────────────────────────────
+class CategoryButton(discord.ui.Button):
+    def __init__(self, label, challenges):
+        super().__init__(style=discord.ButtonStyle.primary, label=label)
+        self.challenges = challenges
+
+    async def callback(self, interaction: discord.Interaction):
+        # Small embed for category
+        embed = discord.Embed(
+            title=f":clipboard: {self.label} Challenges",
+            description="Select a challenge from the dropdown below:",
+            color=EMBED_COLOR
+        )
+        view = discord.ui.View()
+        view.add_item(ChallengeDropdown(view, self.label, self.challenges))
+        view.add_item(BackButton(self.parent_view))  # Add back button to category
+        await interaction.response.edit_message(embed=embed, view=view)
+
+class MainMenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(ChallengeDropdown(self, "Combat", COMBAT_CHALLENGES))
-        self.add_item(ChallengeDropdown(self, "Marksman", MARKSMAN_CHALLENGES))
-        self.add_item(ChallengeDropdown(self, "Killstreak", KILLSTREAK_CHALLENGES))
-        self.add_item(ChallengeDropdown(self, "Misc / Fun", MISC_CHALLENGES))
+        self.add_item(CategoryButton("Combat", COMBAT_CHALLENGES))
+        self.add_item(CategoryButton("Marksman", MARKSMAN_CHALLENGES))
+        self.add_item(CategoryButton("Killstreak", KILLSTREAK_CHALLENGES))
+        self.add_item(CategoryButton("Misc / Fun", MISC_CHALLENGES))
 
 class BackButton(discord.ui.Button):
     def __init__(self, parent_view):
-        super().__init__(style=discord.ButtonStyle.primary, label="⬅️ Back to Menu")
+        super().__init__(style=discord.ButtonStyle.secondary, label="⬅️ Back to Menu")
         self.parent_view = parent_view
 
     async def callback(self, interaction: discord.Interaction):
@@ -125,11 +139,6 @@ class BackButton(discord.ui.Button):
             ),
             color=EMBED_COLOR
         )
-        main_embed.add_field(name=":crossed_swords: Combat Challenges", value="\u200b", inline=False)
-        main_embed.add_field(name=":dart: Marksman Challenges", value="\u200b", inline=False)
-        main_embed.add_field(name=":fire: Killstreak Challenges", value="\u200b", inline=False)
-        main_embed.add_field(name=":briefcase: Misc / Fun Challenges", value="\u200b", inline=False)
-
         await interaction.response.edit_message(embed=main_embed, view=self.parent_view)
 
 class BackButtonView(discord.ui.View):
@@ -147,17 +156,12 @@ class Challenges(commands.Cog):
         embed = discord.Embed(
             title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
             description=(
-                "Prove your skill, earn your glory — and claim the rewards you deserve.\n"
+                "Select a category below to view challenges.\n"
                 "Each completed challenge earns **$250,000 credits** :moneybag: *(proof required)*"
             ),
             color=EMBED_COLOR
         )
-        embed.add_field(name=":crossed_swords: Combat Challenges", value="\u200b", inline=False)
-        embed.add_field(name=":dart: Marksman Challenges", value="\u200b", inline=False)
-        embed.add_field(name=":fire: Killstreak Challenges", value="\u200b", inline=False)
-        embed.add_field(name=":briefcase: Misc / Fun Challenges", value="\u200b", inline=False)
-
-        await interaction.response.send_message(embed=embed, view=ChallengeView(), ephemeral=False)
+        await interaction.response.send_message(embed=embed, view=MainMenuView(), ephemeral=False)
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
