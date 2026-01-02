@@ -161,7 +161,7 @@ class Challenges(commands.Cog):
 
         # Find or create #challenges channel
         if not self.channel:
-            self.channel = discord.utils.get(guild.text_channels, name="challenges")
+            self.channel = discord.utils.get(guild.text_channels, name="🏆┃challenges")
         if not self.channel:
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(send_messages=False)
