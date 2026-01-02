@@ -1,21 +1,55 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import random
 
-STAFF_ROLE_ID = 1109306236110909567  # ✅ your staff role
+# ─── CONSTANTS ──────────────────────────────────────────────────────────────
+
+STAFF_ROLE_ID = 1109306236110909567
+
+TICKET_CHANNEL_URL = "https://discord.com/channels/1109306235808911360/1109306236903633003"
+REASON_LINK = "https://discord.com/channels/1109306235808911360/1109306236903633001"
+
+EMBED_COLOR = discord.Color.red()
+FOOTER_ICON = "https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+BANNER_GIF = "https://i.makeagif.com/media/12-20-2014/Lo3Taj.gif"
+
+# ─── DROPDOWN CHOICES ────────────────────────────────────────────────────────
+
+DURATION_CHOICES = [
+    app_commands.Choice(name="6 Hours", value="6h"),
+    app_commands.Choice(name="12 Hours", value="12h"),
+    app_commands.Choice(name="1 Day", value="1 day"),
+    app_commands.Choice(name="2 Days", value="2 days"),
+    app_commands.Choice(name="3 Days", value="3 days"),
+    app_commands.Choice(name="7 Days", value="7 days"),
+    app_commands.Choice(name="Permanent", value="Permanent"),
+]
+
+BAIL_CHOICES = [
+    app_commands.Choice(name="1,000,000", value="1,000,000"),
+    app_commands.Choice(name="2,500,000", value="2,500,000"),
+    app_commands.Choice(name="5,000,000", value="5,000,000"),
+    app_commands.Choice(name="10,000,000", value="10,000,000"),
+    app_commands.Choice(name="25,000,000", value="25,000,000"),
+]
+
+# ─── PERMISSION CHECK ────────────────────────────────────────────────────────
 
 def staff_only():
-    async def predicate(interaction: discord.Interaction):
-        # Allow admins automatically
-        if interaction.user.guild_permissions.administrator:
+    async def predicate(interaction: discord.Interaction) -> bool:
+        member = interaction.user
+
+        if not isinstance(member, discord.Member):
+            return False
+
+        if member.guild_permissions.administrator:
             return True
 
-        # Check for staff role
-        return any(role.id == STAFF_ROLE_ID for role in interaction.user.roles)
+        return any(role.id == STAFF_ROLE_ID for role in member.roles)
 
     return app_commands.check(predicate)
 
+# ─── COG ─────────────────────────────────────────────────────────────────────
 
 class GamertagBan(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -25,70 +59,101 @@ class GamertagBan(commands.Cog):
         name="ban_gamertag",
         description="Send a gamertag ban notification embed"
     )
-    @staff_only()  # ✅ staff role OR admin
+    @staff_only()
     @app_commands.describe(
         gamertag="Banned gamertag",
         user="Linked Discord user (optional)",
         reason="Reason for the ban",
         duration="Ban duration",
         bail="Bail amount",
-        channel="Channel to send the ban notice"
+        channel="Channel to send the ban notice (optional)"
+    )
+    @app_commands.choices(
+        duration=DURATION_CHOICES,
+        bail=BAIL_CHOICES
     )
     async def ban_gamertag(
         self,
         interaction: discord.Interaction,
         gamertag: str,
-        user: discord.User | None,  # ✅ optional
+        user: discord.User | None,
         reason: str,
-        duration: str,
-        bail: str,
-        channel: discord.TextChannel
+        duration: app_commands.Choice[str],
+        bail: app_commands.Choice[str],
+        channel: discord.TextChannel | None = None
     ):
-        discord_line = (
-            f"__**DISCORD:**__ {user.mention}\n"
-            f"__**USER ID:**__ `{user.id}`\n\n"
-            if user else
-            "__**DISCORD:**__ *Not linked*\n\n"
-        )
+        channel = channel or interaction.channel
 
         embed = discord.Embed(
-            title="🎮 Gamertag Ban Notification 🎮",
-            description=(
-                f"__**GAMERTAG:**__ `{gamertag}`\n\n"
-                f"{discord_line}"
-                f"__**REASON:**__ [{reason}](https://discord.com/channels/1109306235808911360/1109306236903633001)\n"
-                f"__**DURATION:**__ `{duration}`\n"
-                f"__**BAIL AMOUNT:**__ `{bail}`\n\n"
-                "__**Paying Bail:**__\n"
-                "*To pay your bail, make a ticket in* "
-                "https://discord.com/channels/1109306235808911360/1109306236903633003 "
-                '*under the option* __"Pay Bail"__\n\n'
-                "__**Ban Appeals:**__\n"
-                "*To appeal your ban, make a ticket in* "
-                "https://discord.com/channels/1109306235808911360/1109306236903633003 "
-                '*under the option* __"Support"__'
-            ),
-            color=random.randint(0, 0xFFFFFF),
+            title="🎮 Gamertag Ban Notification",
+            color=EMBED_COLOR,
             timestamp=discord.utils.utcnow()
         )
 
-        embed.set_footer(
-            text="DayZ Manager",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+        embed.add_field(
+            name="Gamertag",
+            value=f"`{gamertag}`",
+            inline=False
         )
 
-        embed.set_image(
-            url="https://i.makeagif.com/media/12-20-2014/Lo3Taj.gif"
+        if user:
+            embed.add_field(
+                name="Discord",
+                value=f"{user.mention}\n`{user.id}`",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Discord",
+                value="*Not linked*",
+                inline=False
+            )
+
+        embed.add_field(
+            name="Reason",
+            value=f"[{reason}]({REASON_LINK})",
+            inline=False
         )
+
+        embed.add_field(name="Duration", value=duration.value, inline=True)
+        embed.add_field(name="Bail Amount", value=bail.value, inline=True)
+
+        embed.add_field(
+            name="Paying Bail",
+            value=(
+                f"Create a ticket in {TICKET_CHANNEL_URL}\n"
+                'Select **"Pay Bail"**'
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="Ban Appeals",
+            value=(
+                f"Create a ticket in {TICKET_CHANNEL_URL}\n"
+                'Select **"Support"**'
+            ),
+            inline=False
+        )
+
+        embed.set_footer(text="DayZ Manager", icon_url=FOOTER_ICON)
+        embed.set_image(url=BANNER_GIF)
 
         await channel.send(embed=embed)
 
-        await interaction.response.send_message(
-            f"✅ **Gamertag ban notification sent to {channel.mention}**",
-            ephemeral=True
-        )
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                f"✅ Gamertag ban notification sent to {channel.mention}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"✅ Gamertag ban notification sent to {channel.mention}",
+                ephemeral=True
+            )
 
-    # 🔔 Friendly permission error
+    # ─── ERRORS ────────────────────────────────────────────────────────────
+
     @ban_gamertag.error
     async def ban_gamertag_error(
         self,
@@ -96,11 +161,14 @@ class GamertagBan(commands.Cog):
         error: app_commands.AppCommandError
     ):
         if isinstance(error, app_commands.CheckFailure):
-            await interaction.response.send_message(
-                "❌ You must be **Staff or Admin** to use this command.",
-                ephemeral=True
-            )
+            msg = "❌ You must be **Staff or Admin** to use this command."
+        else:
+            msg = "❌ Something went wrong while running this command."
 
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(GamertagBan(bot))
