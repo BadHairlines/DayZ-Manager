@@ -73,7 +73,7 @@ class CloseMenuButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.message.delete()
 
-# ─── DROPDOWNS ───────────────────────────────────────────────────────────────
+# ─── DROPDOWN MENU ───────────────────────────────────────────────────────────
 class ChallengeDropdown(discord.ui.Select):
     def __init__(self, category_name, options_list):
         options = [
@@ -104,7 +104,6 @@ class ChallengeDropdown(discord.ui.Select):
             color=EMBED_COLOR
         )
 
-        # Edit the SAME ephemeral instead of sending new
         view = discord.ui.View()
         view.add_item(CloseMenuButton())
         await interaction.response.edit_message(embed=embed, view=view)
@@ -143,27 +142,19 @@ class Challenges(commands.Cog):
 
     @app_commands.command(name="challenges", description="View The Hive Challenges")
     async def challenges(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False)  # public main menu
-
-        main_embed = discord.Embed(
-            title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
-            description=(
-                "Select a category below to view challenges.\n"
-                "Each completed challenge earns its respective reward :moneybag: *(proof required)*"
+        # ephemeral per user, so multiple people can use menu at once
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
+                description=(
+                    "Select a category below to view challenges.\n"
+                    "Each completed challenge earns its respective reward :moneybag: *(proof required)*"
+                ),
+                color=EMBED_COLOR
             ),
-            color=EMBED_COLOR
+            view=MainMenuView(),
+            ephemeral=True
         )
-
-        rules_text = (
-            "1️⃣ Must have kill-feed or recorded proof.\n"
-            "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
-            "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
-            "4️⃣ To redeem, open a support ticket and include your proof/video."
-        )
-        main_embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
-
-        # Send main menu PUBLICLY
-        await interaction.followup.send(embed=main_embed, view=MainMenuView(), ephemeral=False)
 
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
