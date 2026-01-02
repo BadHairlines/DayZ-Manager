@@ -55,11 +55,11 @@ MISC_CHALLENGES = [
     ("Medic", "Revive/heal 5 different players in one session.", 75000),
     ("Ghost", "3 stealth kills without being seen/heard.", 90000),
     ("Hoarder", "Fill a tent/container with one weapon type.", 80000),
-    ("Pyromaniac", "Burn down a base with molotovs or gas grenades.", 150000),
-    ("Taxi Driver", "Give 5 safe rides to players without killing them.", 40000),
+    ("Pyromaniac", "Hit a base with a gas strike.", 150000),
+    ("Taxi Driver", "Give 5 safe rides to randoms without killing them.", 40000),
     ("Loot Goblin", "Carry $1M+ in loot without dying.", 100000),
-    ("Rancher", "Tame or trap 10 animals alive.", 85000),
-    ("Scavenger", "Survive 3 days without a trader.", 90000),
+    ("Rancher", "Trap 10 animals alive.", 85000),
+    ("Scavenger", "Survive 10 days without dying.", 90000),
     ("Saboteur", "Destroy another player’s vehicle or base.", 120000),
     ("Supply Runner", "Deliver supplies to 3 teammates under fire.", 75000)
 ]
