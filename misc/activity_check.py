@@ -11,7 +11,7 @@ class ActivityCheck(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.required_reactions = 4
-        self.expiry_hours = 0.05  # ~3 minutes for testing
+        self.expiry_hours = 24  # ~3 minutes for testing
         self.emoji = "✅"
 
     # ==============================
