@@ -5,7 +5,7 @@ from discord.ext import commands
 
 
 class Suggestions(commands.Cog):
-    """Handles user suggestions as slash commands with embed + reactions + threads."""
+    """Handles user suggestions as slash commands with embed + reactions."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -56,7 +56,7 @@ class Suggestions(commands.Cog):
         user = interaction.user
         guild = interaction.guild
 
-        # Defer to give time for async operations
+        # Defer to allow async operations
         await interaction.response.defer(ephemeral=False)
 
         # Get or create the suggestions channel
@@ -84,29 +84,16 @@ class Suggestions(commands.Cog):
         allowed_mentions = discord.AllowedMentions.none()
 
         try:
-            # ✅ Send the suggestion as a slash command interaction response
+            # Send the suggestion as a slash command interaction response
             msg: discord.Message = await interaction.followup.send(
                 embed=embed,
                 allowed_mentions=allowed_mentions,
-                wait=True  # important: returns the Message object
+                wait=True  # returns the message object
             )
 
             # Add reactions
             await msg.add_reaction("👍")
             await msg.add_reaction("👎")
-
-            # Create discussion thread in the suggestions channel
-            thread_name = f"💬 {user.display_name}'s suggestion"
-            thread = await target_channel.create_thread(
-                name=thread_name,
-                type=discord.ChannelType.public_thread,
-                message=msg,
-                auto_archive_duration=1440
-            )
-            await thread.send(
-                f"{user.mention} thanks for your suggestion! 🧠\n"
-                "Use this thread to discuss, refine, or vote on the idea."
-            )
 
         except Exception as e:
             await interaction.followup.send(
