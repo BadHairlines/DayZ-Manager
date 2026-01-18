@@ -5,10 +5,12 @@ from discord.ext import commands
 
 # ========= Slap Buttons View =========
 class SlapView(discord.ui.View):
-    def __init__(self, author: discord.Member, target: discord.Member):
+    def __init__(self, author: discord.Member, target: discord.Member, slap_lines, gif_urls):
         super().__init__(timeout=60)
         self.author = author
         self.target = target
+        self.slap_lines = slap_lines
+        self.gif_urls = gif_urls
 
     @discord.ui.button(label="Retaliate!", style=discord.ButtonStyle.danger)
     async def retaliate(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -16,17 +18,20 @@ class SlapView(discord.ui.View):
             return await interaction.response.send_message(
                 "You can't retaliate for someone else! 😆", ephemeral=True
             )
-        # Retaliation embed
-        retaliate_text = f"{self.target.mention} just slapped {self.author.mention} back! 😎"
-        embed = discord.Embed(description=retaliate_text, color=0xFF0000)
+
+        # Random slap GIF + message for retaliation
+        text = random.choice(self.slap_lines).format(author=self.target.mention)
+        gif = random.choice(self.gif_urls)
+        embed = discord.Embed(description=text, color=0xFF0000)
+        embed.set_image(url=gif)
+        embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
+
         await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="😂 React", style=discord.ButtonStyle.secondary)
     async def react(self, button: discord.ui.Button, interaction: discord.Interaction):
-        # Add reaction first
         await interaction.message.add_reaction("😂")
-        # Then acknowledge the interaction
         await interaction.response.send_message("Reacted with 😂", ephemeral=True)
 
 
@@ -78,6 +83,7 @@ class Slap(commands.Cog):
             embed = discord.Embed(description=text, color=0xFF4500)
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        # Chance for epic slap (10%)
         is_epic = random.random() < 0.1
         if is_epic:
             text = random.choice(self.epic_slaps).format(author=author.mention, target=user.mention)
@@ -93,11 +99,11 @@ class Slap(commands.Cog):
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
 
-        # Send message with the external SlapView
+        # Send message with buttons
         await interaction.response.send_message(
             content=user.mention,
             embed=embed,
-            view=SlapView(author, user),
+            view=SlapView(author, user, self.slap_lines, self.gif_urls),
             allowed_mentions=discord.AllowedMentions(users=True)
         )
 
