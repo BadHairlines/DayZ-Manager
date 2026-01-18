@@ -13,7 +13,6 @@ class Suggestions(commands.Cog):
     async def _get_or_create_suggestions_channel(
         self, guild: discord.Guild
     ) -> discord.TextChannel | None:
-        # Look for channels containing "suggest"
         candidates = [c for c in guild.text_channels if "suggest" in c.name.lower()]
 
         if candidates:
@@ -86,9 +85,12 @@ class Suggestions(commands.Cog):
         allowed_mentions = discord.AllowedMentions.none()
 
         try:
-            # Send the suggestion as a slash command response
-            await interaction.followup.send(embed=embed, allowed_mentions=allowed_mentions)
-            msg = await interaction.original_message()
+            # Send the suggestion as a slash command response and get the message object
+            msg = await interaction.followup.send(
+                embed=embed,
+                allowed_mentions=allowed_mentions,
+                wait=True  # ✅ important! returns the Message object
+            )
 
             # Add reactions
             await msg.add_reaction("👍")
