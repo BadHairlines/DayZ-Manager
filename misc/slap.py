@@ -1,13 +1,39 @@
 import random
 import discord
 from discord import app_commands
-from discord.ext import commands, tasks
+from discord.ext import commands
+
+# ========= Slap Buttons View =========
+class SlapView(discord.ui.View):
+    def __init__(self, author: discord.Member, target: discord.Member):
+        super().__init__(timeout=60)
+        self.author = author
+        self.target = target
+
+    @discord.ui.button(label="Retaliate!", style=discord.ButtonStyle.danger)
+    async def retaliate(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if interaction.user.id != self.target.id:
+            return await interaction.response.send_message(
+                "You can't retaliate for someone else! 😆", ephemeral=True
+            )
+        # Retaliation embed
+        retaliate_text = f"{self.target.mention} just slapped {self.author.mention} back! 😎"
+        embed = discord.Embed(description=retaliate_text, color=0xFF0000)
+        embed.timestamp = discord.utils.utcnow()
+        await interaction.response.send_message(embed=embed)
+
+    @discord.ui.button(label="😂 React", style=discord.ButtonStyle.secondary)
+    async def react(self, button: discord.ui.Button, interaction: discord.Interaction):
+        # Add reaction first
+        await interaction.message.add_reaction("😂")
+        # Then acknowledge the interaction
+        await interaction.response.send_message("Reacted with 😂", ephemeral=True)
 
 
+# ========= Slap Cog =========
 class Slap(commands.Cog):
     """Fun slap command with GIFs, buttons, and epic moments."""
 
-    # ========= Slap content =========
     slap_lines = [
         "You just got folded like a lawn chair by {author} 💀",
         "You just got bitch slapped by {author} 🤣",
@@ -38,67 +64,40 @@ class Slap(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ========= /slap =========
     @app_commands.command(
         name="slap",
         description="Playfully slap another user with a spicy message and GIF."
     )
     @app_commands.describe(user="Who are you trying to slap?")
-    @app_commands.checks.cooldown(1, 10.0, key=lambda i: i.user.id)  # 1 use per 10 seconds per user
+    @app_commands.checks.cooldown(1, 10.0, key=lambda i: i.user.id)
     async def slap(self, interaction: discord.Interaction, user: discord.Member):
         author = interaction.user
 
-        # Self-slap humor
         if user.id == author.id:
             text = f"{author.mention}, slapping yourself? That’s… ambitious 😵‍💫"
             embed = discord.Embed(description=text, color=0xFF4500)
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        # Chance for epic slap (10%)
         is_epic = random.random() < 0.1
         if is_epic:
             text = random.choice(self.epic_slaps).format(author=author.mention, target=user.mention)
             gif = random.choice(self.epic_gifs)
-            color = 0xFFD700  # gold for epic
+            color = 0xFFD700
         else:
             text = random.choice(self.slap_lines).format(author=author.mention)
             gif = random.choice(self.gif_urls)
-            color = 0xFF0000  # normal slap-red
+            color = 0xFF0000
 
-        # Build embed
         embed = discord.Embed(description=text, color=color)
         embed.set_image(url=gif)
         embed.set_footer(text="DayZ Manager", icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png")
         embed.timestamp = discord.utils.utcnow()
 
-        # Buttons for interactivity
-        class SlapView(discord.ui.View):
-            def __init__(self, target: discord.Member):
-                super().__init__(timeout=60)
-                self.target = target
-
-            @discord.ui.button(label="Retaliate!", style=discord.ButtonStyle.danger)
-            async def retaliate(self, button: discord.ui.Button, button_interaction: discord.Interaction):
-                if button_interaction.user.id != self.target.id:
-                    return await button_interaction.response.send_message(
-                        "You can't retaliate for someone else! 😆", ephemeral=True
-                    )
-                # Simple retaliation embed
-                retaliate_text = f"{self.target.mention} just slapped {author.mention} back! 😎"
-                retaliate_embed = discord.Embed(description=retaliate_text, color=0xFF0000)
-                retaliate_embed.timestamp = discord.utils.utcnow()
-                await button_interaction.response.send_message(embed=retaliate_embed)
-
-            @discord.ui.button(label="😂 React", style=discord.ButtonStyle.secondary)
-            async def react(self, button: discord.ui.Button, button_interaction: discord.Interaction):
-                await button_interaction.message.add_reaction("😂")
-                await button_interaction.response.send_message("Reacted with 😂", ephemeral=True)
-
-        # Send the slap message with buttons
+        # Send message with the external SlapView
         await interaction.response.send_message(
             content=user.mention,
             embed=embed,
-            view=SlapView(user),
+            view=SlapView(author, user),
             allowed_mentions=discord.AllowedMentions(users=True)
         )
 
