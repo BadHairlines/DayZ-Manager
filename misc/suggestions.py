@@ -58,8 +58,8 @@ class Suggestions(commands.Cog):
         user = interaction.user
         guild = interaction.guild
 
-        # Defer so we have time for async operations
-        await interaction.response.defer(ephemeral=True)
+        # Defer the interaction to allow time for async operations
+        await interaction.response.defer(ephemeral=False)
 
         # Get or create the suggestions channel
         target_channel = await self._get_or_create_suggestions_channel(guild)
@@ -85,9 +85,12 @@ class Suggestions(commands.Cog):
 
         allowed_mentions = discord.AllowedMentions.none()
 
-        # Send the suggestion in the channel
         try:
-            msg = await target_channel.send(embed=embed, allowed_mentions=allowed_mentions)
+            # Send the suggestion as a slash command response
+            await interaction.followup.send(embed=embed, allowed_mentions=allowed_mentions)
+            msg = await interaction.original_message()
+
+            # Add reactions
             await msg.add_reaction("👍")
             await msg.add_reaction("👎")
 
@@ -95,7 +98,7 @@ class Suggestions(commands.Cog):
             thread_name = f"💬 {user.display_name}'s suggestion"
             thread = await msg.create_thread(
                 name=thread_name,
-                auto_archive_duration=1440
+                auto_archive_duration=1440  # 24 hours
             )
             await thread.send(
                 f"{user.mention} thanks for your suggestion! 🧠\n"
@@ -106,17 +109,6 @@ class Suggestions(commands.Cog):
                 f"❌ Failed to post suggestion:\n```{e}```",
                 ephemeral=True
             )
-
-        # Confirm to the user
-        await interaction.followup.send(
-            embed=discord.Embed(
-                title="✅ Suggestion Submitted",
-                description=f"Your suggestion has been posted in {target_channel.mention}.\n"
-                            f"A discussion thread was created: {thread.mention}",
-                color=0x2ECC71
-            ),
-            ephemeral=True
-        )
 
 
 async def setup(bot: commands.Bot):
