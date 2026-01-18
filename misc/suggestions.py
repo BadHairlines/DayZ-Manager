@@ -56,10 +56,13 @@ class Suggestions(commands.Cog):
         user = interaction.user
         guild = interaction.guild
 
+        # Defer to give time for async operations
+        await interaction.response.defer(ephemeral=False)
+
         # Get or create the suggestions channel
         target_channel = await self._get_or_create_suggestions_channel(guild)
         if not target_channel:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "❌ I couldn't find or create a `❔┃suggestions` channel. "
                 "Please check my permissions.",
                 ephemeral=True
@@ -81,32 +84,32 @@ class Suggestions(commands.Cog):
         allowed_mentions = discord.AllowedMentions.none()
 
         try:
-            # Send the embed directly to the suggestions channel
-            msg = await target_channel.send(embed=embed, allowed_mentions=allowed_mentions)
+            # ✅ Send the suggestion as a slash command interaction response
+            msg: discord.Message = await interaction.followup.send(
+                embed=embed,
+                allowed_mentions=allowed_mentions,
+                wait=True  # important: returns the Message object
+            )
 
             # Add reactions
             await msg.add_reaction("👍")
             await msg.add_reaction("👎")
 
-            # Create discussion thread
+            # Create discussion thread in the suggestions channel
             thread_name = f"💬 {user.display_name}'s suggestion"
-            thread = await msg.create_thread(
+            thread = await target_channel.create_thread(
                 name=thread_name,
-                auto_archive_duration=1440  # 24 hours
+                type=discord.ChannelType.public_thread,
+                message=msg,
+                auto_archive_duration=1440
             )
             await thread.send(
                 f"{user.mention} thanks for your suggestion! 🧠\n"
                 "Use this thread to discuss, refine, or vote on the idea."
             )
 
-            # Respond to the interaction ephemerally
-            await interaction.response.send_message(
-                f"✅ Your suggestion has been posted in {target_channel.mention}!",
-                ephemeral=True
-            )
-
         except Exception as e:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Failed to post suggestion:\n```{e}```",
                 ephemeral=True
             )
