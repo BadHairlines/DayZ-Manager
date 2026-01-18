@@ -5,7 +5,7 @@ from discord.ext import commands
 
 
 class Suggestions(commands.Cog):
-    """Handles user suggestions as replies with embed + reactions + discussion threads."""
+    """Handles user suggestions as slash commands with embed + reactions + threads."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -13,10 +13,8 @@ class Suggestions(commands.Cog):
     async def _get_or_create_suggestions_channel(
         self, guild: discord.Guild
     ) -> discord.TextChannel | None:
-        candidates = [
-            c for c in guild.text_channels
-            if "suggest" in c.name.lower()
-        ]
+        # Look for channels containing "suggest"
+        candidates = [c for c in guild.text_channels if "suggest" in c.name.lower()]
 
         if candidates:
             def score(ch: discord.TextChannel) -> tuple[int, int]:
@@ -33,6 +31,7 @@ class Suggestions(commands.Cog):
 
             return min(candidates, key=score)
 
+        # No suitable channel, create one
         try:
             return await guild.create_text_channel(
                 "❔┃suggestions",
@@ -59,16 +58,19 @@ class Suggestions(commands.Cog):
         user = interaction.user
         guild = interaction.guild
 
-        # Get or create suggestions channel
+        # Defer so we have time for async operations
+        await interaction.response.defer(ephemeral=True)
+
+        # Get or create the suggestions channel
         target_channel = await self._get_or_create_suggestions_channel(guild)
         if not target_channel:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "❌ I couldn't find or create a `❔┃suggestions` channel. "
                 "Please check my permissions.",
                 ephemeral=True
             )
 
-        # Build suggestion embed
+        # Build the embed
         embed = discord.Embed(
             title="💡 New Suggestion",
             description=suggestion,
@@ -83,30 +85,15 @@ class Suggestions(commands.Cog):
 
         allowed_mentions = discord.AllowedMentions.none()
 
-        # Send suggestion as a reply
+        # Send the suggestion in the channel
         try:
-            msg = await interaction.followup.send(
-                content=None,
-                embed=embed,
-                allowed_mentions=allowed_mentions,
-                ephemeral=False  # visible in channel
-            )
-        except Exception as e:
-            return await interaction.followup.send(
-                f"❌ Failed to post suggestion:\n```{e}```",
-                ephemeral=True
-            )
-
-        # Add reactions (requires the sent message object)
-        # For app_commands, interaction.followup.send returns None, so we fetch the last message
-        try:
-            last_msg = (await target_channel.history(limit=1).flatten())[0]
-            await last_msg.add_reaction("👍")
-            await last_msg.add_reaction("👎")
+            msg = await target_channel.send(embed=embed, allowed_mentions=allowed_mentions)
+            await msg.add_reaction("👍")
+            await msg.add_reaction("👎")
 
             # Create discussion thread
             thread_name = f"💬 {user.display_name}'s suggestion"
-            thread = await last_msg.create_thread(
+            thread = await msg.create_thread(
                 name=thread_name,
                 auto_archive_duration=1440
             )
@@ -115,5 +102,22 @@ class Suggestions(commands.Cog):
                 "Use this thread to discuss, refine, or vote on the idea."
             )
         except Exception as e:
-            print(f"⚠️ Could not add reactions or thread: {e}")
+            return await interaction.followup.send(
+                f"❌ Failed to post suggestion:\n```{e}```",
+                ephemeral=True
+            )
 
+        # Confirm to the user
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="✅ Suggestion Submitted",
+                description=f"Your suggestion has been posted in {target_channel.mention}.\n"
+                            f"A discussion thread was created: {thread.mention}",
+                color=0x2ECC71
+            ),
+            ephemeral=True
+        )
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Suggestions(bot))
