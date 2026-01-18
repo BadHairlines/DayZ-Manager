@@ -30,7 +30,6 @@ class Suggestions(commands.Cog):
 
             return min(candidates, key=score)
 
-        # No suitable channel, create one
         try:
             return await guild.create_text_channel(
                 "❔┃suggestions",
@@ -57,13 +56,10 @@ class Suggestions(commands.Cog):
         user = interaction.user
         guild = interaction.guild
 
-        # Defer the interaction to allow time for async operations
-        await interaction.response.defer(ephemeral=False)
-
         # Get or create the suggestions channel
         target_channel = await self._get_or_create_suggestions_channel(guild)
         if not target_channel:
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 "❌ I couldn't find or create a `❔┃suggestions` channel. "
                 "Please check my permissions.",
                 ephemeral=True
@@ -85,12 +81,8 @@ class Suggestions(commands.Cog):
         allowed_mentions = discord.AllowedMentions.none()
 
         try:
-            # Send the suggestion as a slash command response and get the message object
-            msg = await interaction.followup.send(
-                embed=embed,
-                allowed_mentions=allowed_mentions,
-                wait=True  # ✅ important! returns the Message object
-            )
+            # Send the embed directly to the suggestions channel
+            msg = await target_channel.send(embed=embed, allowed_mentions=allowed_mentions)
 
             # Add reactions
             await msg.add_reaction("👍")
@@ -106,8 +98,15 @@ class Suggestions(commands.Cog):
                 f"{user.mention} thanks for your suggestion! 🧠\n"
                 "Use this thread to discuss, refine, or vote on the idea."
             )
+
+            # Respond to the interaction ephemerally
+            await interaction.response.send_message(
+                f"✅ Your suggestion has been posted in {target_channel.mention}!",
+                ephemeral=True
+            )
+
         except Exception as e:
-            return await interaction.followup.send(
+            await interaction.response.send_message(
                 f"❌ Failed to post suggestion:\n```{e}```",
                 ephemeral=True
             )
