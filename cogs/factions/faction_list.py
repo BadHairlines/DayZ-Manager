@@ -6,7 +6,6 @@ import logging
 from cogs import utils
 from cogs.factions.faction_utils import ensure_faction_table, make_embed
 
-
 log = logging.getLogger("dayz-manager")
 
 MAP_CHOICES = [
@@ -15,11 +14,10 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
-
 class FactionList(commands.Cog):
     """Lists active factions for a guild."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @app_commands.command(
@@ -35,10 +33,11 @@ class FactionList(commands.Cog):
     ):
         await interaction.response.defer(ephemeral=True)
 
+        # Ensure database connection
         try:
             await utils.ensure_connection()
         except Exception as e:
-            log.warning(f"⚠️ Database unavailable — cannot list factions: {e}")
+            log.warning(f"⚠️ Database unavailable — cannot list factions: {e}", exc_info=True)
             return await interaction.followup.send(
                 "⚠️ Database unavailable — cannot list factions right now.",
                 ephemeral=True,
@@ -50,6 +49,7 @@ class FactionList(commands.Cog):
         guild_id = str(guild.id)
         map_key = map.value.lower() if map else None
 
+        # Fetch factions from database
         try:
             async with utils.safe_acquire() as conn:
                 if map_key:
@@ -81,9 +81,10 @@ class FactionList(commands.Cog):
             )
 
         if not rows:
-            no_factions_text = "No factions found for this map." if map_key else "No factions found."
-            return await interaction.followup.send(no_factions_text, ephemeral=True)
+            text = "No factions found for this map." if map_key else "No factions found."
+            return await interaction.followup.send(text, ephemeral=True)
 
+        # Build faction list
         lines = []
         for row in rows:
             faction_name = row["faction_name"]
@@ -113,6 +114,8 @@ class FactionList(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-
-async def setup(bot):
-    await bot.add_cog(FactionList(bot))
+async def setup(bot: commands.Bot):
+    cog = FactionList(bot)
+    await bot.add_cog(cog)
+    # This ensures the slash command is registered immediately
+    await bot.tree.sync()
