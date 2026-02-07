@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from discord.ext import commands, tasks
+from discord.ext import commands
 
 EMBED_COLOR = discord.Color.gold()
 
@@ -128,13 +128,13 @@ class CategoryButton(discord.ui.Button):
             color=EMBED_COLOR
         )
 
-        # IMPORTANT: start a private session
+        # Anyone can use the buttons
         await interaction.response.send_message(
             embed=embed,
             view=view,
             ephemeral=True
         )
-        
+
 class MainMenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -151,12 +151,18 @@ class Challenges(commands.Cog):
         self.channel = None
 
     @app_commands.command(name="challenges", description="Create or show the Challenges menu")
-    @app_commands.guilds(discord.Object(id=1109306235808911360))
     async def challenges(self, interaction: discord.Interaction):
         guild = interaction.guild
         if not guild:
             await interaction.response.send_message(
                 "This command can only be used in a server.", ephemeral=True
+            )
+            return
+
+        # --- Admin-only check ---
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "Only server admins can use this command.", ephemeral=True
             )
             return
 
@@ -174,17 +180,14 @@ class Challenges(commands.Cog):
         # Check if main menu message already exists
         if not self.challenge_message:
             existing = [m async for m in self.channel.history(limit=50) if m.author == self.bot.user]
-
-            # Loop through existing messages to see if one still exists
             for m in existing:
                 try:
-                    await m.fetch()  # raises NotFound if message was deleted
+                    await m.fetch()
                     self.challenge_message = m
                     break
                 except discord.NotFound:
                     continue
 
-            # If no valid message found, create a new one
             if not self.challenge_message:
                 embed = discord.Embed(
                     title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
@@ -203,7 +206,7 @@ class Challenges(commands.Cog):
                 embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
 
                 self.challenge_message = await self.channel.send(embed=embed, view=MainMenuView())
-                await self.challenge_message.pin()  # optional
+                await self.challenge_message.pin()
 
         await interaction.response.send_message(
             f"The challenges menu is ready in {self.channel.mention}.", ephemeral=True
