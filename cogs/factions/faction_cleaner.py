@@ -8,7 +8,7 @@ log = logging.getLogger("dayz-manager")
 
 class FactionCleaner(commands.Cog):
     """Automatically cleans up factions: deletes factions with missing roles
-    and removes members who no longer have the faction role.
+    and fully syncs members with the faction role.
     """
 
     def __init__(self, bot: commands.Bot):
@@ -18,9 +18,9 @@ class FactionCleaner(commands.Cog):
     def cog_unload(self):
         self.clean_factions_task.cancel()
 
-    @tasks.loop(hours=1)  # Runs every hour
+    @tasks.loop(hours=12)  # Runs every hour
     async def clean_factions_task(self):
-        log.info("Starting automatic faction cleanup...")
+        log.info("Starting automatic faction cleanup and sync...")
         try:
             await utils.ensure_connection()
             await ensure_faction_table()
@@ -41,7 +41,7 @@ class FactionCleaner(commands.Cog):
 
                     for row in rows:
                         role_id = row["role_id"]
-                        member_ids = row.get("member_ids") or []
+                        db_member_ids = set(row.get("member_ids") or [])
 
                         role = guild.get_role(int(role_id)) if role_id else None
 
@@ -50,20 +50,15 @@ class FactionCleaner(commands.Cog):
                             factions_to_delete.append(row["faction_name"])
                             continue
 
-                        # Remove members who no longer have the role
-                        updated_members = []
-                        for mid in member_ids:
-                            try:
-                                member = guild.get_member(int(mid))
-                                if member and role in member.roles:
-                                    updated_members.append(mid)
-                            except Exception:
-                                continue  # skip invalid IDs
+                        # Get actual members from Discord role
+                        actual_member_ids = set(str(m.id) for m in role.members)
 
-                        if set(updated_members) != set(member_ids):
-                            factions_to_update.append(
-                                (row["faction_name"], updated_members)
-                            )
+                        # Sync DB: remove lost members, add new members
+                        updated_members = db_member_ids & actual_member_ids  # keep members who still have role
+                        updated_members |= actual_member_ids               # add members who got role outside bot
+
+                        if updated_members != db_member_ids:
+                            factions_to_update.append((row["faction_name"], list(updated_members)))
 
                     # Delete factions with missing roles
                     if factions_to_delete:
@@ -73,14 +68,13 @@ class FactionCleaner(commands.Cog):
                         )
                         log.info(f"Deleted factions with missing roles in {guild.name}: {factions_to_delete}")
 
-                    # Update factions with removed members
+                    # Update factions with new member lists
                     for faction_name, updated_members in factions_to_update:
                         await conn.execute(
                             "UPDATE factions SET member_ids=$1 WHERE guild_id=$2 AND faction_name=$3",
                             updated_members, str(guild.id), faction_name
                         )
-                        removed_count = len(member_ids) - len(updated_members)
-                        log.info(f"Removed {removed_count} member(s) from {faction_name} in {guild.name}")
+                        log.info(f"Synced {len(updated_members)} member(s) for {faction_name} in {guild.name}")
 
             except Exception as e:
                 log.error(f"Failed to clean factions in {guild.name}: {e}", exc_info=True)
