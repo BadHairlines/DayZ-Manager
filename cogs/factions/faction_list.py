@@ -14,8 +14,9 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
+
 class FactionList(commands.Cog):
-    """Lists active factions for any guild."""
+    """Lists active factions for a guild."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -31,21 +32,28 @@ class FactionList(commands.Cog):
         interaction: discord.Interaction,
         map: app_commands.Choice[str] | None = None,
     ):
-        # Only works in a guild
         if not interaction.guild:
-            return await interaction.response.send_message(
+            await interaction.response.send_message(
                 "❌ This command can only be used inside a server.",
                 ephemeral=True
             )
+            return
 
         await interaction.response.defer(ephemeral=True)
-        await ensure_faction_table()
+
+        try:
+            await utils.ensure_connection()
+            await ensure_faction_table()
+        except Exception as e:
+            log.error(f"❌ DB connection failed in {interaction.guild.name}: {e}", exc_info=True)
+            return await interaction.followup.send(
+                "❌ Failed to connect to the database.", ephemeral=True
+            )
 
         guild = interaction.guild
         guild_id = str(guild.id)
         map_key = map.value.lower() if map else None
 
-        # Fetch factions
         try:
             async with utils.safe_acquire() as conn:
                 if map_key:
@@ -69,7 +77,7 @@ class FactionList(commands.Cog):
                         guild_id
                     )
         except Exception as e:
-            log.error(f"❌ Failed to fetch faction list for {guild.name}: {e}", exc_info=True)
+            log.error(f"❌ Failed to fetch factions for {guild.name}: {e}", exc_info=True)
             return await interaction.followup.send(
                 "❌ Failed to fetch faction list. Please try again later.", ephemeral=True
             )
@@ -78,7 +86,6 @@ class FactionList(commands.Cog):
             text = "No factions found for this map." if map_key else "No factions found."
             return await interaction.followup.send(text, ephemeral=True)
 
-        # Build the list
         lines = []
         for row in rows:
             faction_name = row["faction_name"]
@@ -98,7 +105,7 @@ class FactionList(commands.Cog):
                 unique_members.add(str(leader_id))
             member_count = len(unique_members)
 
-            map_label = f" • {row_map}"  # always show map
+            map_label = f" • {row_map}"
             lines.append(
                 f"{status} **{faction_name}**{map_label} — "
                 f"Role: {role_mention} • Leader: {leader_mention} • Members: {member_count} • Flag: `{claimed_flag}`"
@@ -106,15 +113,8 @@ class FactionList(commands.Cog):
 
         embed = make_embed("🏳️ Active Factions", "\n".join(lines))
         await interaction.followup.send(embed=embed, ephemeral=True)
+        log.info(f"✅ {interaction.user} listed factions in {guild.name} ({map_key or 'all maps'})")
 
 
 async def setup(bot: commands.Bot):
-    """Add the cog and immediately sync to the current guild for instant visibility."""
     await bot.add_cog(FactionList(bot))
-    try:
-        # Sync to all guilds the bot is currently in
-        for guild in bot.guilds:
-            await bot.tree.sync(guild=guild)
-            log.info(f"✅ Synced list-factions in guild: {guild.name} ({guild.id})")
-    except Exception as e:
-        log.error(f"❌ Failed to sync list-factions: {e}")
