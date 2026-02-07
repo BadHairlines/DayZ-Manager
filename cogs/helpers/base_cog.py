@@ -1,4 +1,3 @@
-# cogs/helpers/base_cog.py
 import logging
 import discord
 from cogs import utils
@@ -12,7 +11,6 @@ class BaseCog:
 
     def make_embed(self, title: str, desc: str, color: int, author_icon: str, author_name: str) -> discord.Embed:
         """Create a standardized DayZ Manager embed."""
-        # Trim overly long descriptions to stay Discord-safe
         if len(desc) > 4000:
             desc = desc[:3990] + "…"
 
@@ -48,7 +46,6 @@ class BaseCog:
             embed = await utils.create_flag_embed(guild_id, map_key)
             embed.timestamp = discord.utils.utcnow()
 
-            # Reattach persistent FlagManageView if available
             view = FlagManageView(guild, map_key, getattr(self, 'bot', None))
             await msg.edit(embed=embed, view=view)
             log.info(f"✅ Refreshed flag message for {map_key} in {guild.name}")
