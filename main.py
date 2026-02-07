@@ -6,9 +6,6 @@ import discord
 from discord.ext import commands
 from cogs import utils
 
-# ==============================
-# 📜 Logging setup
-# ==============================
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s]: %(message)s",
@@ -17,9 +14,6 @@ logging.basicConfig(
 discord.utils.setup_logging(level=logging.INFO)
 log = logging.getLogger("dayz-manager")
 
-# ==============================
-# 🤖 Bot setup
-# ==============================
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -30,10 +24,6 @@ intents.reactions = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.synced = False  # Track slash sync once
 
-
-# ==============================
-# 🧱 Helpers
-# ==============================
 def resolve_flag_manage_view():
     """Import FlagManageView safely."""
     try:
@@ -118,10 +108,6 @@ async def register_persistent_views():
 
     log.info(f"Persistent views registered: {count}")
 
-
-# ==============================
-# ⚙️ Cog loader
-# ==============================
 SKIP_FILES = {"__init__.py", "utils.py", "faction_utils.py", "ui_views.py"}
 
 async def load_cogs():
@@ -152,10 +138,6 @@ async def load_cogs():
 
     log.info(f"Total cogs loaded: {loaded}")
 
-
-# ==============================
-# 🚀 Events
-# ==============================
 @bot.event
 async def on_ready():
     log.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -182,10 +164,6 @@ async def on_ready():
     await register_persistent_views()
     log.info("Ready ✅")
 
-
-# ==============================
-# 🧠 Main entry
-# ==============================
 async def main():
     log.info("Starting DayZ Manager bot...")
     await asyncio.sleep(1)  # small Railway delay
@@ -236,10 +214,6 @@ async def main():
             except Exception as e:
                 log.warning(f"Failed to close database pool cleanly: {e}")
 
-
-# ==============================
-# ▶️ Entry point
-# ==============================
 if __name__ == "__main__":
     try:
         asyncio.run(main())
