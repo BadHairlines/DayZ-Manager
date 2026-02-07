@@ -24,12 +24,12 @@ class FactionList(commands.Cog):
         self.bot = bot
 
     async def make_faction_fields(self, row, guild):
-        """Return fields showing leader mention and total member count."""
+        """Return fields showing leader mention, member count, and flag emoji."""
         faction_name = row["faction_name"]
         role_id = row["role_id"]
         leader_id = row["leader_id"]
         member_ids = list(row.get("member_ids") or [])
-        claimed_flag = row.get("claimed_flag") or "—"
+        claimed_flag_raw = row.get("claimed_flag") or "—"
 
         role = guild.get_role(int(role_id)) if role_id else None
         status = "✅" if role else "⚠️"
@@ -48,11 +48,23 @@ class FactionList(commands.Cog):
         # Member count
         total_members = len(member_ids)
 
+        # Resolve flag to emoji
+        claimed_flag = "—"
+        if claimed_flag_raw != "—":
+            # Try to find a custom emoji with that name
+            for emoji in guild.emojis:
+                if emoji.name == claimed_flag_raw:
+                    claimed_flag = str(emoji)
+                    break
+            else:
+                # fallback to raw text (works for Unicode emoji)
+                claimed_flag = claimed_flag_raw
+
         summary_value = (
             f"**Role:** {role_mention}\n"
             f"**Leader:** {leader_mention}\n"
             f"**Members:** `{total_members}`\n"
-            f"**Flag:** :{claimed_flag}:"
+            f"**Flag:** {claimed_flag}"
         )
 
         return [(f"{status} {faction_name}", summary_value)], discord.Color.green() if role else discord.Color.red()
