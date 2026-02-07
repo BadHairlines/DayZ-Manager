@@ -7,10 +7,6 @@ import asyncpg
 import discord
 import contextlib
 
-# ==============================
-# 🔌 Database pool & bootstrap
-# ==============================
-
 db_pool: Optional[asyncpg.Pool] = None
 
 
@@ -30,7 +26,6 @@ async def ensure_connection() -> asyncpg.Pool:
 
     db_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
 
-    # Create tables if missing
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
@@ -96,11 +91,6 @@ async def close_db() -> None:
         await db_pool.close()
         db_pool = None
 
-
-# ==============================
-# 🗺️ Static game data
-# ==============================
-
 FLAGS: List[str] = [
     "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
     "CHEL", "Chedaki", "CMC", "Crook", "HunterZ", "NAPA", "NSahrani",
@@ -113,11 +103,6 @@ MAP_DATA: Dict[str, Dict[str, Any]] = {
     "chernarus": {"name": "Chernarus", "image": "https://i.postimg.cc/3RWzMsLK/Chernarus.jpg"},
     "sakhal": {"name": "Sakhal", "image": "https://i.postimg.cc/HkBSpS8j/Sakhal.png"},
 }
-
-
-# ==============================
-# 🏴 Flag helpers
-# ==============================
 
 async def get_flag(guild_id: str, map_key: str, flag_name: str) -> Optional[asyncpg.Record]:
     await ensure_connection()
@@ -156,11 +141,6 @@ async def set_flag(guild_id: str, map_key: str, flag_name: str, status: str, rol
 async def release_flag(guild_id: str, map_key: str, flag_name: str) -> None:
     await set_flag(guild_id, map_key, flag_name, "✅", None)
 
-
-# ==============================
-# 🧾 Embeds & flag list
-# ==============================
-
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     """Build a clean flag ownership embed (DayZ Manager style)."""
     await ensure_connection()
@@ -197,11 +177,6 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
     embed.description = "\n".join(lines) if lines else "_No flags found._"
     return embed
-
-
-# ==============================
-# 🪵 Logging utilities
-# ==============================
 
 async def _resolve_logs_channel(
     guild: discord.Guild,
@@ -252,7 +227,6 @@ async def _resolve_faction_logs_channel(
     mk = (map_key or "").strip().lower()
 
     try:
-        # Ensure logs category exists
         category = discord.utils.get(guild.categories, name="📜 DayZ Manager Logs")
         if category is None:
             try:
@@ -261,15 +235,12 @@ async def _resolve_faction_logs_channel(
                     reason="Auto-created for DayZ Manager logs"
                 )
             except discord.Forbidden:
-                # Fall back to system channel if we can't create the category
                 return guild.system_channel
 
         base_name = f"factionlogs-{mk}" if mk else "faction-logs"
 
-        # Try to find existing channel
         channel = discord.utils.get(guild.text_channels, name=base_name)
 
-        # Create if missing
         if channel is None:
             try:
                 channel = await guild.create_text_channel(
@@ -280,7 +251,6 @@ async def _resolve_faction_logs_channel(
                 pretty_map = mk.title() if mk else "All Maps"
                 await channel.send(f"🗒️ Faction logs for **{pretty_map}** initialized.")
             except discord.Forbidden:
-                # No perms to create channel -> fallback to system channel
                 return guild.system_channel
 
         return channel
@@ -330,9 +300,6 @@ async def log_action(
     except Exception as e:
         print(f"⚠️ Failed to send log embed: {e}")
 
-
-# ---- helper to pretty-print the details field ----
-
 def _prettify_details(details: str) -> str:
     """
     Turn a comma-separated 'Leader: ..., Map: ..., Flag: ..., Members: ...'
@@ -343,7 +310,6 @@ def _prettify_details(details: str) -> str:
     if len(parts) <= 1:
         return details  # nothing fancy to do
 
-    # Remove the 'Map:' chunk to avoid duplication
     filtered = [p for p in parts if not p.lower().startswith("map:")]
     if not filtered:
         filtered = parts
@@ -364,7 +330,6 @@ async def log_faction_action(
     mk = (map_key or "").strip().lower()
     full_details = f"[map: {mk}] {details}" if mk else details
 
-    # 1) Log to database
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -381,13 +346,11 @@ async def log_faction_action(
     except Exception as e:
         print(f"⚠️ Failed to write faction_logs row: {e}")
 
-    # 2) Resolve or create a proper faction logs channel
     log_channel = await _resolve_faction_logs_channel(guild, mk)
     if not log_channel:
         print(f"ℹ️ No faction log channel available for {guild.name}/{mk}.")
         return
 
-    # 3) Build a nice embed
     color_map = {
         "create": 0x2ECC71,
         "created": 0x2ECC71,
