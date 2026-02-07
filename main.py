@@ -44,7 +44,8 @@ async def _acquire_conn():
             self.pool = pool
             self.conn = None
         async def __aenter__(self):
-            await utils.ensure_connection()
+            if self.pool is None or getattr(self.pool, "_closed", False):
+                self.pool = await utils.ensure_connection()
             self.conn = await self.pool.acquire()
             return self.conn
         async def __aexit__(self, exc_type, exc, tb):
@@ -55,12 +56,11 @@ async def _acquire_conn():
 
 async def register_persistent_views():
     """Re-register saved flag panels for all guilds/maps."""
-    await utils.ensure_connection()
-
     FlagManageView = resolve_flag_manage_view()
-    if not FlagManageView or utils.db_pool is None:
-        log.warning("Cannot register persistent views — missing FlagManageView or DB pool.")
+    if not FlagManageView:
+        log.warning("Cannot register persistent views — missing FlagManageView.")
         return
+    await utils.ensure_connection()
 
     async with await _acquire_conn() as conn:
         try:
