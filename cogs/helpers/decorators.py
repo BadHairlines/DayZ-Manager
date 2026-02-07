@@ -1,10 +1,8 @@
-# cogs/helpers/decorators.py
 import discord
 from discord import app_commands
 from functools import wraps
 from typing import Union, Callable, Awaitable
 
-# --- Static map options for setup/commands ---
 MAP_CHOICES = [
     app_commands.Choice(name="Livonia", value="livonia"),
     app_commands.Choice(name="Chernarus", value="chernarus"),
