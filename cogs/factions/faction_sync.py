@@ -1,4 +1,3 @@
-# cogs/faction_sync.py
 import logging
 from datetime import datetime
 
@@ -17,8 +16,6 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
-
-# ---------- autocomplete helper ----------
 async def flag_autocomplete(interaction: discord.Interaction, current: str):
     return [
         app_commands.Choice(name=flag, value=flag)
@@ -26,8 +23,6 @@ async def flag_autocomplete(interaction: discord.Interaction, current: str):
         if current.lower() in flag.lower()
     ][:25]
 
-
-# ---------- /sync group ----------
 sync_group = app_commands.Group(
     name="sync",
     description="Sync existing DayZ factions and related data into the bot."
@@ -65,7 +60,6 @@ async def sync_faction(
             ephemeral=True,
         )
 
-    # --- Admin check ---
     if not interaction.user.guild_permissions.administrator:
         return await interaction.followup.send(
             "🚫 Only admins can sync factions.",
@@ -78,13 +72,10 @@ async def sync_faction(
     guild_id = str(guild.id)
     map_key = map.value.lower()
 
-    # Faction name = role name (keeps things simple & consistent)
     faction_name = role.name
 
-    # Auto-detect members = everyone who has that role
     members = [m for m in guild.members if role in m.roles]
 
-    # Leader priority: explicit arg > interaction user (if they have role) > first member > None
     if leader is None:
         if role in interaction.user.roles:
             leader = interaction.user
@@ -97,11 +88,9 @@ async def sync_faction(
             ephemeral=True,
         )
 
-    # Faction color from role color (fallback to green)
     role_color = role.color if role.color.value != 0 else discord.Color(0x2ECC71)
 
     try:
-        # --- Check if faction already exists ---
         async with utils.safe_acquire() as conn:
             existing = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
@@ -116,7 +105,6 @@ async def sync_faction(
                 ephemeral=True,
             )
 
-        # --- Optional flag validation ---
         claimed_flag: str | None = None
         if flag:
             flags = await utils.get_all_flags(guild_id, map_key)
@@ -136,9 +124,8 @@ async def sync_faction(
                     ephemeral=True,
                 )
 
-            claimed_flag = flag_row["flag"]  # use canonical case
+            claimed_flag = flag_row["flag"]
 
-        # --- Insert into DB ---
         member_ids = [str(m.id) for m in members]
 
         async with utils.safe_acquire() as conn:
@@ -163,7 +150,6 @@ async def sync_faction(
                 claimed_flag,
             )
 
-        # --- Claim flag + refresh embed if a flag was provided ---
         if claimed_flag:
             await utils.set_flag(guild_id, map_key, claimed_flag, "❌", str(role.id))
             async with utils.safe_acquire() as conn:
@@ -185,7 +171,6 @@ async def sync_faction(
                             f"for {guild.name}/{map_key}: {e}"
                         )
 
-        # --- Log to faction logs ---
         members_mentions = ", ".join(m.mention for m in members) or "*None*"
         details = (
             f"👑 Leader: {leader.mention}\n"
@@ -204,7 +189,6 @@ async def sync_faction(
             map_key=map_key,
         )
 
-        # --- Confirmation embed for the admin ---
         created_ts = int(datetime.utcnow().timestamp())
         confirm = make_embed(
             "__Faction Synced__",
@@ -243,6 +227,5 @@ class FactionSync(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    # Register the /sync group (with /sync faction inside)
     bot.tree.add_command(sync_group)
     await bot.add_cog(FactionSync(bot))
