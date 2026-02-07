@@ -1,4 +1,3 @@
-import os
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -34,7 +33,7 @@ class FactionList(commands.Cog):
     ):
         await interaction.response.defer(ephemeral=True)
 
-        # Ensure database connection
+        # Ensure DB connection
         try:
             await utils.ensure_connection()
         except Exception as e:
@@ -50,7 +49,7 @@ class FactionList(commands.Cog):
         guild_id = str(guild.id)
         map_key = map.value.lower() if map else None
 
-        # Fetch factions from database
+        # Fetch factions
         try:
             async with utils.safe_acquire() as conn:
                 if map_key:
@@ -61,8 +60,7 @@ class FactionList(commands.Cog):
                         WHERE guild_id=$1 AND map=$2
                         ORDER BY faction_name ASC
                         """,
-                        guild_id,
-                        map_key,
+                        guild_id, map_key
                     )
                 else:
                     rows = await conn.fetch(
@@ -72,7 +70,7 @@ class FactionList(commands.Cog):
                         WHERE guild_id=$1
                         ORDER BY map ASC, faction_name ASC
                         """,
-                        guild_id,
+                        guild_id
                     )
         except Exception as e:
             log.error(f"❌ Failed to fetch faction list for {guild.name}: {e}", exc_info=True)
@@ -85,7 +83,7 @@ class FactionList(commands.Cog):
             text = "No factions found for this map." if map_key else "No factions found."
             return await interaction.followup.send(text, ephemeral=True)
 
-        # Build faction list
+        # Build list
         lines = []
         for row in rows:
             faction_name = row["faction_name"]
@@ -118,19 +116,10 @@ class FactionList(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
-    """Adds the cog and syncs slash commands to your DEV_GUILD_ID for instant visibility."""
-    cog = FactionList(bot)
-    await bot.add_cog(cog)
-
-    # Sync to dev guild if DEV_GUILD_ID is set
-    dev_gid = os.getenv("DEV_GUILD_ID")
-    if dev_gid:
-        try:
-            await bot.tree.sync(guild=discord.Object(id=int(dev_gid)))
-            log.info(f"✅ Synced list-factions command to dev guild {dev_gid}")
-        except Exception as e:
-            log.error(f"Failed to sync list-factions to dev guild: {e}")
-    else:
-        # fallback global sync (slower)
-        await bot.tree.sync()
-        log.info("✅ Synced list-factions command globally")
+    """Add cog and sync slash commands globally (non-guild-locked)."""
+    await bot.add_cog(FactionList(bot))
+    try:
+        await bot.tree.sync()  # global sync
+        log.info("✅ Synced list-factions globally")
+    except Exception as e:
+        log.error(f"Failed to globally sync list-factions: {e}")
