@@ -39,7 +39,7 @@ class BotInfo(commands.Cog):
         if message:
             await interaction.followup.send(f"```{message}```", ephemeral=True)
 
+
 async def setup(bot: commands.Bot):
-    # Add the cog and register the slash command
+    # Just add the cog — don't manually add the command
     await bot.add_cog(BotInfo(bot))
-    bot.tree.add_command(BotInfo.guilds)
