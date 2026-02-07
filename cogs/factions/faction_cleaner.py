@@ -5,8 +5,11 @@ from cogs.factions.faction_utils import ensure_faction_table
 
 log = logging.getLogger("dayz-manager")
 
+
 class FactionCleaner(commands.Cog):
-    """Automatically deletes factions that no longer have a linked role."""
+    """Automatically cleans up factions: deletes factions with missing roles
+    and removes members who no longer have the faction role.
+    """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -29,25 +32,55 @@ class FactionCleaner(commands.Cog):
             try:
                 async with utils.safe_acquire() as conn:
                     rows = await conn.fetch(
-                        "SELECT faction_name, role_id FROM factions WHERE guild_id=$1",
+                        "SELECT faction_name, role_id, member_ids FROM factions WHERE guild_id=$1",
                         str(guild.id)
                     )
 
-                    to_delete = []
+                    factions_to_delete = []
+                    factions_to_update = []
+
                     for row in rows:
                         role_id = row["role_id"]
-                        role = guild.get_role(int(role_id)) if role_id else None
-                        if not role:
-                            to_delete.append(row["faction_name"])
+                        member_ids = row.get("member_ids") or []
 
-                    if to_delete:
+                        role = guild.get_role(int(role_id)) if role_id else None
+
+                        # Delete the entire faction if role no longer exists
+                        if not role:
+                            factions_to_delete.append(row["faction_name"])
+                            continue
+
+                        # Remove members who no longer have the role
+                        updated_members = []
+                        for mid in member_ids:
+                            try:
+                                member = guild.get_member(int(mid))
+                                if member and role in member.roles:
+                                    updated_members.append(mid)
+                            except Exception:
+                                continue  # skip invalid IDs
+
+                        if set(updated_members) != set(member_ids):
+                            factions_to_update.append(
+                                (row["faction_name"], updated_members)
+                            )
+
+                    # Delete factions with missing roles
+                    if factions_to_delete:
                         await conn.execute(
                             "DELETE FROM factions WHERE guild_id=$1 AND faction_name=ANY($2::text[])",
-                            str(guild.id), to_delete
+                            str(guild.id), factions_to_delete
                         )
-                        log.info(f"Deleted factions with missing roles in {guild.name}: {to_delete}")
-                    else:
-                        log.info(f"No factions to delete in {guild.name}")
+                        log.info(f"Deleted factions with missing roles in {guild.name}: {factions_to_delete}")
+
+                    # Update factions with removed members
+                    for faction_name, updated_members in factions_to_update:
+                        await conn.execute(
+                            "UPDATE factions SET member_ids=$1 WHERE guild_id=$2 AND faction_name=$3",
+                            updated_members, str(guild.id), faction_name
+                        )
+                        removed_count = len(member_ids) - len(updated_members)
+                        log.info(f"Removed {removed_count} member(s) from {faction_name} in {guild.name}")
 
             except Exception as e:
                 log.error(f"Failed to clean factions in {guild.name}: {e}", exc_info=True)
@@ -55,6 +88,7 @@ class FactionCleaner(commands.Cog):
     @clean_factions_task.before_loop
     async def before_clean(self):
         await self.bot.wait_until_ready()
+
 
 # ─── SETUP ───────────────────────────────────────────────
 async def setup(bot: commands.Bot):
