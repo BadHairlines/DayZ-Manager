@@ -4,7 +4,7 @@ from discord.ext import commands
 import logging
 
 from cogs import utils
-from cogs.factions.faction_utils import ensure_faction_table, make_embed
+from cogs.factions.faction_utils import ensure_faction_table
 
 log = logging.getLogger("dayz-manager")
 
@@ -14,8 +14,8 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
-ITEMS_PER_PAGE = 5  # <-- change this to adjust factions per page
-MEMBER_LIST_LIMIT = 200  # max chars for member list in embed field
+ITEMS_PER_PAGE = 5  # factions per page
+MEMBERS_PER_FIELD = 15  # how many members to show per field chunk
 
 
 class FactionList(commands.Cog):
@@ -24,8 +24,8 @@ class FactionList(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def make_faction_field(self, row, guild):
-        """Return a tuple of field name and value for a faction row."""
+    def make_faction_fields(self, row, guild):
+        """Return a list of fields for a faction, splitting large member lists."""
         faction_name = row["faction_name"]
         role_id = row["role_id"]
         leader_id = row["leader_id"]
@@ -33,24 +33,43 @@ class FactionList(commands.Cog):
         claimed_flag = row.get("claimed_flag") or "—"
 
         role = guild.get_role(int(role_id)) if role_id else None
-        role_mention = role.mention if role else "None"
         status = "✅" if role else "⚠️"
-
+        role_mention = role.mention if role else "None"
         leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
-        unique_members = {str(mid) for mid in member_ids if mid}
-        if leader_id:
-            unique_members.add(str(leader_id))
-        members_list = ", ".join([f"<@{mid}>" for mid in unique_members])
-        if len(members_list) > MEMBER_LIST_LIMIT:
-            members_list = members_list[:MEMBER_LIST_LIMIT] + "…"
 
-        value = (
+        # Remove duplicates, keep leader first
+        unique_members = [str(mid) for mid in member_ids if mid and str(mid) != str(leader_id)]
+        total_members = len(unique_members) + (1 if leader_id else 0)
+
+        # Split members into chunks
+        member_chunks = [
+            unique_members[i:i + MEMBERS_PER_FIELD]
+            for i in range(0, len(unique_members), MEMBERS_PER_FIELD)
+        ]
+
+        fields = []
+
+        # First field with summary and leader
+        first_chunk = member_chunks[0] if member_chunks else []
+        member_text = ", ".join([f"<@{mid}>" for mid in first_chunk])
+        if leader_id:
+            member_text = f"{leader_mention}, {member_text}" if member_text else leader_mention
+        if len(member_chunks) > 1:
+            member_text += f" … (+{total_members - len(first_chunk) - (1 if leader_id else 0)} more)"
+
+        summary_value = (
             f"**Role:** {role_mention}\n"
-            f"**Leader:** {leader_mention}\n"
-            f"**Members ({len(unique_members)}):** {members_list}\n"
+            f"**Members ({total_members}):** {member_text}\n"
             f"**Flag:** `{claimed_flag}`"
         )
-        return f"{status} {faction_name}", value, discord.Color.green() if role else discord.Color.red()
+        fields.append((f"{status} {faction_name}", summary_value))
+
+        # Optional: Add additional fields for very large member lists
+        for idx, chunk in enumerate(member_chunks[1:], start=1):
+            chunk_text = ", ".join([f"<@{mid}>" for mid in chunk])
+            fields.append((f"{faction_name} (cont. {idx})", chunk_text))
+
+        return fields, discord.Color.green() if role else discord.Color.red()
 
     @app_commands.command(
         name="list-factions",
@@ -115,9 +134,10 @@ class FactionList(commands.Cog):
                 color=discord.Color.blue()
             )
             for row in rows[i:i + ITEMS_PER_PAGE]:
-                name, value, color = self.make_faction_field(row, guild)
-                embed.add_field(name=name, value=value, inline=False)
-                embed.color = color  # use last faction color for embed
+                fields, color = self.make_faction_fields(row, guild)
+                for name, value in fields:
+                    embed.add_field(name=name, value=value, inline=False)
+                embed.color = color  # last faction color
             total_pages = (len(rows) - 1) // ITEMS_PER_PAGE + 1
             embed.set_footer(text=f"Page {len(pages)+1}/{total_pages} • {len(rows)} factions total")
             pages.append(embed)
@@ -129,7 +149,6 @@ class FactionList(commands.Cog):
                 self.pages = pages
                 self.current = 0
                 self.message = None
-                # Disable prev on first page, next on last page
                 self.update_buttons_state()
 
             async def update_message(self):
