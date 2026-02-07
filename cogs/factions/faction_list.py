@@ -15,7 +15,7 @@ MAP_CHOICES = [
 ]
 
 class FactionList(commands.Cog):
-    """Lists active factions for a guild."""
+    """Lists active factions for any guild."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -32,24 +32,13 @@ class FactionList(commands.Cog):
         map: app_commands.Choice[str] | None = None,
     ):
         await interaction.response.defer(ephemeral=True)
-
-        # Ensure DB connection
-        try:
-            await utils.ensure_connection()
-        except Exception as e:
-            log.warning(f"⚠️ Database unavailable — cannot list factions: {e}", exc_info=True)
-            return await interaction.followup.send(
-                "⚠️ Database unavailable — cannot list factions right now.",
-                ephemeral=True,
-            )
-
         await ensure_faction_table()
 
         guild = interaction.guild
         guild_id = str(guild.id)
         map_key = map.value.lower() if map else None
 
-        # Fetch factions
+        # Fetch factions from DB
         try:
             async with utils.safe_acquire() as conn:
                 if map_key:
@@ -75,15 +64,14 @@ class FactionList(commands.Cog):
         except Exception as e:
             log.error(f"❌ Failed to fetch faction list for {guild.name}: {e}", exc_info=True)
             return await interaction.followup.send(
-                "❌ Failed to fetch faction list. Please try again later.",
-                ephemeral=True,
+                "❌ Failed to fetch faction list. Please try again later.", ephemeral=True
             )
 
         if not rows:
             text = "No factions found for this map." if map_key else "No factions found."
             return await interaction.followup.send(text, ephemeral=True)
 
-        # Build list
+        # Build the list
         lines = []
         for row in rows:
             faction_name = row["faction_name"]
@@ -109,17 +97,15 @@ class FactionList(commands.Cog):
                 f"Role: {role_mention} • Leader: {leader_mention} • Members: {member_count} • Flag: `{claimed_flag}`"
             )
 
-        embed = make_embed(
-            "🏳️ Active Factions",
-            "\n".join(lines),
-        )
+        embed = make_embed("🏳️ Active Factions", "\n".join(lines))
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+
 async def setup(bot: commands.Bot):
-    """Add cog and sync slash commands globally (non-guild-locked)."""
+    """Add the cog and globally sync the command for all guilds."""
     await bot.add_cog(FactionList(bot))
     try:
         await bot.tree.sync()  # global sync
-        log.info("✅ Synced list-factions globally")
+        log.info("✅ Synced list-factions globally (available in all guilds)")
     except Exception as e:
-        log.error(f"Failed to globally sync list-factions: {e}")
+        log.error(f"❌ Failed to globally sync list-factions: {e}")
