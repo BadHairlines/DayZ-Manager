@@ -1,4 +1,3 @@
-# cogs/faction_members.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -17,9 +16,6 @@ class FactionMembers(commands.Cog):
         self.bot = bot
         self._locks = {}
 
-    # =====================================
-    # 🟩 ADD MEMBER
-    # =====================================
     @app_commands.command(
         name="add-member",
         description="Add a member to a faction."
@@ -40,7 +36,6 @@ class FactionMembers(commands.Cog):
         guild = interaction.guild
         guild_id = str(guild.id)
 
-        # --- Lock per guild to prevent race conditions ---
         lock = self._locks.setdefault(guild_id, discord.utils.MISSING)
         if lock is discord.utils.MISSING:
             import asyncio
@@ -49,7 +44,6 @@ class FactionMembers(commands.Cog):
 
         async with lock:
             try:
-                # --- Fetch faction record ---
                 async with utils.safe_acquire() as conn:
                     faction_rec = await conn.fetchrow(
                         "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
@@ -63,7 +57,6 @@ class FactionMembers(commands.Cog):
                 map_key = (faction.get("map") or "").lower()
                 members = list(faction.get("member_ids") or [])
 
-                # --- Skip if already in faction ---
                 if str(member.id) in members:
                     role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
                     if role and role not in member.roles:
@@ -73,12 +66,10 @@ class FactionMembers(commands.Cog):
                             log.warning(f"⚠️ Missing permission to reassign role {role.name} in {guild.name}.")
                     return await interaction.followup.send(f"⚠️ {member.mention} is already in `{faction_name}`.", ephemeral=True)
 
-                # --- Add member to DB ---
                 members.append(str(member.id))
                 async with utils.safe_acquire() as conn:
                     await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
-                # --- Assign faction role ---
                 role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
                 if not role:
                     msg = f"✅ Added to DB, but no valid faction role exists for `{faction_name}`. (Role may have been deleted.)"
@@ -92,7 +83,6 @@ class FactionMembers(commands.Cog):
                 except Exception as e:
                     log.error(f"Error adding role to {member.display_name}: {e}", exc_info=True)
 
-                # --- Log and notify ---
                 await utils.log_faction_action(
                     guild,
                     action="Member Added",
@@ -110,9 +100,6 @@ class FactionMembers(commands.Cog):
                 log.error(f"❌ Error adding faction member in {guild.name}: {e}", exc_info=True)
                 await interaction.followup.send(f"❌ Failed to add member:\n```{e}```", ephemeral=True)
 
-    # =====================================
-    # 🟥 REMOVE MEMBER
-    # =====================================
     @app_commands.command(
         name="remove-member",
         description="Remove a member from a faction."
@@ -154,7 +141,6 @@ class FactionMembers(commands.Cog):
                 map_key = (faction.get("map") or "").lower()
                 members = list(faction.get("member_ids") or [])
 
-                # --- If not in faction, ensure role sync ---
                 if str(member.id) not in members:
                     role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
                     if role and role in member.roles:
@@ -164,12 +150,10 @@ class FactionMembers(commands.Cog):
                             log.warning(f"⚠️ Missing permission to remove {role.name} from {member.display_name}.")
                     return await interaction.followup.send(f"⚠️ {member.mention} is not in `{faction_name}`.", ephemeral=True)
 
-                # --- Remove from DB ---
                 members.remove(str(member.id))
                 async with utils.safe_acquire() as conn:
                     await conn.execute("UPDATE factions SET member_ids=$1 WHERE id=$2", members, faction["id"])
 
-                # --- Remove Discord role ---
                 role = guild.get_role(int(faction["role_id"])) if faction.get("role_id") else None
                 if role:
                     try:
