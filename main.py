@@ -144,13 +144,9 @@ async def on_ready():
 
     if not bot.synced:
         try:
-            dev_gid = os.getenv("DEV_GUILD_ID")
-            if dev_gid:
-                cmds = await bot.tree.sync(guild=discord.Object(id=int(dev_gid)))
-                log.info(f"Synced {len(cmds)} slash command(s) to dev guild {dev_gid}.")
-            else:
-                cmds = await bot.tree.sync()
-                log.info(f"Globally synced {len(cmds)} slash command(s).")
+            # Pure global slash command sync
+            cmds = await bot.tree.sync()
+            log.info(f"Globally synced {len(cmds)} slash command(s).")
             bot.synced = True
         except Exception as e:
             log.error(f"Slash-sync failed: {e}")
@@ -163,6 +159,7 @@ async def on_ready():
     await asyncio.sleep(2)
     await register_persistent_views()
     log.info("Ready ✅")
+
 
 async def main():
     log.info("Starting DayZ Manager bot...")
