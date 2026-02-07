@@ -4,7 +4,7 @@ from discord.ext import commands
 import logging
 
 from cogs import utils
-from cogs.factions.faction_utils import ensure_faction_table
+from cogs.factions.faction_utils import ensure_faction_table, make_embed
 
 log = logging.getLogger("dayz-manager")
 
@@ -32,9 +32,11 @@ class FactionList(commands.Cog):
         map: app_commands.Choice[str] | None = None,
     ):
         if not interaction.guild:
-            return await interaction.response.send_message(
-                "❌ This command can only be used inside a server.", ephemeral=True
+            await interaction.response.send_message(
+                "❌ This command can only be used inside a server.",
+                ephemeral=True
             )
+            return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -55,14 +57,22 @@ class FactionList(commands.Cog):
             async with utils.safe_acquire() as conn:
                 if map_key:
                     rows = await conn.fetch(
-                        "SELECT faction_name, map, role_id, leader_id, member_ids, claimed_flag "
-                        "FROM factions WHERE guild_id=$1 AND map=$2 ORDER BY faction_name ASC",
+                        """
+                        SELECT faction_name, map, role_id, leader_id, member_ids, claimed_flag
+                        FROM factions
+                        WHERE guild_id=$1 AND map=$2
+                        ORDER BY faction_name ASC
+                        """,
                         guild_id, map_key
                     )
                 else:
                     rows = await conn.fetch(
-                        "SELECT faction_name, map, role_id, leader_id, member_ids, claimed_flag "
-                        "FROM factions WHERE guild_id=$1 ORDER BY map ASC, faction_name ASC",
+                        """
+                        SELECT faction_name, map, role_id, leader_id, member_ids, claimed_flag
+                        FROM factions
+                        WHERE guild_id=$1
+                        ORDER BY map ASC, faction_name ASC
+                        """,
                         guild_id
                     )
         except Exception as e:
@@ -75,19 +85,18 @@ class FactionList(commands.Cog):
             text = "No factions found for this map." if map_key else "No factions found."
             return await interaction.followup.send(text, ephemeral=True)
 
-        # Group factions by map
-        factions_by_map = {}
-        for row in rows:
-            row_map = (row["map"] or "Unknown").title()
-            factions_by_map.setdefault(row_map, []).append(row)
-
         embed = discord.Embed(
             title="🏳️ Active Factions",
             color=discord.Color.blue()
         )
 
+        # Group factions by map for readability
+        factions_by_map = {}
+        for row in rows:
+            row_map = (row["map"] or "Unknown").title()
+            factions_by_map.setdefault(row_map, []).append(row)
+
         for map_name, factions in factions_by_map.items():
-            faction_lines = []
             for row in factions:
                 faction_name = row["faction_name"]
                 role_id = row["role_id"]
@@ -95,12 +104,8 @@ class FactionList(commands.Cog):
                 member_ids = list(row["member_ids"] or [])
                 claimed_flag = row["claimed_flag"] or "—"
 
-                try:
-                    role = guild.get_role(int(role_id)) if role_id else None
-                except:
-                    role = None
-
-                role_mention = role.mention if role else "None ⚠️"
+                role = guild.get_role(int(role_id)) if role_id else None
+                role_mention = role.mention if role else "None"
                 status = "✅" if role else "⚠️"
 
                 leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
@@ -109,15 +114,17 @@ class FactionList(commands.Cog):
                     unique_members.add(str(leader_id))
                 member_count = len(unique_members)
 
-                faction_lines.append(
-                    f"{status} **{faction_name}** — Role: {role_mention} • Leader: {leader_mention} • Members: {member_count} • Flag: `{claimed_flag}`"
+                # Add a separate field per faction
+                embed.add_field(
+                    name=f"{status} {faction_name} • {map_name}",
+                    value=(
+                        f"**Role:** {role_mention}\n"
+                        f"**Leader:** {leader_mention}\n"
+                        f"**Members:** {member_count}\n"
+                        f"**Flag:** `{claimed_flag}`"
+                    ),
+                    inline=False
                 )
-
-            embed.add_field(
-                name=f"{map_name} ({len(factions)} factions)",
-                value="\n".join(faction_lines),
-                inline=False
-            )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
         log.info(f"✅ {interaction.user} listed factions in {guild.name} ({map_key or 'all maps'})")
