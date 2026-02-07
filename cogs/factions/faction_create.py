@@ -1,4 +1,3 @@
-# cogs/faction_create.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -79,14 +78,12 @@ class FactionCreate(commands.Cog):
         map_key = map.value.lower()
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
-        # --- Admin check ---
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("🚫 Only admins can create factions.", ephemeral=True)
 
         await utils.ensure_connection()
         await ensure_faction_table()
 
-        # --- Lock to prevent race conditions ---
         lock_key = f"{guild_id}:{map_key}"
         lock = self._locks.setdefault(lock_key, discord.utils.MISSING)
         if lock is discord.utils.MISSING:
@@ -96,7 +93,6 @@ class FactionCreate(commands.Cog):
 
         async with lock:
             try:
-                # --- Check duplicates ---
                 async with utils.safe_acquire() as conn:
                     existing = await conn.fetchrow(
                         "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
@@ -108,7 +104,6 @@ class FactionCreate(commands.Cog):
                         ephemeral=True
                     )
 
-                # --- Validate flag ---
                 flags = await utils.get_all_flags(guild_id, map_key)
                 flag_data = next((f for f in flags if f["flag"].lower() == flag.lower()), None)
                 if not flag_data:
@@ -122,7 +117,6 @@ class FactionCreate(commands.Cog):
                         ephemeral=True
                     )
 
-                # --- Create role & category ---
                 category_name = f"🌍 {map.value} Factions Hub"
                 category = discord.utils.get(guild.categories, name=category_name) or await guild.create_category(category_name)
 
@@ -134,7 +128,6 @@ class FactionCreate(commands.Cog):
                     except discord.Forbidden:
                         log.warning(f"Missing permission to reposition role {role.name} in {guild.name}.")
 
-                # --- Create HQ channel (PRIVATE with specific perms) ---
                 channel_name = name.lower().replace(" ", "-")
 
                 overwrites = {
@@ -159,7 +152,6 @@ class FactionCreate(commands.Cog):
                     overwrites=overwrites,
                 )
 
-                # Members get the faction role so they can see the HQ
                 members = [m for m in [leader, member1, member2, member3] if m]
                 for m in members:
                     try:
@@ -167,7 +159,6 @@ class FactionCreate(commands.Cog):
                     except discord.Forbidden:
                         log.warning(f"Could not assign {role.name} to {m.display_name} in {guild.name}.")
 
-                # --- DB Insert ---
                 async with utils.safe_acquire() as conn:
                     await conn.execute(
                         """
@@ -178,7 +169,6 @@ class FactionCreate(commands.Cog):
                         str(leader.id), [str(m.id) for m in members], color.value
                     )
 
-                # --- Claim flag ---
                 await utils.set_flag(guild_id, map_key, flag, "❌", str(role.id))
                 async with utils.safe_acquire() as conn:
                     await conn.execute(
@@ -190,7 +180,6 @@ class FactionCreate(commands.Cog):
                         flag, guild_id, str(role.id), map_key
                     )
 
-                # --- Update flag display ---
                 try:
                     embed = await utils.create_flag_embed(guild_id, map_key)
                     async with utils.safe_acquire() as conn:
@@ -205,7 +194,6 @@ class FactionCreate(commands.Cog):
                 except Exception as e:
                     log.warning(f"⚠️ Failed to update flag embed for {guild.name}/{map_key}: {e}")
 
-                # --- HQ Welcome Embed ---
                 members_list = "\n".join([m.mention for m in members if m.id != leader.id]) or "*No members listed*"
                 welcome_embed = discord.Embed(
                     title=f"🎖️ Welcome to {name}!",
@@ -229,7 +217,6 @@ class FactionCreate(commands.Cog):
                 except discord.Forbidden:
                     pass
 
-                # --- Log action ---
                 await utils.log_faction_action(
                     guild,
                     action="Faction Created + Flag Claimed",
@@ -239,7 +226,6 @@ class FactionCreate(commands.Cog):
                     map_key=map_key,
                 )
 
-                # --- Confirmation ---
                 confirm_embed = make_embed(
                     "__Faction Created__",
                     f"🗺️ **Map:** `{map.value}`\n"
