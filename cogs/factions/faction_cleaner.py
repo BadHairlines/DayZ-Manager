@@ -6,6 +6,8 @@ from cogs.factions.faction_utils import ensure_faction_table
 log = logging.getLogger("dayz-manager")
 
 class FactionCleaner(commands.Cog):
+    """Automatically deletes factions that no longer have a linked role."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.clean_factions_task.start()
@@ -16,8 +18,12 @@ class FactionCleaner(commands.Cog):
     @tasks.loop(hours=1)  # Runs every hour
     async def clean_factions_task(self):
         log.info("Starting automatic faction cleanup...")
-        await utils.ensure_connection()
-        await ensure_faction_table()
+        try:
+            await utils.ensure_connection()
+            await ensure_faction_table()
+        except Exception as e:
+            log.error(f"Failed to connect to the database: {e}", exc_info=True)
+            return
 
         for guild in self.bot.guilds:
             try:
@@ -42,9 +48,14 @@ class FactionCleaner(commands.Cog):
                         log.info(f"Deleted factions with missing roles in {guild.name}: {to_delete}")
                     else:
                         log.info(f"No factions to delete in {guild.name}")
+
             except Exception as e:
                 log.error(f"Failed to clean factions in {guild.name}: {e}", exc_info=True)
 
     @clean_factions_task.before_loop
     async def before_clean(self):
         await self.bot.wait_until_ready()
+
+# ─── SETUP ───────────────────────────────────────────────
+async def setup(bot: commands.Bot):
+    await bot.add_cog(FactionCleaner(bot))
