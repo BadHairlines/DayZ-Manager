@@ -1,4 +1,3 @@
-# cogs/helpers/faction_utils.py
 import discord
 import logging
 from cogs import utils
@@ -13,7 +12,6 @@ async def ensure_faction_table(debug: bool = True):
         return
 
     async with utils.safe_acquire() as conn:
-        # --- Create main factions table ---
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS factions (
                 id BIGSERIAL PRIMARY KEY,
@@ -31,12 +29,10 @@ async def ensure_faction_table(debug: bool = True):
             );
         """)
 
-        # --- Add columns if missing ---
         await conn.execute("""
             ALTER TABLE factions ADD COLUMN IF NOT EXISTS claimed_flag TEXT;
         """)
 
-        # --- Create indexes for performance ---
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_factions_guild_map
             ON factions (guild_id, map);
@@ -46,7 +42,6 @@ async def ensure_faction_table(debug: bool = True):
             ON factions (LOWER(faction_name));
         """)
 
-        # --- Normalize map keys ---
         try:
             await conn.execute("""
                 UPDATE factions
