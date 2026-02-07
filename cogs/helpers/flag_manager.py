@@ -135,7 +135,10 @@ class FlagManager:
     @staticmethod
     async def _refresh_embed_safe(guild: discord.Guild, guild_id: str, map_key: str) -> None:
         """Refresh the map’s flag embed; fail silently if message/channel is missing."""
-        if not utils.db_pool:
+        try:
+            await utils.ensure_connection()
+        except Exception as e:
+            log.warning(f"⚠️ Database unavailable — skipping flag embed refresh: {e}")
             return
 
         try:

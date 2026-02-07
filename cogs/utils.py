@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import asyncio
 from typing import Optional, List, Dict, Any, AsyncIterator
 import asyncpg
 import discord
@@ -76,12 +75,12 @@ async def ensure_connection() -> asyncpg.Pool:
 @contextlib.asynccontextmanager
 async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
     """Acquire a DB connection safely with auto-reconnect."""
-    await ensure_connection()
-    conn = await db_pool.acquire()
+    pool = await ensure_connection()
+    conn = await pool.acquire()
     try:
         yield conn
     finally:
-        await db_pool.release(conn)
+        await pool.release(conn)
 
 
 async def close_db() -> None:

@@ -7,8 +7,10 @@ log = logging.getLogger("dayz-manager")
 
 async def ensure_faction_table(debug: bool = True):
     """Ensure factions table exists and has required columns. Safe to call multiple times."""
-    if utils.db_pool is None:
-        log.warning("⚠️ Database pool not initialized — skipping faction table creation.")
+    try:
+        await utils.ensure_connection()
+    except Exception as e:
+        log.warning(f"⚠️ Database unavailable — skipping faction table creation: {e}")
         return
 
     async with utils.safe_acquire() as conn:

@@ -22,8 +22,10 @@ class BaseCog:
 
     async def update_flag_message(self, guild: discord.Guild, guild_id: str, map_key: str) -> None:
         """Refresh the live flag message for a given map, including persistent view restoration."""
-        if not utils.db_pool:
-            log.warning("⚠️ Cannot update flag message — DB pool not initialized.")
+        try:
+            await utils.ensure_connection()
+        except Exception as e:
+            log.warning(f"⚠️ Cannot update flag message — DB connection failed: {e}")
             return
 
         try:
