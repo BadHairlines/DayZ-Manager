@@ -10,7 +10,6 @@ MAX_SELECT_OPTIONS = 25  # Discord limit
 class FlagManageView(View):
     """Persistent control panel for flag assignment and release."""
 
-    # Locks per guild+map key (asyncio-safe)
     _locks: dict[str, asyncio.Lock] = {}
 
     def __init__(self, guild: discord.Guild, map_key: str, bot: commands.Bot):
@@ -19,7 +18,6 @@ class FlagManageView(View):
         self.map_key = map_key
         self.bot = bot
 
-    # --- locking helpers ---
     @property
     def _session_key(self) -> str:
         return f"{self.guild.id}:{self.map_key}"
@@ -30,7 +28,6 @@ class FlagManageView(View):
             self._locks[self._session_key] = asyncio.Lock()
         return self._locks[self._session_key]
 
-    # --- refresh embed ---
     async def refresh_flag_embed(self):
         """Rebuild and update the flag embed + persistent view."""
         guild_id = str(self.guild.id)
@@ -51,7 +48,6 @@ class FlagManageView(View):
         except Exception as e:
             print(f"⚠️ Failed to refresh flag embed: {e}")
 
-    # --- role options (FACTION ROLES ONLY) ---
     async def _role_options(self) -> list[discord.SelectOption]:
         """
         Build select options for faction roles on this map.
@@ -80,12 +76,9 @@ class FlagManageView(View):
                 if role and not role.is_default() and not role.managed:
                     roles.append(role)
 
-            # Sort by position (top first) then name
             roles.sort(key=lambda r: (-r.position, r.name.lower()))
 
         except Exception as e:
-            # If something goes wrong (e.g. factions table missing),
-            # fall back to old behaviour so the UI still works.
             print(f"⚠️ Failed to build faction role options, falling back to all roles: {e}")
             roles = [r for r in self.guild.roles if not r.is_default() and not r.managed]
             roles.sort(key=lambda r: (-r.position, r.name.lower()))
@@ -95,7 +88,6 @@ class FlagManageView(View):
             for role in roles[:MAX_SELECT_OPTIONS]
         ]
 
-    # --- assign flag ---
     @button(label="🟩 Assign Flag", style=discord.ButtonStyle.success, custom_id="assign_flag_btn")
     async def assign_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
@@ -145,7 +137,6 @@ class FlagManageView(View):
                             view=None
                         )
 
-                    # NEW: only use faction roles for this map
                     role_opts = await self._role_options()
                     if not role_opts:
                         return await inter2.followup.edit_message(
