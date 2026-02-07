@@ -14,7 +14,6 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
-
 class FactionList(commands.Cog):
     """Lists active factions for a guild."""
 
@@ -86,32 +85,47 @@ class FactionList(commands.Cog):
             text = "No factions found for this map." if map_key else "No factions found."
             return await interaction.followup.send(text, ephemeral=True)
 
-        lines = []
+        embed = discord.Embed(
+            title="🏳️ Active Factions",
+            color=discord.Color.blue()
+        )
+
+        # Group factions by map for readability
+        factions_by_map = {}
         for row in rows:
-            faction_name = row["faction_name"]
-            row_map = (row["map"] or "").title()
-            role_id = row["role_id"]
-            leader_id = row["leader_id"]
-            member_ids = list(row["member_ids"] or [])
-            claimed_flag = row["claimed_flag"] or "—"
+            row_map = (row["map"] or "Unknown").title()
+            factions_by_map.setdefault(row_map, []).append(row)
 
-            role = guild.get_role(int(role_id)) if role_id else None
-            role_mention = role.mention if role else "None"
-            status = "✅" if role else "⚠️"
+        for map_name, factions in factions_by_map.items():
+            for row in factions:
+                faction_name = row["faction_name"]
+                role_id = row["role_id"]
+                leader_id = row["leader_id"]
+                member_ids = list(row["member_ids"] or [])
+                claimed_flag = row["claimed_flag"] or "—"
 
-            leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
-            unique_members = {str(mid) for mid in member_ids if mid}
-            if leader_id:
-                unique_members.add(str(leader_id))
-            member_count = len(unique_members)
+                role = guild.get_role(int(role_id)) if role_id else None
+                role_mention = role.mention if role else "None"
+                status = "✅" if role else "⚠️"
 
-            map_label = f" • {row_map}"
-            lines.append(
-                f"{status} **{faction_name}**{map_label} — "
-                f"Role: {role_mention} • Leader: {leader_mention} • Members: {member_count} • Flag: `{claimed_flag}`"
-            )
+                leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
+                unique_members = {str(mid) for mid in member_ids if mid}
+                if leader_id:
+                    unique_members.add(str(leader_id))
+                member_count = len(unique_members)
 
-        embed = make_embed("🏳️ Active Factions", "\n".join(lines))
+                # Add a separate field per faction
+                embed.add_field(
+                    name=f"{status} {faction_name} • {map_name}",
+                    value=(
+                        f"**Role:** {role_mention}\n"
+                        f"**Leader:** {leader_mention}\n"
+                        f"**Members:** {member_count}\n"
+                        f"**Flag:** `{claimed_flag}`"
+                    ),
+                    inline=False
+                )
+
         await interaction.followup.send(embed=embed, ephemeral=True)
         log.info(f"✅ {interaction.user} listed factions in {guild.name} ({map_key or 'all maps'})")
 
