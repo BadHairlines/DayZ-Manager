@@ -17,8 +17,6 @@ class Setup(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ---------- small helpers ----------
-
     async def _get_or_create_category(
         self,
         guild: discord.Guild,
@@ -39,8 +37,6 @@ class Setup(commands.Cog):
         reason: str,
         seed_message: str | None = None,
     ) -> discord.TextChannel:
-        # Note: this finds by name only; if you ever have duplicate names in
-        # multiple categories, you may want to also check ch.category == category
         ch = discord.utils.get(guild.text_channels, name=name)
         if not ch:
             ch = await guild.create_text_channel(
@@ -77,10 +73,8 @@ class Setup(commands.Cog):
 
         guild_id = str(guild.id)
 
-        # IMPORTANT FIX: use selected_map.value for app_commands.Choice
         map_key = normalize_map(selected_map.value)
 
-        # Safety: ensure map_key exists in MAP_DATA
         map_info = MAP_DATA.get(map_key)
         if map_info is None:
             await interaction.response.send_message(
@@ -97,11 +91,9 @@ class Setup(commands.Cog):
             ephemeral=True,
         )
 
-        # Ensure DB connection (safe_acquire usually handles this too, but this is fine)
         await ensure_connection()
 
         try:
-            # Ensure metadata table exists + fetch any existing row
             async with safe_acquire() as conn:
                 await conn.execute(
                     """
@@ -126,14 +118,12 @@ class Setup(commands.Cog):
                     map_key,
                 )
 
-            # ----- Logs category + channel -----
             logs_category = await self._get_or_create_category(
                 guild,
                 "📜 DayZ Manager Logs",
                 "Auto-created universal DayZ Manager log category",
             )
 
-            # Clean up any legacy "{map}-logs" channels
             old_logs_channel = discord.utils.get(
                 guild.text_channels, name=f"{map_key}-logs"
             )
@@ -142,7 +132,6 @@ class Setup(commands.Cog):
                     await old_logs_channel.edit(name=logs_channel_name)
                     log_channel = old_logs_channel
                 except (discord.Forbidden, discord.HTTPException):
-                    # Try to delete legacy channel if we can't rename it
                     try:
                         await old_logs_channel.delete(
                             reason="Replaced by new flaglogs channel"
@@ -167,8 +156,6 @@ class Setup(commands.Cog):
                     seed_message=f"🗒️ Logs for **{map_info['name']}** initialized.",
                 )
 
-            # ----- Flags category + channel -----
-            # Use the per-map Factions Hub instead of a standalone flags category
             factions_category_name = f"🌍 {map_info['name']} Factions Hub"
             flags_category = await self._get_or_create_category(
                 guild,
@@ -184,16 +171,13 @@ class Setup(commands.Cog):
                 seed_message=f"📜 Flag ownership for **{map_info['name']}**.",
             )
 
-            # Sync permissions with their parent categories
             await flags_channel.edit(sync_permissions=True)
             await log_channel.edit(sync_permissions=True)
 
-            # ----- Reset flags -----
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
                 await sleep(0.02)
 
-            # ----- Embed + view -----
             embed = await create_flag_embed(guild_id, map_key)
             view = FlagManageView(guild, map_key, self.bot)
 
@@ -213,7 +197,6 @@ class Setup(commands.Cog):
             if not msg:
                 msg = await flags_channel.send(embed=embed, view=view)
 
-            # ----- Persist message info -----
             async with safe_acquire() as conn:
                 await conn.execute(
                     """
@@ -272,14 +255,12 @@ class Setup(commands.Cog):
             )
 
         except Exception as e:
-            # Error path: show error to the invoker and log it
             try:
                 await interaction.edit_original_response(
                     content=f"❌ Setup failed for **{map_info['name']}**:\n```{e}```",
                     embed=None,
                 )
             except Exception:
-                # Fallback if original response can't be edited for some reason
                 await interaction.followup.send(
                     f"❌ Setup failed for **{map_info['name']}**:\n```{e}```",
                     ephemeral=True,
