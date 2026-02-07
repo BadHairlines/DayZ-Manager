@@ -1,4 +1,3 @@
-# cogs/faction_delete.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -23,7 +22,6 @@ class FactionDelete(commands.Cog):
     async def delete_faction(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
 
-        # --- Admin validation ---
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("🚫 Admin only!", ephemeral=True)
 
@@ -33,7 +31,6 @@ class FactionDelete(commands.Cog):
         guild = interaction.guild
         guild_id = str(guild.id)
 
-        # --- Async lock per guild to prevent race conditions ---
         lock = self._locks.setdefault(guild_id, discord.utils.MISSING)
         if lock is discord.utils.MISSING:
             import asyncio
@@ -42,7 +39,6 @@ class FactionDelete(commands.Cog):
 
         async with lock:
             try:
-                # --- Fetch faction record ---
                 async with utils.safe_acquire() as conn:
                     faction_rec = await conn.fetchrow(
                         "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
@@ -56,7 +52,6 @@ class FactionDelete(commands.Cog):
                 map_key = (faction.get("map") or "").lower()
                 claimed_flag = faction.get("claimed_flag")
 
-                # --- Release flag if owned ---
                 if claimed_flag:
                     try:
                         await utils.release_flag(guild_id, map_key, claimed_flag)
@@ -66,7 +61,6 @@ class FactionDelete(commands.Cog):
                             description=f"🏳️ Flag **{claimed_flag}** was freed after `{name}` disbanded."
                         )
 
-                        # Refresh embed (if present)
                         async with utils.safe_acquire() as conn:
                             row = await conn.fetchrow(
                                 "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
@@ -88,7 +82,6 @@ class FactionDelete(commands.Cog):
                     except Exception as e:
                         log.error(f"⚠️ Could not release flag {claimed_flag} for {guild.name}: {e}", exc_info=True)
 
-                # --- Delete faction HQ channel ---
                 channel_id = faction.get("channel_id")
                 deleted_channel = False
                 if channel_id:
@@ -107,7 +100,6 @@ class FactionDelete(commands.Cog):
                         except Exception as e:
                             log.error(f"⚠️ Failed to delete faction channel {channel.name}: {e}", exc_info=True)
 
-                # --- Delete faction role ---
                 role_id = faction.get("role_id")
                 deleted_role = False
                 if role_id:
@@ -121,14 +113,12 @@ class FactionDelete(commands.Cog):
                         except Exception as e:
                             log.error(f"⚠️ Failed to delete faction role {role.name}: {e}", exc_info=True)
 
-                # --- Delete from DB ---
                 async with utils.safe_acquire() as conn:
                     await conn.execute(
                         "DELETE FROM factions WHERE guild_id=$1 AND faction_name=$2",
                         guild_id, name
                     )
 
-                # --- Log deletion ---
                 await utils.log_faction_action(
                     guild,
                     action="Faction Deleted",
@@ -138,7 +128,6 @@ class FactionDelete(commands.Cog):
                     map_key=map_key,
                 )
 
-                # --- Final confirmation ---
                 confirm_embed = make_embed(
                     "✅ Faction Deleted",
                     (
