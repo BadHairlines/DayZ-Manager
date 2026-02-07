@@ -44,7 +44,6 @@ class AutoRefresh(commands.Cog):
             embed.timestamp = discord.utils.utcnow()
             msg = await channel.fetch_message(int(row["message_id"]))
 
-            # Restore persistent view
             view = FlagManageView(guild, map_key, self.bot)
             await msg.edit(embed=embed, view=view)
 
@@ -69,7 +68,6 @@ class AutoRefresh(commands.Cog):
         log.info("🚀 DayZ Manager starting flag auto-refresh...")
         await asyncio.sleep(5)
 
-        # Refresh flags for each guild
         for guild in self.bot.guilds:
             guild_id = str(guild.id)
             try:
