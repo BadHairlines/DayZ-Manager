@@ -18,7 +18,7 @@ class FactionCleaner(commands.Cog):
     def cog_unload(self):
         self.clean_factions_task.cancel()
 
-    @tasks.loop(hours=12)  # Runs every hour
+    @tasks.loop(hours=6)  # Runs every hour
     async def clean_factions_task(self):
         log.info("Starting automatic faction cleanup and sync...")
         try:
