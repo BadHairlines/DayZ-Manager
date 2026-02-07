@@ -1,4 +1,3 @@
-# cogs/error_handler.py
 import logging
 import traceback
 import discord
@@ -14,7 +13,6 @@ class ErrorHandler(commands.Cog):
         self.bot = bot
         self._error_cooldown = {}
 
-    # --- Slash command error handler ---
     @commands.Cog.listener()
     async def on_app_command_error(self, interaction: discord.Interaction, error: Exception):
         """Handle slash command (app command) errors globally."""
@@ -22,12 +20,10 @@ class ErrorHandler(commands.Cog):
         user = interaction.user
         cmd_name = getattr(getattr(interaction.command, "name", None), "lower", lambda: "unknown")()
 
-        # Skip common harmless cases
         if isinstance(error, discord.Forbidden):
             log.warning(f"Missing permission for command {cmd_name} in {interaction.guild}.")
             return
 
-        # Notify user
         try:
             await interaction.response.send_message(
                 embed=self._make_embed(
@@ -46,13 +42,11 @@ class ErrorHandler(commands.Cog):
         except Exception:
             pass
 
-        # Log traceback
         tb_text = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         log.error(f"Slash command error in '{cmd_name}':\n{tb_text}")
 
         await self._post_error_log(interaction.guild, cmd_name, user, tb_text)
 
-    # --- Prefix command error handler ---
     @commands.Cog.listener()
     async def on_command_error(self, ctx: commands.Context, error: Exception):
         """Handle errors for traditional prefix commands."""
@@ -102,7 +96,6 @@ class ErrorHandler(commands.Cog):
             )
             return
 
-        # Unexpected error
         tb_text = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         log.error(f"Command error in {ctx.command}: {tb_text}")
 
@@ -124,13 +117,11 @@ class ErrorHandler(commands.Cog):
         if ctx.guild:
             await self._post_error_log(ctx.guild, cmd_name, ctx.author, tb_text)
 
-    # --- Internal Helper: Report Error in bot-errors channel ---
     async def _post_error_log(self, guild: discord.Guild, cmd_name: str, user, tb_text: str):
         """Safely post a formatted traceback to a dedicated error channel."""
         if guild is None:
             return
 
-        # Simple rate-limiting to prevent spam
         last_sent = self._error_cooldown.get(guild.id)
         if last_sent and (discord.utils.utcnow() - last_sent).total_seconds() < 15:
             return
@@ -161,7 +152,6 @@ class ErrorHandler(commands.Cog):
         except Exception as e:
             log.warning(f"Failed to post error log to {guild.name}: {e}")
 
-    # --- Helper: Reusable Embed Builder ---
     def _make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
         embed = discord.Embed(title=title, description=desc, color=color)
         embed.set_footer(
