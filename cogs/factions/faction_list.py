@@ -2,7 +2,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import logging
-
 from cogs import utils
 from cogs.factions.faction_utils import ensure_faction_table
 
@@ -14,8 +13,8 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
-ITEMS_PER_PAGE = 5  # factions per page
-MEMBERS_PER_FIELD = 15  # how many members to show per field chunk
+ITEMS_PER_PAGE = 5
+MEMBERS_PER_FIELD = 15
 
 
 class FactionList(commands.Cog):
@@ -24,7 +23,17 @@ class FactionList(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def make_faction_fields(self, row, guild):
+    async def member_to_display(self, guild: discord.Guild, member_id: str) -> str:
+        """Return the member's display name or fallback to mention if not found."""
+        member = guild.get_member(int(member_id))
+        if member is None:
+            try:
+                member = await guild.fetch_member(int(member_id))
+            except discord.NotFound:
+                return f"<@{member_id}>"
+        return member.display_name
+
+    async def make_faction_fields(self, row, guild):
         """Return a list of fields for a faction, splitting large member lists."""
         faction_name = row["faction_name"]
         role_id = row["role_id"]
@@ -35,13 +44,15 @@ class FactionList(commands.Cog):
         role = guild.get_role(int(role_id)) if role_id else None
         status = "✅" if role else "⚠️"
         role_mention = role.mention if role else "None"
-        leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
 
-        # Remove duplicates, keep leader first
+        # Resolve leader name
+        leader_mention = await self.member_to_display(guild, leader_id) if leader_id else "Unknown"
+
+        # Remove duplicates, exclude leader
         unique_members = [str(mid) for mid in member_ids if mid and str(mid) != str(leader_id)]
         total_members = len(unique_members) + (1 if leader_id else 0)
 
-        # Split members into chunks
+        # Split into chunks
         member_chunks = [
             unique_members[i:i + MEMBERS_PER_FIELD]
             for i in range(0, len(unique_members), MEMBERS_PER_FIELD)
@@ -49,11 +60,12 @@ class FactionList(commands.Cog):
 
         fields = []
 
-        # First field with summary and leader
+        # First field with summary + leader
         first_chunk = member_chunks[0] if member_chunks else []
-        member_text = ", ".join([f"<@{mid}>" for mid in first_chunk])
+        member_names = [await self.member_to_display(guild, mid) for mid in first_chunk]
         if leader_id:
-            member_text = f"{leader_mention}, {member_text}" if member_text else leader_mention
+            member_names.insert(0, leader_mention)
+        member_text = ", ".join(member_names)
         if len(member_chunks) > 1:
             member_text += f" … (+{total_members - len(first_chunk) - (1 if leader_id else 0)} more)"
 
@@ -64,10 +76,10 @@ class FactionList(commands.Cog):
         )
         fields.append((f"{status} {faction_name}", summary_value))
 
-        # Optional: Add additional fields for very large member lists
+        # Additional fields for remaining chunks
         for idx, chunk in enumerate(member_chunks[1:], start=1):
-            chunk_text = ", ".join([f"<@{mid}>" for mid in chunk])
-            fields.append((f"{faction_name} (cont. {idx})", chunk_text))
+            names = [await self.member_to_display(guild, mid) for mid in chunk]
+            fields.append((f"{faction_name} (cont. {idx})", ", ".join(names)))
 
         return fields, discord.Color.green() if role else discord.Color.red()
 
@@ -83,11 +95,9 @@ class FactionList(commands.Cog):
         map: app_commands.Choice[str],
     ):
         if not interaction.guild:
-            await interaction.response.send_message(
-                "❌ This command can only be used inside a server.",
-                ephemeral=True
+            return await interaction.response.send_message(
+                "❌ This command can only be used inside a server.", ephemeral=True
             )
-            return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -134,15 +144,15 @@ class FactionList(commands.Cog):
                 color=discord.Color.blue()
             )
             for row in rows[i:i + ITEMS_PER_PAGE]:
-                fields, color = self.make_faction_fields(row, guild)
+                fields, color = await self.make_faction_fields(row, guild)
                 for name, value in fields:
                     embed.add_field(name=name, value=value, inline=False)
-                embed.color = color  # last faction color
+                embed.color = color
             total_pages = (len(rows) - 1) // ITEMS_PER_PAGE + 1
             embed.set_footer(text=f"Page {len(pages)+1}/{total_pages} • {len(rows)} factions total")
             pages.append(embed)
 
-        # ---------- INTERACTION VIEW FOR NAVIGATION ----------
+        # ---------- PAGINATION VIEW ----------
         class PaginationView(discord.ui.View):
             def __init__(self, pages):
                 super().__init__(timeout=120)
