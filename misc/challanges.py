@@ -151,6 +151,7 @@ class Challenges(commands.Cog):
         self.channel = None
 
     @app_commands.command(name="challenges", description="Create or show the Challenges menu")
+    @app_commands.guilds(discord.Object(id=1109306235808911360))
     async def challenges(self, interaction: discord.Interaction):
         guild = interaction.guild
         if not guild:
