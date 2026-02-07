@@ -51,7 +51,7 @@ class FactionList(commands.Cog):
         summary_value = (
             f"**Role:** {role_mention}\n"
             f"**Leader:** {leader_mention}\n"
-            f"**Members:** {total_members}\n"
+            f"**Members:** `{total_members}`\n"
             f"**Flag:** `{claimed_flag}`"
         )
 
