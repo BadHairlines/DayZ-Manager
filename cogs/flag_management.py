@@ -17,13 +17,11 @@ class FlagManagement(commands.Cog, BaseCog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # Autocomplete shared between assign and release
     async def flag_autocomplete(self, interaction: discord.Interaction, current: str):
         """Provides autocomplete for flag names."""
         results = [f for f in FLAGS if current.lower() in f.lower()]
         return [app_commands.Choice(name=f, value=f) for f in results[:25]]
 
-    # ========== /assign ==========
     @app_commands.command(
         name="assign",
         description="Assign a flag to a specific faction or role for a chosen map."
@@ -87,7 +85,6 @@ class FlagManagement(commands.Cog, BaseCog):
         )
         await interaction.followup.send(embed=embed)
 
-    # ========== /release ==========
     @app_commands.command(
         name="release",
         description="Release a claimed flag and make it available again."
