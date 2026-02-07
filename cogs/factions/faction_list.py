@@ -31,6 +31,13 @@ class FactionList(commands.Cog):
         interaction: discord.Interaction,
         map: app_commands.Choice[str] | None = None,
     ):
+        # Only works in a guild
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ This command can only be used inside a server.",
+                ephemeral=True
+            )
+
         await interaction.response.defer(ephemeral=True)
         await ensure_faction_table()
 
@@ -38,7 +45,7 @@ class FactionList(commands.Cog):
         guild_id = str(guild.id)
         map_key = map.value.lower() if map else None
 
-        # Fetch factions from DB
+        # Fetch factions
         try:
             async with utils.safe_acquire() as conn:
                 if map_key:
@@ -102,10 +109,12 @@ class FactionList(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    """Add the cog and globally sync the command for all guilds."""
+    """Add the cog and immediately sync to the current guild for instant visibility."""
     await bot.add_cog(FactionList(bot))
     try:
-        await bot.tree.sync()  # global sync
-        log.info("✅ Synced list-factions globally (available in all guilds)")
+        # Sync to all guilds the bot is currently in
+        for guild in bot.guilds:
+            await bot.tree.sync(guild=guild)
+            log.info(f"✅ Synced list-factions in guild: {guild.name} ({guild.id})")
     except Exception as e:
-        log.error(f"❌ Failed to globally sync list-factions: {e}")
+        log.error(f"❌ Failed to sync list-factions: {e}")
