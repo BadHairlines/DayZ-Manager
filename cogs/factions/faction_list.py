@@ -14,6 +14,9 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
+ITEMS_PER_PAGE = 5  # <-- change this to adjust factions per page
+
+
 class FactionList(commands.Cog):
     """Lists active factions for a guild."""
 
@@ -22,14 +25,14 @@ class FactionList(commands.Cog):
 
     @app_commands.command(
         name="list-factions",
-        description="List active factions (optionally filtered by map)."
+        description="List active factions filtered by map."
     )
     @app_commands.choices(map=MAP_CHOICES)
-    @app_commands.describe(map="Optional map filter")
+    @app_commands.describe(map="Select a map to list factions from")
     async def list_factions(
         self,
         interaction: discord.Interaction,
-        map: app_commands.Choice[str] | None = None,
+        map: app_commands.Choice[str],  # Required now
     ):
         if not interaction.guild:
             await interaction.response.send_message(
@@ -51,30 +54,19 @@ class FactionList(commands.Cog):
 
         guild = interaction.guild
         guild_id = str(guild.id)
-        map_key = map.value.lower() if map else None
+        map_key = map.value.lower()
 
         try:
             async with utils.safe_acquire() as conn:
-                if map_key:
-                    rows = await conn.fetch(
-                        """
-                        SELECT faction_name, map, role_id, leader_id, member_ids, claimed_flag
-                        FROM factions
-                        WHERE guild_id=$1 AND map=$2
-                        ORDER BY faction_name ASC
-                        """,
-                        guild_id, map_key
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """
-                        SELECT faction_name, map, role_id, leader_id, member_ids, claimed_flag
-                        FROM factions
-                        WHERE guild_id=$1
-                        ORDER BY map ASC, faction_name ASC
-                        """,
-                        guild_id
-                    )
+                rows = await conn.fetch(
+                    """
+                    SELECT faction_name, role_id, leader_id, member_ids, claimed_flag
+                    FROM factions
+                    WHERE guild_id=$1 AND map=$2
+                    ORDER BY faction_name ASC
+                    """,
+                    guild_id, map_key
+                )
         except Exception as e:
             log.error(f"❌ Failed to fetch factions for {guild.name}: {e}", exc_info=True)
             return await interaction.followup.send(
@@ -82,22 +74,18 @@ class FactionList(commands.Cog):
             )
 
         if not rows:
-            text = "No factions found for this map." if map_key else "No factions found."
-            return await interaction.followup.send(text, ephemeral=True)
+            return await interaction.followup.send(
+                f"No factions found for {map.value}.", ephemeral=True
+            )
 
-        embed = discord.Embed(
-            title="🏳️ Active Factions",
-            color=discord.Color.blue()
-        )
-
-        # Group factions by map for readability
-        factions_by_map = {}
-        for row in rows:
-            row_map = (row["map"] or "Unknown").title()
-            factions_by_map.setdefault(row_map, []).append(row)
-
-        for map_name, factions in factions_by_map.items():
-            for row in factions:
+        # ---------------- PAGINATION ----------------
+        pages = []
+        for i in range(0, len(rows), ITEMS_PER_PAGE):
+            embed = discord.Embed(
+                title=f"🏳️ Active Factions • {map.value}",
+                color=discord.Color.blue()
+            )
+            for row in rows[i:i + ITEMS_PER_PAGE]:
                 faction_name = row["faction_name"]
                 role_id = row["role_id"]
                 leader_id = row["leader_id"]
@@ -114,9 +102,8 @@ class FactionList(commands.Cog):
                     unique_members.add(str(leader_id))
                 member_count = len(unique_members)
 
-                # Add a separate field per faction
                 embed.add_field(
-                    name=f"{status} {faction_name} • {map_name}",
+                    name=f"{status} {faction_name}",
                     value=(
                         f"**Role:** {role_mention}\n"
                         f"**Leader:** {leader_mention}\n"
@@ -125,9 +112,35 @@ class FactionList(commands.Cog):
                     ),
                     inline=False
                 )
+            embed.set_footer(text=f"Page {len(pages)+1}/{(len(rows)-1)//ITEMS_PER_PAGE + 1}")
+            pages.append(embed)
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        log.info(f"✅ {interaction.user} listed factions in {guild.name} ({map_key or 'all maps'})")
+        # ---------- INTERACTION VIEW FOR NAVIGATION ----------
+        class PaginationView(discord.ui.View):
+            def __init__(self, pages):
+                super().__init__(timeout=120)
+                self.pages = pages
+                self.current = 0
+                self.message = None
+
+            async def update_message(self):
+                await self.message.edit(embed=self.pages[self.current], view=self)
+
+            @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
+            async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+                self.current = (self.current - 1) % len(self.pages)
+                await self.update_message()
+                await interaction.response.defer()  # prevent "This interaction failed"
+
+            @discord.ui.button(label="➡️", style=discord.ButtonStyle.gray)
+            async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+                self.current = (self.current + 1) % len(self.pages)
+                await self.update_message()
+                await interaction.response.defer()
+
+        view = PaginationView(pages)
+        view.message = await interaction.followup.send(embed=pages[0], ephemeral=True, view=view)
+        log.info(f"✅ {interaction.user} listed factions in {guild.name} ({map.value})")
 
 
 async def setup(bot: commands.Bot):
