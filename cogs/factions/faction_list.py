@@ -1,3 +1,4 @@
+import os
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -95,17 +96,19 @@ class FactionList(commands.Cog):
             claimed_flag = row["claimed_flag"] or "—"
 
             role = guild.get_role(int(role_id)) if role_id else None
+            role_mention = role.mention if role else "None"
             status = "✅" if role else "⚠️"
 
             leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
-            unique_members = {str(leader_id)} if leader_id else set()
-            unique_members.update([str(mid) for mid in member_ids])
-            member_count = len([mid for mid in unique_members if mid])
+            unique_members = {str(mid) for mid in member_ids if mid}
+            if leader_id:
+                unique_members.add(str(leader_id))
+            member_count = len(unique_members)
 
-            map_label = f" • {row_map}" if not map_key else ""
+            map_label = f" • {row_map}"  # always show map
             lines.append(
                 f"{status} **{faction_name}**{map_label} — "
-                f"Leader: {leader_mention} • Members: {member_count} • Flag: `{claimed_flag}`"
+                f"Role: {role_mention} • Leader: {leader_mention} • Members: {member_count} • Flag: `{claimed_flag}`"
             )
 
         embed = make_embed(
@@ -115,7 +118,19 @@ class FactionList(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
+    """Adds the cog and syncs slash commands to your DEV_GUILD_ID for instant visibility."""
     cog = FactionList(bot)
     await bot.add_cog(cog)
-    # This ensures the slash command is registered immediately
-    await bot.tree.sync()
+
+    # Sync to dev guild if DEV_GUILD_ID is set
+    dev_gid = os.getenv("DEV_GUILD_ID")
+    if dev_gid:
+        try:
+            await bot.tree.sync(guild=discord.Object(id=int(dev_gid)))
+            log.info(f"✅ Synced list-factions command to dev guild {dev_gid}")
+        except Exception as e:
+            log.error(f"Failed to sync list-factions to dev guild: {e}")
+    else:
+        # fallback global sync (slower)
+        await bot.tree.sync()
+        log.info("✅ Synced list-factions command globally")
