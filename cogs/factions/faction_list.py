@@ -52,7 +52,7 @@ class FactionList(commands.Cog):
             f"**Role:** {role_mention}\n"
             f"**Leader:** {leader_mention}\n"
             f"**Members:** `{total_members}`\n"
-            f"**Flag:** `{claimed_flag}`"
+            f"**Flag:** :{claimed_flag}:"
         )
 
         return [(f"{status} {faction_name}", summary_value)], discord.Color.green() if role else discord.Color.red()
