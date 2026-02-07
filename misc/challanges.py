@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 EMBED_COLOR = discord.Color.gold()
 
@@ -63,14 +63,9 @@ MISC_CHALLENGES = [
     ("Supply Runner", "Deliver supplies to 3 teammates under fire.", 75000)
 ]
 
-ALL_CHALLENGES = (
-    COMBAT_CHALLENGES
-    + MARKSMAN_CHALLENGES
-    + KILLSTREAK_CHALLENGES
-    + MISC_CHALLENGES
-)
+ALL_CHALLENGES = COMBAT_CHALLENGES + MARKSMAN_CHALLENGES + KILLSTREAK_CHALLENGES + MISC_CHALLENGES
 
-# ─── UI COMPONENTS ────────────────────────────────────────────────────────────
+# ─── BUTTONS ─────────────────────────────────────────────────────────────────
 class BackToCategoryButton(discord.ui.Button):
     def __init__(self, category_name, challenges_list):
         super().__init__(style=discord.ButtonStyle.primary, label="Back to Category")
@@ -80,7 +75,6 @@ class BackToCategoryButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = discord.ui.View()
         view.add_item(ChallengeDropdown(self.category_name, self.challenges_list))
-
         embed = discord.Embed(
             title=f":clipboard: {self.category_name} Challenges",
             description="Select a challenge from the dropdown below:",
@@ -90,26 +84,18 @@ class BackToCategoryButton(discord.ui.Button):
 
 class ChallengeDropdown(discord.ui.Select):
     def __init__(self, category_name, challenges_list):
+        options = [
+            discord.SelectOption(label=name, description=f"{desc[:80]} | Reward: ${reward:,}")
+            for name, desc, reward in challenges_list
+        ]
+        super().__init__(placeholder=f"Select a {category_name} Challenge", min_values=1, max_values=1, options=options)
         self.category_name = category_name
         self.challenges_list = challenges_list
 
-        options = [
-            discord.SelectOption(
-                label=name,
-                description=f"{desc[:80]} | Reward: ${reward:,}"
-            )
-            for name, desc, reward in challenges_list
-        ]
-
-        super().__init__(
-            placeholder=f"Select a {category_name} Challenge",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-
     async def callback(self, interaction: discord.Interaction):
-        name, desc, reward = next(c for c in ALL_CHALLENGES if c[0] == self.values[0])
+        selected_name = self.values[0]
+        selected = next((n, d, r) for n, d, r in ALL_CHALLENGES if n == selected_name)
+        name, desc, reward = selected
 
         role_mention = ""
         if interaction.guild:
@@ -119,7 +105,7 @@ class ChallengeDropdown(discord.ui.Select):
 
         embed = discord.Embed(
             title=f"🏆 {name}",
-            description=f"{role_mention}{desc}\n\n**Reward:** ${reward:,} credits :moneybag:",
+            description=f"{role_mention}{desc}\n\n**Reward:** ${reward:,} credits :moneybag: *(proof required)*",
             color=EMBED_COLOR
         )
 
@@ -130,25 +116,25 @@ class ChallengeDropdown(discord.ui.Select):
 class CategoryButton(discord.ui.Button):
     def __init__(self, label, emoji, challenges):
         super().__init__(style=discord.ButtonStyle.primary, label=label, emoji=emoji)
-        self.category_name = label
         self.challenges = challenges
 
     async def callback(self, interaction: discord.Interaction):
         view = discord.ui.View()
-        view.add_item(ChallengeDropdown(self.category_name, self.challenges))
+        view.add_item(ChallengeDropdown(self.label, self.challenges))
 
         embed = discord.Embed(
-            title=f":clipboard: {self.category_name} Challenges",
+            title=f":clipboard: {self.label} Challenges",
             description="Select a challenge from the dropdown below:",
             color=EMBED_COLOR
         )
 
+        # IMPORTANT: start a private session
         await interaction.response.send_message(
             embed=embed,
             view=view,
-            ephemeral=False  # ✅ REQUIRED for edit_message to work
+            ephemeral=True
         )
-
+        
 class MainMenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -161,43 +147,60 @@ class MainMenuView(discord.ui.View):
 class Challenges(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.channel = None
         self.challenge_message = None
+        self.channel = None
 
     @app_commands.command(name="challenges", description="Create or show the Challenges menu")
     @app_commands.guilds(discord.Object(id=1109306235808911360))
     async def challenges(self, interaction: discord.Interaction):
         guild = interaction.guild
         if not guild:
-            return await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
+            )
+            return
 
+        # Find or create #challenges channel
         if not self.channel:
             self.channel = discord.utils.get(guild.text_channels, name="🏆┃challenges")
         if not self.channel:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(send_messages=False)
+            }
             self.channel = await guild.create_text_channel(
-                "challenges",
-                overwrites={guild.default_role: discord.PermissionOverwrite(send_messages=False)}
+                "challenges", overwrites=overwrites, reason="Created Challenges channel"
             )
 
+        # Check if main menu message already exists
         if not self.challenge_message:
-            embed = discord.Embed(
-                title="🏆 THE HIVE — ACCOLADES & CHALLENGES",
-                description="Select a category below to view challenges.",
-                color=EMBED_COLOR
-            )
-            embed.add_field(
-                name="📌 Rules",
-                value="• Proof required\n• No exploits\n• Open a ticket to redeem",
-                inline=False
-            )
+            existing = [m async for m in self.channel.history(limit=50) if m.author == self.bot.user]
+            if existing:
+                self.challenge_message = existing[0]
+            else:
+                # Build main embed
+                embed = discord.Embed(
+                    title=":trophy: THE HIVE — ACCOLADES & CHALLENGES",
+                    description=(
+                        "Select a category below to view challenges.\n"
+                        "Each completed challenge earns its respective reward :moneybag: *(proof required)*"
+                    ),
+                    color=EMBED_COLOR
+                )
+                rules_text = (
+                    "1️⃣ Must have kill-feed or recorded proof.\n"
+                    "2️⃣ If no kill-feed, submit video proof in a ticket.\n"
+                    "3️⃣ Exploiting or cheating = all accolades removed + permanent ban.\n"
+                    "4️⃣ To redeem, open a support ticket and include your proof/video."
+                )
+                embed.add_field(name=":triangular_flag_on_post: Rules & Redemption", value=rules_text, inline=False)
 
-            self.challenge_message = await self.channel.send(embed=embed, view=MainMenuView())
-            await self.challenge_message.pin()
+                self.challenge_message = await self.channel.send(embed=embed, view=MainMenuView())
+                await self.challenge_message.pin()  # optional
 
         await interaction.response.send_message(
-            f"Challenges menu is ready in {self.channel.mention}.",
-            ephemeral=True
+            f"The challenges menu is ready in {self.channel.mention}.", ephemeral=True
         )
 
+# ─── SETUP ───────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
     await bot.add_cog(Challenges(bot))
