@@ -1,4 +1,3 @@
-# cogs/helpers/flag_manager.py
 import asyncio
 import discord
 import logging
@@ -10,7 +9,6 @@ log = logging.getLogger("dayz-manager")
 class FlagManager:
     """Central handler for flag assignment, release, and embed refresh."""
 
-    # Async locks to avoid simultaneous flag writes
     _locks: dict[str, asyncio.Lock] = {}
 
     @staticmethod
@@ -38,9 +36,6 @@ class FlagManager:
             FlagManager._locks[key] = asyncio.Lock()
         return FlagManager._locks[key]
 
-    # =============================================
-    # 🟩 Assign Flag
-    # =============================================
     @staticmethod
     async def assign_flag(guild: discord.Guild, map_key: str, flag: str, role: discord.Role, user: discord.Member):
         """Assign a flag to a role/faction and update related systems."""
@@ -90,9 +85,6 @@ class FlagManager:
 
             log.info(f"✅ Flag '{canonical_flag}' assigned to {role.name} in {guild.name} ({map_key}).")
 
-    # =============================================
-    # 🟥 Release Flag
-    # =============================================
     @staticmethod
     async def release_flag(guild: discord.Guild, map_key: str, flag: str, user: discord.Member):
         """Release a flag back to unclaimed state."""
@@ -140,9 +132,6 @@ class FlagManager:
 
             log.info(f"✅ Flag '{canonical_flag}' released by {user.display_name} in {guild.name} ({map_key}).")
 
-    # =============================================
-    # ♻️ Refresh Embed (Safe)
-    # =============================================
     @staticmethod
     async def _refresh_embed_safe(guild: discord.Guild, guild_id: str, map_key: str) -> None:
         """Refresh the map’s flag embed; fail silently if message/channel is missing."""
