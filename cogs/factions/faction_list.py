@@ -15,6 +15,7 @@ MAP_CHOICES = [
 ]
 
 ITEMS_PER_PAGE = 5  # <-- change this to adjust factions per page
+MEMBER_LIST_LIMIT = 200  # max chars for member list in embed field
 
 
 class FactionList(commands.Cog):
@@ -22,6 +23,34 @@ class FactionList(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    def make_faction_field(self, row, guild):
+        """Return a tuple of field name and value for a faction row."""
+        faction_name = row["faction_name"]
+        role_id = row["role_id"]
+        leader_id = row["leader_id"]
+        member_ids = list(row["member_ids"] or [])
+        claimed_flag = row.get("claimed_flag") or "—"
+
+        role = guild.get_role(int(role_id)) if role_id else None
+        role_mention = role.mention if role else "None"
+        status = "✅" if role else "⚠️"
+
+        leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
+        unique_members = {str(mid) for mid in member_ids if mid}
+        if leader_id:
+            unique_members.add(str(leader_id))
+        members_list = ", ".join([f"<@{mid}>" for mid in unique_members])
+        if len(members_list) > MEMBER_LIST_LIMIT:
+            members_list = members_list[:MEMBER_LIST_LIMIT] + "…"
+
+        value = (
+            f"**Role:** {role_mention}\n"
+            f"**Leader:** {leader_mention}\n"
+            f"**Members ({len(unique_members)}):** {members_list}\n"
+            f"**Flag:** `{claimed_flag}`"
+        )
+        return f"{status} {faction_name}", value, discord.Color.green() if role else discord.Color.red()
 
     @app_commands.command(
         name="list-factions",
@@ -32,7 +61,7 @@ class FactionList(commands.Cog):
     async def list_factions(
         self,
         interaction: discord.Interaction,
-        map: app_commands.Choice[str],  # Required now
+        map: app_commands.Choice[str],
     ):
         if not interaction.guild:
             await interaction.response.send_message(
@@ -86,33 +115,11 @@ class FactionList(commands.Cog):
                 color=discord.Color.blue()
             )
             for row in rows[i:i + ITEMS_PER_PAGE]:
-                faction_name = row["faction_name"]
-                role_id = row["role_id"]
-                leader_id = row["leader_id"]
-                member_ids = list(row["member_ids"] or [])
-                claimed_flag = row["claimed_flag"] or "—"
-
-                role = guild.get_role(int(role_id)) if role_id else None
-                role_mention = role.mention if role else "None"
-                status = "✅" if role else "⚠️"
-
-                leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
-                unique_members = {str(mid) for mid in member_ids if mid}
-                if leader_id:
-                    unique_members.add(str(leader_id))
-                member_count = len(unique_members)
-
-                embed.add_field(
-                    name=f"{status} {faction_name}",
-                    value=(
-                        f"**Role:** {role_mention}\n"
-                        f"**Leader:** {leader_mention}\n"
-                        f"**Members:** {member_count}\n"
-                        f"**Flag:** `{claimed_flag}`"
-                    ),
-                    inline=False
-                )
-            embed.set_footer(text=f"Page {len(pages)+1}/{(len(rows)-1)//ITEMS_PER_PAGE + 1}")
+                name, value, color = self.make_faction_field(row, guild)
+                embed.add_field(name=name, value=value, inline=False)
+                embed.color = color  # use last faction color for embed
+            total_pages = (len(rows) - 1) // ITEMS_PER_PAGE + 1
+            embed.set_footer(text=f"Page {len(pages)+1}/{total_pages} • {len(rows)} factions total")
             pages.append(embed)
 
         # ---------- INTERACTION VIEW FOR NAVIGATION ----------
@@ -122,20 +129,32 @@ class FactionList(commands.Cog):
                 self.pages = pages
                 self.current = 0
                 self.message = None
+                # Disable prev on first page, next on last page
+                self.update_buttons_state()
 
             async def update_message(self):
+                self.update_buttons_state()
                 await self.message.edit(embed=self.pages[self.current], view=self)
+
+            def update_buttons_state(self):
+                for child in self.children:
+                    if child.label == "⬅️":
+                        child.disabled = self.current == 0
+                    elif child.label == "➡️":
+                        child.disabled = self.current == len(self.pages) - 1
 
             @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
             async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-                self.current = (self.current - 1) % len(self.pages)
-                await self.update_message()
-                await interaction.response.defer()  # prevent "This interaction failed"
+                if self.current > 0:
+                    self.current -= 1
+                    await self.update_message()
+                await interaction.response.defer()
 
             @discord.ui.button(label="➡️", style=discord.ButtonStyle.gray)
             async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-                self.current = (self.current + 1) % len(self.pages)
-                await self.update_message()
+                if self.current < len(self.pages) - 1:
+                    self.current += 1
+                    await self.update_message()
                 await interaction.response.defer()
 
         view = PaginationView(pages)
