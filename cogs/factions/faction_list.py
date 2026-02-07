@@ -24,8 +24,10 @@ class FactionList(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def make_faction_fields(self, row, guild):
-        """Return a list of fields for a faction, splitting large member lists."""
+    async def make_faction_fields(self, row, guild):
+        """Return a list of fields for a faction, splitting large member lists.
+        Resolves member mentions to usernames if possible.
+        """
         faction_name = row["faction_name"]
         role_id = row["role_id"]
         leader_id = row["leader_id"]
@@ -35,27 +37,41 @@ class FactionList(commands.Cog):
         role = guild.get_role(int(role_id)) if role_id else None
         status = "✅" if role else "⚠️"
         role_mention = role.mention if role else "None"
-        leader_mention = f"<@{leader_id}>" if leader_id else "Unknown"
 
         # Remove duplicates, keep leader first
         unique_members = [str(mid) for mid in member_ids if mid and str(mid) != str(leader_id)]
         total_members = len(unique_members) + (1 if leader_id else 0)
 
-        # Split members into chunks
+        member_texts = []
+
+        # Add leader first
+        if leader_id:
+            try:
+                member = guild.get_member(int(leader_id)) or await guild.fetch_member(int(leader_id))
+                member_texts.append(member.mention)
+            except discord.NotFound:
+                member_texts.append(f"<@{leader_id}>")
+
+        # Add other members
+        for mid in unique_members:
+            try:
+                member = guild.get_member(int(mid)) or await guild.fetch_member(int(mid))
+                member_texts.append(member.mention)
+            except discord.NotFound:
+                member_texts.append(f"<@{mid}>")
+
+        # Split into chunks for fields
         member_chunks = [
-            unique_members[i:i + MEMBERS_PER_FIELD]
-            for i in range(0, len(unique_members), MEMBERS_PER_FIELD)
+            member_texts[i:i + MEMBERS_PER_FIELD] for i in range(0, len(member_texts), MEMBERS_PER_FIELD)
         ]
 
         fields = []
 
-        # First field with summary and leader
+        # First field: summary
         first_chunk = member_chunks[0] if member_chunks else []
-        member_text = ", ".join([f"<@{mid}>" for mid in first_chunk])
-        if leader_id:
-            member_text = f"{leader_mention}, {member_text}" if member_text else leader_mention
+        member_text = ", ".join(first_chunk)
         if len(member_chunks) > 1:
-            member_text += f" … (+{total_members - len(first_chunk) - (1 if leader_id else 0)} more)"
+            member_text += f" … (+{total_members - len(first_chunk)} more)"
 
         summary_value = (
             f"**Role:** {role_mention}\n"
@@ -64,10 +80,9 @@ class FactionList(commands.Cog):
         )
         fields.append((f"{status} {faction_name}", summary_value))
 
-        # Optional: Add additional fields for very large member lists
+        # Additional fields for very large member lists
         for idx, chunk in enumerate(member_chunks[1:], start=1):
-            chunk_text = ", ".join([f"<@{mid}>" for mid in chunk])
-            fields.append((f"{faction_name} (cont. {idx})", chunk_text))
+            fields.append((f"{faction_name} (cont. {idx})", ", ".join(chunk)))
 
         return fields, discord.Color.green() if role else discord.Color.red()
 
@@ -134,7 +149,7 @@ class FactionList(commands.Cog):
                 color=discord.Color.blue()
             )
             for row in rows[i:i + ITEMS_PER_PAGE]:
-                fields, color = self.make_faction_fields(row, guild)
+                fields, color = await self.make_faction_fields(row, guild)
                 for name, value in fields:
                     embed.add_field(name=name, value=value, inline=False)
                 embed.color = color  # last faction color
