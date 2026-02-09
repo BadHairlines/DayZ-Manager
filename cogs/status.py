@@ -50,6 +50,27 @@ class Status(commands.Cog, BaseCog):
             log.warning(f"Status DB check failed for {guild.name}: {exc}")
             return "❌ Unavailable", "N/A"
 
+    async def _get_flag_stats(self, guild: discord.Guild) -> list[tuple[str, int, int]]:
+        """Return a list of (map_key, claimed_count, total_count)."""
+        await utils.ensure_connection()
+        async with utils.safe_acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT map,
+                       COUNT(*) AS total_count,
+                       COUNT(*) FILTER (WHERE role_id IS NOT NULL AND role_id <> '') AS claimed_count
+                FROM flags
+                WHERE guild_id = $1
+                GROUP BY map
+                ORDER BY map
+                """,
+                str(guild.id),
+            )
+        return [
+            (row["map"], int(row["claimed_count"]), int(row["total_count"]))
+            for row in rows
+        ]
+
     @app_commands.command(
         name="status",
         description="Show bot uptime, latency, and database health for this server.",
@@ -82,6 +103,71 @@ class Status(commands.Cog, BaseCog):
             author_icon="📊",
             author_name="Status",
         )
+        embed.set_footer(text=f"DayZ Manager • {guild.name}")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="flagstats",
+        description="Summarize claimed/unclaimed flags for each map in this server.",
+    )
+    @admin_only()
+    async def flagstats(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
+        guild = interaction.guild
+        if not guild:
+            return await interaction.followup.send(
+                "❌ This command can only be used inside a server.",
+                ephemeral=True,
+            )
+
+        try:
+            stats = await self._get_flag_stats(guild)
+        except Exception as exc:
+            log.warning(f"Flag stats lookup failed for {guild.name}: {exc}")
+            return await interaction.followup.send(
+                "❌ Unable to load flag stats right now. Please try again later.",
+                ephemeral=True,
+            )
+
+        if not stats:
+            return await interaction.followup.send(
+                "ℹ️ No flag data found yet for this server. Run `/setup` first.",
+                ephemeral=True,
+            )
+
+        total_claimed = sum(claimed for _, claimed, _ in stats)
+        total_flags = sum(total for _, _, total in stats)
+        total_unclaimed = total_flags - total_claimed
+
+        description_lines = [
+            f"**Total Flags:** {total_flags}",
+            f"**Claimed:** {total_claimed}",
+            f"**Unclaimed:** {total_unclaimed}",
+        ]
+
+        embed = self.make_embed(
+            title="🏴 Flag Ownership Summary",
+            desc="\n".join(description_lines),
+            color=0x2ECC71,
+            author_icon="🗺️",
+            author_name="Flag Stats",
+        )
+
+        for map_key, claimed, total in stats:
+            map_info = utils.MAP_DATA.get(map_key, {"name": map_key.title()})
+            unclaimed = total - claimed
+            embed.add_field(
+                name=map_info["name"],
+                value=(
+                    f"Claimed: **{claimed}**\n"
+                    f"Unclaimed: **{unclaimed}**\n"
+                    f"Total: **{total}**"
+                ),
+                inline=True,
+            )
+
         embed.set_footer(text=f"DayZ Manager • {guild.name}")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
