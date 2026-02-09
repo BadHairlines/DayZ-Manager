@@ -141,6 +141,8 @@ async def load_cogs():
 @bot.event
 async def on_ready():
     log.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    if not hasattr(bot, "start_time"):
+        bot.start_time = discord.utils.utcnow()
 
     if not bot.synced:
         try:
