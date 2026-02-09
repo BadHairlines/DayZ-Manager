@@ -1,6 +1,8 @@
 import asyncio
-import discord
 import logging
+
+import asyncpg
+import discord
 from cogs import utils
 
 log = logging.getLogger("dayz-manager")
@@ -49,6 +51,31 @@ class FlagManager:
 
         lock = FlagManager._get_lock(guild_id, map_key)
         async with lock:
+            try:
+                async with utils.safe_acquire() as conn:
+                    existing_flag = await conn.fetchval(
+                        """
+                        SELECT claimed_flag
+                        FROM factions
+                        WHERE guild_id=$1 AND role_id=$2 AND map=$3
+                        """,
+                        guild_id, str(role.id), map_key
+                    )
+                if existing_flag and existing_flag != canonical_flag:
+                    raise ValueError(
+                        f"{role.mention} already owns `{existing_flag}` on `{map_key.title()}`."
+                    )
+                if existing_flag == canonical_flag:
+                    raise ValueError(
+                        f"{role.mention} already owns `{canonical_flag}` on `{map_key.title()}`."
+                    )
+            except asyncpg.UndefinedTableError:
+                log.debug("Factions table not found; skipping claimed_flag check.")
+            except ValueError:
+                raise
+            except Exception as exc:
+                log.warning(f"Could not verify existing claimed flag for {guild.name}: {exc}")
+
             flag_data = await utils.get_flag(guild_id, map_key, canonical_flag)
             if flag_data and flag_data["status"] == "❌":
                 current_owner = flag_data["role_id"]
