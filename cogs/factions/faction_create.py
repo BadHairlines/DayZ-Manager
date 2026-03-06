@@ -8,6 +8,9 @@ from cogs.factions.faction_utils import ensure_faction_table, make_embed
 
 log = logging.getLogger("dayz-manager")
 
+ALLOWED_ROLES = [1109306236110909567, 1374649617320251442]
+
+
 MAP_CHOICES = [
     app_commands.Choice(name="Livonia", value="Livonia"),
     app_commands.Choice(name="Chernarus", value="Chernarus"),
@@ -78,8 +81,11 @@ class FactionCreate(commands.Cog):
         map_key = map.value.lower()
         role_color = discord.Color(int(color.value.strip("#"), 16))
 
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.followup.send("🚫 Only admins can create factions.", ephemeral=True)
+        if not any(role.id in ALLOWED_ROLES for role in interaction.user.roles):
+            return await interaction.followup.send(
+                "🚫 You don't have permission to create factions.",
+                ephemeral=True
+            )
 
         await utils.ensure_connection()
         await ensure_faction_table()
