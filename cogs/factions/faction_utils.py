@@ -39,6 +39,7 @@ async def ensure_faction_table(debug: bool = True):
             CREATE INDEX IF NOT EXISTS idx_factions_guild_map
             ON factions (guild_id, map);
         """)
+
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_factions_name
             ON factions (LOWER(faction_name));
@@ -65,22 +66,6 @@ def make_embed(title: str, desc: str, color: int = 0x2ECC71) -> discord.Embed:
     embed.set_author(name="🎭 Faction Manager")
     embed.set_footer(
         text="DayZ Manager • Faction System",
-        icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-    )
-    embed.timestamp = discord.utils.utcnow()
-    return embed
-
-
-def make_log_embed(action: str, details: str, user: discord.Member, color: int = 0xF1C40F) -> discord.Embed:
-    """Create a standardized embed for faction-related logs."""
-    embed = discord.Embed(
-        title=f"🪵 {action}",
-        description=details,
-        color=color
-    )
-    embed.set_author(name=f"Action by {user.display_name}", icon_url=user.display_avatar.url)
-    embed.set_footer(
-        text="Faction Logs • DayZ Manager",
         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
     )
     embed.timestamp = discord.utils.utcnow()
