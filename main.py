@@ -1,19 +1,9 @@
 import os
 import asyncio
-import logging
 import importlib
 import discord
 from discord.ext import commands
 from cogs import utils
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] [%(levelname)s]: %(message)s",
-    datefmt="%H:%M:%S",
-)
-
-discord.utils.setup_logging(level=logging.INFO)
-log = logging.getLogger("dayz-manager")
 
 intents = discord.Intents.default()
 intents.guilds = True
@@ -30,8 +20,7 @@ def resolve_flag_manage_view():
     try:
         mod = importlib.import_module("cogs.ui_views")
         return getattr(mod, "FlagManageView", None)
-    except Exception as e:
-        log.warning(f"Could not load FlagManageView: {e}")
+    except Exception:
         return None
 
 
@@ -60,7 +49,6 @@ async def _acquire_conn():
 async def register_persistent_views():
     FlagManageView = resolve_flag_manage_view()
     if not FlagManageView:
-        log.warning("Missing FlagManageView.")
         return
 
     await utils.ensure_connection()
@@ -70,14 +58,11 @@ async def register_persistent_views():
             rows = await conn.fetch(
                 "SELECT guild_id, map, channel_id, message_id FROM flag_messages;"
             )
-    except Exception as e:
-        log.warning(f"Failed loading flag messages: {e}")
+    except Exception:
         return
 
     if not rows:
         return
-
-    count = 0
 
     for row in rows:
         try:
@@ -94,15 +79,10 @@ async def register_persistent_views():
             view = FlagManageView(guild, row["map"], bot)
             bot.add_view(view, message_id=msg.id)
 
-            count += 1
-            log.info(f"Registered view: {guild.name}/{row['map']}")
-
         except discord.NotFound:
-            log.warning(f"Deleted message in {row['guild_id']}/{row['map']}")
-        except Exception as e:
-            log.warning(f"View register failed {row['guild_id']}: {e}")
-
-    log.info(f"Persistent views registered: {count}")
+            pass
+        except Exception:
+            pass
 
 
 SKIP_FILES = {"__init__.py", "utils.py", "faction_utils.py", "ui_views.py"}
@@ -127,41 +107,32 @@ async def load_cogs():
 
                 try:
                     await bot.load_extension(module)
-                    log.info(f"Loaded: {module}")
                     loaded += 1
                 except Exception:
-                    log.exception(f"Failed: {module}")
-
-    log.info(f"Total cogs loaded: {loaded}")
+                    pass
 
 
 @bot.event
 async def on_ready():
-    log.info(f"Logged in as {bot.user} ({bot.user.id})")
-
     if not hasattr(bot, "start_time"):
         bot.start_time = discord.utils.utcnow()
 
     if not bot.synced:
         try:
-            synced = await bot.tree.sync()
-            log.info(f"Synced {len(synced)} slash commands.")
+            await bot.tree.sync()
             bot.synced = True
-        except Exception as e:
-            log.error(f"Slash sync failed: {e}")
+        except Exception:
+            pass
 
     try:
         await utils.ensure_connection()
-    except Exception as e:
-        log.error(f"DB not connected: {e}")
+    except Exception:
+        pass
 
     await register_persistent_views()
-    log.info("Bot ready ✅")
 
 
 async def main():
-    log.info("Starting bot...")
-
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL missing")
@@ -169,12 +140,9 @@ async def main():
     for i in range(5):
         try:
             await utils.ensure_connection()
-            log.info("DB connected")
             break
-        except Exception as e:
-            wait = 5 * (i + 1)
-            log.warning(f"DB fail {i+1}/5: {e}")
-            await asyncio.sleep(wait)
+        except Exception:
+            await asyncio.sleep(5 * (i + 1))
     else:
         raise RuntimeError("DB connection failed")
 
@@ -185,21 +153,8 @@ async def main():
         raise RuntimeError("DISCORD_TOKEN missing")
 
     async with bot:
-        for i in range(3):
-            try:
-                await bot.start(token)
-                break
-            except discord.HTTPException as e:
-                if e.status == 429:
-                    wait = 30 * (i + 1)
-                    log.warning(f"Rate limited, retrying in {wait}s")
-                    await asyncio.sleep(wait)
-                else:
-                    raise
+        await bot.start(token)
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        log.info("Bot stopped")
+    asyncio.run(main())
