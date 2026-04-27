@@ -16,6 +16,7 @@ MAP_CHOICES = [
     app_commands.Choice(name="Sakhal", value="Sakhal"),
 ]
 
+
 async def flag_autocomplete(interaction: discord.Interaction, current: str):
     return [
         app_commands.Choice(name=flag, value=flag)
@@ -23,25 +24,19 @@ async def flag_autocomplete(interaction: discord.Interaction, current: str):
         if current.lower() in flag.lower()
     ][:25]
 
+
 sync_group = app_commands.Group(
     name="sync",
-    description="Sync existing DayZ factions and related data into the bot."
+    description="Sync existing DayZ factions into the bot."
 )
 
 
 @sync_group.command(
     name="faction",
-    description="Sync an existing faction (role + channel) into the DayZ Manager DB."
+    description="Sync an existing faction (role + channel) into the DB."
 )
 @app_commands.choices(map=MAP_CHOICES)
 @app_commands.autocomplete(flag=flag_autocomplete)
-@app_commands.describe(
-    map="Which map this faction belongs to",
-    role="Existing faction role",
-    channel="Existing faction HQ text channel",
-    flag="Flag to claim for this faction (optional)",
-    leader="Faction leader (optional, defaults to you or first member)"
-)
 async def sync_faction(
     interaction: discord.Interaction,
     map: app_commands.Choice[str],
@@ -50,42 +45,31 @@ async def sync_faction(
     flag: str | None = None,
     leader: discord.Member | None = None,
 ):
-    """Core logic for /sync faction."""
     await interaction.response.defer(ephemeral=True)
 
     guild = interaction.guild
     if not guild:
-        return await interaction.followup.send(
-            "❌ This command can only be used in a server.",
-            ephemeral=True,
-        )
+        return await interaction.followup.send("❌ Guild only command.", ephemeral=True)
 
     if not interaction.user.guild_permissions.administrator:
-        return await interaction.followup.send(
-            "🚫 Only admins can sync factions.",
-            ephemeral=True,
-        )
+        return await interaction.followup.send("🚫 Admin only.", ephemeral=True)
 
     await utils.ensure_connection()
     await ensure_faction_table()
 
     guild_id = str(guild.id)
     map_key = map.value.lower()
-
     faction_name = role.name
 
     members = [m for m in guild.members if role in m.roles]
 
     if leader is None:
-        if role in interaction.user.roles:
-            leader = interaction.user
-        elif members:
-            leader = members[0]
+        leader = interaction.user if role in interaction.user.roles else (members[0] if members else None)
 
     if leader is None:
         return await interaction.followup.send(
-            "❌ I couldn't determine a leader. Please specify one in the command.",
-            ephemeral=True,
+            "❌ Could not determine leader. Please specify one.",
+            ephemeral=True
         )
 
     role_color = role.color if role.color.value != 0 else discord.Color(0x2ECC71)
@@ -94,34 +78,27 @@ async def sync_faction(
         async with utils.safe_acquire() as conn:
             existing = await conn.fetchrow(
                 "SELECT * FROM factions WHERE guild_id=$1 AND faction_name ILIKE $2",
-                guild_id,
-                faction_name,
+                guild_id, faction_name
             )
 
         if existing:
             return await interaction.followup.send(
-                f"⚠️ Faction **{faction_name}** already exists in the database "
-                f"(map: `{existing['map']}`).",
-                ephemeral=True,
+                f"⚠️ Faction already exists (map: `{existing['map']}`).",
+                ephemeral=True
             )
 
-        claimed_flag: str | None = None
+        claimed_flag = None
         if flag:
             flags = await utils.get_all_flags(guild_id, map_key)
-            flag_row = next(
-                (f for f in flags if f["flag"].lower() == flag.lower()),
-                None,
-            )
+            flag_row = next((f for f in flags if f["flag"].lower() == flag.lower()), None)
+
             if not flag_row:
-                return await interaction.followup.send(
-                    f"🚫 Flag `{flag}` not found on `{map_key}`.",
-                    ephemeral=True,
-                )
+                return await interaction.followup.send("🚫 Flag not found.", ephemeral=True)
+
             if flag_row["status"] == "❌":
-                current_owner = flag_row["role_id"]
                 return await interaction.followup.send(
-                    f"⚠️ Flag `{flag}` is already owned by <@&{current_owner}>.",
-                    ephemeral=True,
+                    f"⚠️ Flag already owned by <@&{flag_row['role_id']}>.",
+                    ephemeral=True
                 )
 
             claimed_flag = flag_row["flag"]
@@ -150,78 +127,57 @@ async def sync_faction(
                 claimed_flag,
             )
 
+        # Update flag system (NO LOG CHANNELS)
         if claimed_flag:
             await utils.set_flag(guild_id, map_key, claimed_flag, "❌", str(role.id))
+
             async with utils.safe_acquire() as conn:
                 row = await conn.fetchrow(
                     "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
                     guild_id,
                     map_key,
                 )
+
             if row:
-                flag_ch = guild.get_channel(int(row["channel_id"]))
-                if flag_ch:
+                ch = guild.get_channel(int(row["channel_id"]))
+                if ch:
                     try:
-                        msg = await flag_ch.fetch_message(int(row["message_id"]))
+                        msg = await ch.fetch_message(int(row["message_id"]))
                         embed = await utils.create_flag_embed(guild_id, map_key)
                         await msg.edit(embed=embed)
                     except Exception as e:
-                        log.warning(
-                            f"⚠️ Failed to refresh flag embed during sync "
-                            f"for {guild.name}/{map_key}: {e}"
-                        )
+                        log.warning(f"Flag embed refresh failed: {e}")
 
         members_mentions = ", ".join(m.mention for m in members) or "*None*"
-        details = (
-            f"👑 Leader: {leader.mention}\n"
-            f"🗺️ Map: `{map.value}`\n"
-            f"🏠 Channel: {channel.mention}\n"
-            f"🏳️ Flag: `{claimed_flag or 'None'}`\n"
-            f"👥 Members: {members_mentions}"
-        )
 
-        await utils.log_faction_action(
-            guild,
-            action="Faction Synced (Manual)",
-            faction_name=faction_name,
-            user=interaction.user,
-            details=details,
-            map_key=map_key,
-        )
-
-        created_ts = int(datetime.utcnow().timestamp())
-        confirm = make_embed(
+        embed = make_embed(
             "__Faction Synced__",
             (
-                f"✅ **{faction_name}** has been synced into the DayZ Manager DB.\n\n"
-                f"🗺️ **Map:** `{map.value}`\n"
-                f"🎭 **Role:** {role.mention}\n"
-                f"🏠 **Channel:** {channel.mention}\n"
-                f"👑 **Leader:** {leader.mention}\n"
-                f"🏳️ **Flag:** `{claimed_flag or 'None'}`\n\n"
-                f"👥 **Members:** {members_mentions}\n\n"
-                f"🕓 **Synced:** <t:{created_ts}:f>"
+                f"✅ **{faction_name}** synced successfully.\n\n"
+                f"🗺️ Map: `{map.value}`\n"
+                f"🎭 Role: {role.mention}\n"
+                f"🏠 Channel: {channel.mention}\n"
+                f"👑 Leader: {leader.mention}\n"
+                f"🏳️ Flag: `{claimed_flag or 'None'}`\n\n"
+                f"👥 Members: {members_mentions}\n"
+                f"🕓 Synced: <t:{int(datetime.utcnow().timestamp())}:f>"
             ),
             color=role_color.value,
         )
-        await interaction.followup.send(embed=confirm, ephemeral=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
         log.info(
-            f"✅ Synced faction '{faction_name}' on {map_key} in {guild.name}. "
-            f"Members: {len(members)}; Flag: {claimed_flag or 'None'}"
+            f"Synced faction '{faction_name}' ({map_key}) in {guild.name} "
+            f"Members={len(members)} Flag={claimed_flag or 'None'}"
         )
 
     except Exception as e:
-        log.error(f"❌ Faction sync failed in {guild.name}: {e}", exc_info=True)
-        await interaction.followup.send(
-            f"❌ Faction sync failed:\n```{e}```",
-            ephemeral=True,
-        )
+        log.error(f"Sync failed in {guild.name}: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Sync failed:\n```{e}```", ephemeral=True)
 
 
 class FactionSync(commands.Cog):
-    """Empty Cog, kept so this file behaves like a normal extension."""
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
