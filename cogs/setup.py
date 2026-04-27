@@ -5,7 +5,7 @@ from discord.ext import commands
 
 from cogs.utils import (
     FLAGS, MAP_DATA, set_flag, create_flag_embed,
-    log_action, ensure_connection, safe_acquire
+    ensure_connection, safe_acquire
 )
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 from cogs.ui_views import FlagManageView
@@ -72,7 +72,6 @@ class Setup(commands.Cog):
             return
 
         guild_id = str(guild.id)
-
         map_key = normalize_map(selected_map.value)
 
         map_info = MAP_DATA.get(map_key)
@@ -84,7 +83,6 @@ class Setup(commands.Cog):
             return
 
         flags_channel_name = f"flags-{map_key}"
-        logs_channel_name = f"flaglogs-{map_key}"
 
         await interaction.response.send_message(
             f"⚙️ Setting up **{map_info['name']}** flags... please wait ⏳",
@@ -102,7 +100,6 @@ class Setup(commands.Cog):
                         map TEXT NOT NULL,
                         channel_id TEXT NOT NULL,
                         message_id TEXT NOT NULL,
-                        log_channel_id TEXT,
                         PRIMARY KEY (guild_id, map)
                     );
                     """
@@ -110,50 +107,12 @@ class Setup(commands.Cog):
 
                 row = await conn.fetchrow(
                     """
-                    SELECT channel_id, message_id, log_channel_id
+                    SELECT channel_id, message_id
                     FROM flag_messages
                     WHERE guild_id = $1 AND map = $2
                     """,
                     guild_id,
                     map_key,
-                )
-
-            logs_category = await self._get_or_create_category(
-                guild,
-                "📜 DayZ Manager Logs",
-                "Auto-created universal DayZ Manager log category",
-            )
-
-            old_logs_channel = discord.utils.get(
-                guild.text_channels, name=f"{map_key}-logs"
-            )
-            if old_logs_channel and old_logs_channel.name != logs_channel_name:
-                try:
-                    await old_logs_channel.edit(name=logs_channel_name)
-                    log_channel = old_logs_channel
-                except (discord.Forbidden, discord.HTTPException):
-                    try:
-                        await old_logs_channel.delete(
-                            reason="Replaced by new flaglogs channel"
-                        )
-                    except discord.Forbidden:
-                        print(
-                            f"⚠️ Missing permission to delete old log channel: "
-                            f"{old_logs_channel.name}"
-                        )
-                    log_channel = None
-            else:
-                log_channel = discord.utils.get(
-                    guild.text_channels, name=logs_channel_name
-                )
-
-            if not log_channel:
-                log_channel = await self._get_or_create_text_channel(
-                    guild,
-                    logs_channel_name,
-                    logs_category,
-                    reason=f"Auto-created log channel for {map_info['name']} activity",
-                    seed_message=f"🗒️ Logs for **{map_info['name']}** initialized.",
                 )
 
             factions_category_name = f"🌍 {map_info['name']} Factions Hub"
@@ -172,7 +131,6 @@ class Setup(commands.Cog):
             )
 
             await flags_channel.edit(sync_permissions=True)
-            await log_channel.edit(sync_permissions=True)
 
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
@@ -200,19 +158,17 @@ class Setup(commands.Cog):
             async with safe_acquire() as conn:
                 await conn.execute(
                     """
-                    INSERT INTO flag_messages (guild_id, map, channel_id, message_id, log_channel_id)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
+                    VALUES ($1, $2, $3, $4)
                     ON CONFLICT (guild_id, map)
                     DO UPDATE SET
-                        channel_id    = EXCLUDED.channel_id,
-                        message_id    = EXCLUDED.message_id,
-                        log_channel_id = EXCLUDED.log_channel_id;
+                        channel_id = EXCLUDED.channel_id,
+                        message_id = EXCLUDED.message_id;
                     """,
                     guild_id,
                     map_key,
                     str(flags_channel.id),
                     str(msg.id),
-                    str(log_channel.id),
                 )
 
             # ----- Confirmation -----
@@ -222,7 +178,6 @@ class Setup(commands.Cog):
                     f"✅ **{map_info['name']}** setup finished successfully.\n\n"
                     f"📁 **Flags Category:** {flags_category.name}\n"
                     f"🏁 **Flags Channel:** {flags_channel.mention}\n"
-                    f"🧭 **Logs Channel:** {log_channel.mention}\n"
                     f"🧾 Flag message refreshed.\n\n"
                     f"🟩 **Admins can manage flags below the embed!**"
                 ),
@@ -241,19 +196,6 @@ class Setup(commands.Cog):
                 embed=complete_embed,
             )
 
-            await log_action(
-                guild,
-                map_key,
-                title="Map Setup Complete",
-                description=(
-                    f"✅ **{map_info['name']}** setup by {interaction.user.mention}.\n\n"
-                    f"📁 Category: {flags_category.name}\n"
-                    f"🏁 Flags: {flags_channel.mention}\n"
-                    f"🧭 Logs: {log_channel.mention}"
-                ),
-                color=0x2ECC71,
-            )
-
         except Exception as e:
             try:
                 await interaction.edit_original_response(
@@ -265,16 +207,6 @@ class Setup(commands.Cog):
                     f"❌ Setup failed for **{map_info['name']}**:\n```{e}```",
                     ephemeral=True,
                 )
-
-            await log_action(
-                guild,
-                map_key,
-                title="Setup Failed",
-                description=(
-                    f"❌ Setup failed for **{map_info['name']}**:\n```{e}```"
-                ),
-                color=0xE74C3C,
-            )
 
 
 async def setup(bot: commands.Bot):
