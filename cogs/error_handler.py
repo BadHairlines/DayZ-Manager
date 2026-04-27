@@ -1,13 +1,10 @@
-import logging
 import traceback
 import discord
 from discord.ext import commands
 
-log = logging.getLogger("dayz-manager")
-
 
 class ErrorHandler(commands.Cog):
-    """Global error handler for all commands in the DayZ Manager bot."""
+    """Global error handler for all commands in the bot."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -15,15 +12,13 @@ class ErrorHandler(commands.Cog):
     @commands.Cog.listener()
     async def on_app_command_error(self, interaction: discord.Interaction, error: Exception):
         """Handle slash command errors globally."""
+
         error = getattr(error, "original", error)
+
         cmd_name = getattr(getattr(interaction.command, "name", None), "lower", lambda: "unknown")()
 
         if isinstance(error, discord.Forbidden):
-            log.warning(f"Missing permission for command {cmd_name}.")
             return
-
-        tb_text = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-        log.error(f"Slash command error in '{cmd_name}':\n{tb_text}")
 
         try:
             await interaction.response.send_message(
@@ -34,17 +29,20 @@ class ErrorHandler(commands.Cog):
                 ),
                 ephemeral=True
             )
+
         except discord.InteractionResponded:
             await interaction.followup.send(
                 "❌ Something went wrong while running this command.",
                 ephemeral=True
             )
+
         except Exception:
             pass
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx: commands.Context, error: Exception):
         """Handle prefix command errors globally."""
+
         if hasattr(getattr(ctx, "command", None), "on_error"):
             return
 
@@ -68,8 +66,7 @@ class ErrorHandler(commands.Cog):
             return
 
         if isinstance(error, commands.MissingRequiredArgument):
-            missing = getattr(error, "param", None)
-            name = getattr(missing, "name", "unknown")
+            name = getattr(getattr(error, "param", None), "name", "unknown")
 
             await ctx.send(
                 embed=self._make_embed(
@@ -92,9 +89,7 @@ class ErrorHandler(commands.Cog):
             )
             return
 
-        tb_text = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-        log.error(f"Command error in {ctx.command}:\n{tb_text}")
-
+        # generic fallback (no logging, just silent + user message)
         cmd_name = getattr(getattr(ctx, "command", None), "qualified_name", "unknown")
 
         try:
