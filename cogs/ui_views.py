@@ -23,13 +23,11 @@ class FlagManageView(View):
         return f"{self.guild.id}:{self.map_key}"
 
     def _get_lock(self) -> asyncio.Lock:
-        """Get or create an asyncio lock for this guild/map."""
         if self._session_key not in self._locks:
             self._locks[self._session_key] = asyncio.Lock()
         return self._locks[self._session_key]
 
     async def refresh_flag_embed(self):
-        """Rebuild and update the flag embed + persistent view."""
         guild_id = str(self.guild.id)
         try:
             embed = await utils.create_flag_embed(guild_id, self.map_key)
@@ -49,10 +47,6 @@ class FlagManageView(View):
             print(f"⚠️ Failed to refresh flag embed: {e}")
 
     async def _role_options(self) -> list[discord.SelectOption]:
-        """
-        Build select options for faction roles on this map.
-        Falls back to all non-managed roles if the DB lookup fails.
-        """
         guild_id = str(self.guild.id)
 
         try:
@@ -182,11 +176,6 @@ class FlagManageView(View):
                             )
 
                         await self.refresh_flag_embed()
-                        await utils.log_action(
-                            self.guild, self.map_key,
-                            title="Flag Assigned (UI)",
-                            description=f"🏴 `{selected_flag}` assigned to {role.mention} by {interaction.user.mention}.",
-                        )
 
                         embed = discord.Embed(
                             title="✅ Flag Assigned",
@@ -209,7 +198,6 @@ class FlagManageView(View):
                 print(f"⚠️ Error during flag assignment: {e}")
                 raise
 
-    # --- release flag ---
     @button(label="🟥 Release Flag", style=discord.ButtonStyle.danger, custom_id="release_flag_btn")
     async def release_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
@@ -250,6 +238,7 @@ class FlagManageView(View):
                 async def flag_chosen(inter2: discord.Interaction):
                     await inter2.response.defer(ephemeral=True)
                     flag_value = flag_select.values[0]
+
                     row_now = await utils.get_flag(guild_id, self.map_key, flag_value)
                     if not row_now or row_now["status"] != "❌":
                         return await inter2.followup.edit_message(
@@ -266,11 +255,6 @@ class FlagManageView(View):
                         )
 
                     await self.refresh_flag_embed()
-                    await utils.log_action(
-                        self.guild, self.map_key,
-                        title="Flag Released (UI)",
-                        description=f"🏳️ `{flag_value}` released by {interaction.user.mention}.",
-                    )
 
                     embed = discord.Embed(
                         title="✅ Flag Released",
