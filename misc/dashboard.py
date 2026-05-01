@@ -28,11 +28,11 @@ class dashboard(commands.Cog):
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "**📌 How to Get Started:**\n"
                 "1. Open the dashboard using the button below\n"
-                "2. If you see **'Add To Discord'** — do NOT click it (that is for adding the bot to your own server)\n"
-                "3. Click the **3 lines (menu icon)** in the top right\n"
-                "4. Select **'Log Into Discord'**\n"
-                "5. Choose **our Discord server** when prompted\n"
-                "6. Link your **Gamertag**\n"
+                "2. If you see 'Add To Discord' — do NOT click it\n"
+                "3. Click the 3 lines (menu icon) in the top right\n"
+                "4. Select 'Log Into Discord'\n"
+                "5. Choose our Discord server when prompted\n"
+                "6. Link your Gamertag\n"
                 "7. Once complete, your full dashboard unlocks instantly\n\n"
                 
                 "After that, you’ll be able to view and manage everything directly from the website."
@@ -47,7 +47,7 @@ class dashboard(commands.Cog):
 
         embed.timestamp = discord.utils.utcnow()
 
-        # Create button
+        # Buttons
         view = discord.ui.View()
 
         view.add_item(
@@ -66,8 +66,10 @@ class dashboard(commands.Cog):
             )
         )
 
-        # Send message
-        await interaction.response.send_message(
+        # IMPORTANT: avoid interaction-style message
+        await interaction.response.defer()
+
+        await interaction.channel.send(
             embed=embed,
             view=view
         )
