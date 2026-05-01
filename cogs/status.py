@@ -18,14 +18,20 @@ class Status(commands.Cog, BaseCog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # -------------------------
+    # UPTIME
+    # -------------------------
     def _format_uptime(self) -> str:
         start_time = getattr(self.bot, "start_time", None)
         if not start_time:
             return "Unknown"
+
         delta: timedelta = discord.utils.utcnow() - start_time
+
         days = delta.days
         hours, remainder = divmod(delta.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
+
         parts = []
         if days:
             parts.append(f"{days}d")
@@ -34,31 +40,43 @@ class Status(commands.Cog, BaseCog):
         if minutes:
             parts.append(f"{minutes}m")
         parts.append(f"{seconds}s")
+
         return " ".join(parts)
 
+    # -------------------------
+    # GUILD STATS
+    # -------------------------
     async def _get_guild_stats(self, guild: discord.Guild) -> tuple[str, str]:
-        """Return (db_status, map_count_text) for the guild."""
+        """DB health + number of maps configured."""
         try:
             await utils.ensure_connection()
+
             async with utils.safe_acquire() as conn:
                 count = await conn.fetchval(
                     "SELECT COUNT(*) FROM flag_messages WHERE guild_id=$1",
                     str(guild.id),
                 )
-            return "✅ Connected", f"{count}"
+
+            return "✅ Connected", str(count or 0)
+
         except Exception as exc:
             log.warning(f"Status DB check failed for {guild.name}: {exc}")
-            return "❌ Unavailable", "N/A"
+            return "❌ Unavailable", "0"
 
+    # -------------------------
+    # FLAG STATS (CLEAN VERSION)
+    # -------------------------
     async def _get_flag_stats(self, guild: discord.Guild) -> list[tuple[str, int, int]]:
-        """Return a list of (map_key, claimed_count, total_count)."""
+        """Returns (map, assigned_flags, total_flags)."""
         await utils.ensure_connection()
+
         async with utils.safe_acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT map,
-                       COUNT(*) AS total_count,
-                       COUNT(*) FILTER (WHERE role_id IS NOT NULL AND role_id <> '') AS claimed_count
+                SELECT 
+                    map,
+                    COUNT(*) FILTER (WHERE role_id IS NOT NULL) AS assigned_count,
+                    COUNT(*) AS total_count
                 FROM flags
                 WHERE guild_id = $1
                 GROUP BY map
@@ -66,14 +84,18 @@ class Status(commands.Cog, BaseCog):
                 """,
                 str(guild.id),
             )
+
         return [
-            (row["map"], int(row["claimed_count"]), int(row["total_count"]))
+            (row["map"], int(row["assigned_count"]), int(row["total_count"]))
             for row in rows
         ]
 
+    # -------------------------
+    # STATUS COMMAND
+    # -------------------------
     @app_commands.command(
         name="status",
-        description="Show bot uptime, latency, and database health for this server.",
+        description="Show bot uptime, latency, and database health.",
     )
     @admin_only()
     async def status(self, interaction: discord.Interaction):
@@ -95,21 +117,25 @@ class Status(commands.Cog, BaseCog):
             desc=(
                 f"**Uptime:** {uptime}\n"
                 f"**Latency:** {latency_ms} ms\n"
-                f"**DB Status:** {db_status}\n"
-                f"**Maps Set Up (this server):** {map_count}\n"
+                f"**Database:** {db_status}\n"
+                f"**Maps Configured:** {map_count}\n"
                 f"**Servers Connected:** {len(self.bot.guilds)}"
             ),
             color=0x3498DB,
             author_icon="📊",
-            author_name="Status",
+            author_name="System Status",
         )
+
         embed.set_footer(text=f"DayZ Manager • {guild.name}")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # -------------------------
+    # FLAG STATS COMMAND
+    # -------------------------
     @app_commands.command(
         name="flagstats",
-        description="Summarize claimed/unclaimed flags for each map in this server.",
+        description="Show flag assignment statistics for each map.",
     )
     @admin_only()
     async def flagstats(self, interaction: discord.Interaction):
@@ -127,42 +153,41 @@ class Status(commands.Cog, BaseCog):
         except Exception as exc:
             log.warning(f"Flag stats lookup failed for {guild.name}: {exc}")
             return await interaction.followup.send(
-                "❌ Unable to load flag stats right now. Please try again later.",
+                "❌ Unable to load flag stats right now.",
                 ephemeral=True,
             )
 
         if not stats:
             return await interaction.followup.send(
-                "ℹ️ No flag data found yet for this server. Run `/setup` first.",
+                "ℹ️ No flag data found. Run `/setup` first.",
                 ephemeral=True,
             )
 
-        total_claimed = sum(claimed for _, claimed, _ in stats)
-        total_flags = sum(total for _, _, total in stats)
-        total_unclaimed = total_flags - total_claimed
-
-        description_lines = [
-            f"**Total Flags:** {total_flags}",
-            f"**Claimed:** {total_claimed}",
-            f"**Unclaimed:** {total_unclaimed}",
-        ]
+        total_assigned = sum(a for _, a, _ in stats)
+        total_flags = sum(t for _, _, t in stats)
+        total_unassigned = total_flags - total_assigned
 
         embed = self.make_embed(
-            title="🏴 Flag Ownership Summary",
-            desc="\n".join(description_lines),
+            title="🏴 Flag Assignment Overview",
+            desc=(
+                f"**Total Flags:** {total_flags}\n"
+                f"**Assigned:** {total_assigned}\n"
+                f"**Unassigned:** {total_unassigned}"
+            ),
             color=0x2ECC71,
             author_icon="🗺️",
             author_name="Flag Stats",
         )
 
-        for map_key, claimed, total in stats:
+        for map_key, assigned, total in stats:
             map_info = utils.MAP_DATA.get(map_key, {"name": map_key.title()})
-            unclaimed = total - claimed
+            unassigned = total - assigned
+
             embed.add_field(
                 name=map_info["name"],
                 value=(
-                    f"Claimed: **{claimed}**\n"
-                    f"Unclaimed: **{unclaimed}**\n"
+                    f"Assigned: **{assigned}**\n"
+                    f"Unassigned: **{unassigned}**\n"
                     f"Total: **{total}**"
                 ),
                 inline=True,
