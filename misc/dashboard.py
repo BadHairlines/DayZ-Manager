@@ -16,7 +16,8 @@ class dashboard(commands.Cog):
     )
     async def dashboard(self, interaction: discord.Interaction):
 
-        # Build embed
+        file = discord.File("/mnt/data/image.png", filename="banner.png")
+
         embed = discord.Embed(
             title="🌐 Floors DayZ Dashboard",
             description=(
@@ -40,6 +41,9 @@ class dashboard(commands.Cog):
             color=14207502
         )
 
+        # 🔥 THIS is what shows your image at the top of the embed
+        embed.set_image(url="attachment://banner.png")
+
         embed.set_footer(
             text="Floors DayZ • Control Panel",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
@@ -47,7 +51,6 @@ class dashboard(commands.Cog):
 
         embed.timestamp = discord.utils.utcnow()
 
-        # Buttons
         view = discord.ui.View()
 
         view.add_item(
@@ -66,12 +69,13 @@ class dashboard(commands.Cog):
             )
         )
 
-        # IMPORTANT: avoid interaction-style message
+        # IMPORTANT: send as normal message (not interaction style)
         await interaction.response.defer()
 
         await interaction.channel.send(
             embed=embed,
-            view=view
+            view=view,
+            file=file
         )
 
 
