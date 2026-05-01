@@ -4,11 +4,14 @@ from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 
 from cogs.utils import (
-    FLAGS, MAP_DATA, set_flag, create_flag_embed,
-    ensure_connection, safe_acquire
+    FLAGS,
+    MAP_DATA,
+    set_flag,
+    create_flag_embed,
+    ensure_connection,
+    safe_acquire
 )
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-from cogs.ui_views import FlagManageView
 
 
 class Setup(commands.Cog):
@@ -58,14 +61,13 @@ class Setup(commands.Cog):
             return await interaction.response.send_message("❌ Invalid map.", ephemeral=True)
 
         await interaction.response.send_message(
-            f"⚙️ Setting up **{map_info['name']}**...",
+            f"⚙️ Setting up **{map_info['name']}** flag system...",
             ephemeral=True,
         )
 
         await ensure_connection()
 
         try:
-            # Only run once (safe, but no need to spam recreate logic)
             async with safe_acquire() as conn:
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS flag_messages (
@@ -84,43 +86,38 @@ class Setup(commands.Cog):
 
             category = await self._get_or_create_category(
                 guild,
-                f"🌍 {map_info['name']} Factions Hub",
-                "DayZ Setup System",
+                f"🌍 {map_info['name']} Flag System",
+                "Flag System Setup",
             )
 
             channel = await self._get_or_create_text_channel(
                 guild,
                 f"flags-{map_key}",
                 category,
-                "DayZ Setup System",
-                seed_message=f"📜 {map_info['name']} Flags System Initialized",
+                "Flag System Setup",
+                seed_message=f"📜 {map_info['name']} Flag System Initialized",
             )
 
-            # Initialize flags (fast + controlled)
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
             await sleep(0.3)
 
             embed = await create_flag_embed(guild_id, map_key)
-            view = FlagManageView(guild, map_key, self.bot)
 
             message = None
 
-            # Try to reuse old message if exists
             if row:
                 try:
                     old_channel = guild.get_channel(int(row["channel_id"]))
                     if old_channel:
                         message = await old_channel.fetch_message(int(row["message_id"]))
-                        await message.edit(embed=embed, view=view)
+                        await message.edit(embed=embed)
                 except Exception:
                     message = None
 
-            # If no old message, create new one
             if not message:
-                message = await channel.send(embed=embed, view=view)
+                message = await channel.send(embed=embed)
 
-            # Save / update DB
             async with safe_acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
@@ -134,7 +131,7 @@ class Setup(commands.Cog):
             await interaction.edit_original_response(
                 embed=Embed(
                     title="SETUP COMPLETE",
-                    description=f"✅ **{map_info['name']}** is now ready.",
+                    description=f"✅ **{map_info['name']}** flag system is ready.",
                     color=0x00FF00,
                 )
             )
