@@ -1,6 +1,5 @@
 import os
 import asyncio
-import importlib
 import discord
 from discord.ext import commands
 from cogs import utils
@@ -16,14 +15,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 bot.synced = False
 
 
-def resolve_flag_manage_view():
-    try:
-        mod = importlib.import_module("cogs.ui_views")
-        return getattr(mod, "FlagManageView", None)
-    except Exception:
-        return None
-
-
+# -----------------------------
+# DB connection helper
+# -----------------------------
 async def _acquire_conn():
     if hasattr(utils, "safe_acquire"):
         return utils.safe_acquire()
@@ -46,9 +40,14 @@ async def _acquire_conn():
     return _PoolCtx(utils.db_pool)
 
 
+# -----------------------------
+# Persistent Flag Views ONLY
+# (no faction logic)
+# -----------------------------
 async def register_persistent_views():
-    FlagManageView = resolve_flag_manage_view()
-    if not FlagManageView:
+    try:
+        from cogs.ui_views import FlagManageView
+    except Exception:
         return
 
     await utils.ensure_connection()
@@ -85,8 +84,14 @@ async def register_persistent_views():
             pass
 
 
-SKIP_FILES = {"__init__.py", "utils.py", "faction_utils.py", "ui_views.py"}
-
+# -----------------------------
+# Cog Loader
+# -----------------------------
+SKIP_FILES = {
+    "__init__.py",
+    "utils.py",
+    "ui_views.py",
+}
 
 async def load_cogs():
     loaded = 0
@@ -97,7 +102,7 @@ async def load_cogs():
             continue
 
         for root, dirs, files in os.walk(folder):
-            dirs[:] = [d for d in dirs if d not in ("__pycache__", "helpers")]
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
 
             for file in files:
                 if not file.endswith(".py") or file in SKIP_FILES or file.startswith("_"):
@@ -112,6 +117,9 @@ async def load_cogs():
                     pass
 
 
+# -----------------------------
+# Ready event
+# -----------------------------
 @bot.event
 async def on_ready():
     if not hasattr(bot, "start_time"):
@@ -132,6 +140,9 @@ async def on_ready():
     await register_persistent_views()
 
 
+# -----------------------------
+# Main
+# -----------------------------
 async def main():
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
