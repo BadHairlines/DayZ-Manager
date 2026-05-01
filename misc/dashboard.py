@@ -20,11 +20,22 @@ class dashboard(commands.Cog):
         embed = discord.Embed(
             title="🌐 Floors DayZ Dashboard",
             description=(
-                "Everything runs through the website — no messy commands, no confusion.\n\n"
-                "💻 Auto Shop, Bank Accounts, Player Stats, Killfeed Systems, Loadouts, and more...\n"
-                "ALL fully managed through your personal dashboard.\n\n"
-                "Think HulksKillfeed / DayZ++ style systems — but completely centralized on a modern web panel.\n"
-                "Track, manage, and control your entire experience from one place: the website."
+                "Everything is controlled through the website — no confusing commands or bots.\n\n"
+                
+                "💻 Auto Shop, Bank Accounts, Player Stats, Killfeeds, Loadouts, and more are ALL managed on the website.\n"
+                "Think HulksKillfeed / DayZ++ style systems — fully modernized into one central dashboard.\n\n"
+                
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "**📌 How to Get Started:**\n"
+                "1. Open the dashboard using the button below\n"
+                "2. If you see **'Add To Discord'** — do NOT click it (that is for adding the bot to your own server)\n"
+                "3. Click the **3 lines (menu icon)** in the top right\n"
+                "4. Select **'Log Into Discord'**\n"
+                "5. Choose **our Discord server** when prompted\n"
+                "6. Link your **Gamertag**\n"
+                "7. Once complete, your full dashboard unlocks instantly\n\n"
+                
+                "After that, you’ll be able to view and manage everything directly from the website."
             ),
             color=14207502
         )
