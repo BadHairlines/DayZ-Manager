@@ -1,6 +1,9 @@
+import logging
 import traceback
 import discord
 from discord.ext import commands
+
+log = logging.getLogger("dayz-manager")
 
 
 class ErrorHandler(commands.Cog):
@@ -9,51 +12,75 @@ class ErrorHandler(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # ---------------- EMBED ----------------
+
+    def _make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
+        embed = discord.Embed(title=title, description=desc, color=color)
+        embed.set_footer(
+            text="DayZ Manager • Error Handler",
+            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png",
+        )
+        embed.timestamp = discord.utils.utcnow()
+        return embed
+
+    # ---------------- SLASH ERRORS ----------------
+
     @commands.Cog.listener()
     async def on_app_command_error(self, interaction: discord.Interaction, error: Exception):
-        """Handle slash command errors globally."""
-
         error = getattr(error, "original", error)
 
-        cmd_name = getattr(getattr(interaction.command, "name", None), "lower", lambda: "unknown")()
+        cmd_name = (
+            getattr(getattr(interaction, "command", None), "name", None)
+            or "unknown"
+        )
 
+        # ignore permissions silently
         if isinstance(error, discord.Forbidden):
             return
 
-        try:
-            await interaction.response.send_message(
-                embed=self._make_embed(
-                    "❌ Unexpected Error",
-                    f"Something went wrong while executing `{cmd_name}`.",
-                    0xE74C3C,
-                ),
-                ephemeral=True
-            )
+        # log everything (IMPORTANT — your version didn't actually surface errors)
+        log.error(f"[SLASH ERROR] /{cmd_name}: {error}")
+        log.error(traceback.format_exc())
 
-        except discord.InteractionResponded:
-            await interaction.followup.send(
-                "❌ Something went wrong while running this command.",
-                ephemeral=True
-            )
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    embed=self._make_embed(
+                        "❌ Unexpected Error",
+                        f"Something went wrong while executing `/{cmd_name}`.",
+                        0xE74C3C,
+                    ),
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    embed=self._make_embed(
+                        "❌ Unexpected Error",
+                        f"Something went wrong while executing `/{cmd_name}`.",
+                        0xE74C3C,
+                    ),
+                    ephemeral=True,
+                )
 
         except Exception:
             pass
 
+    # ---------------- PREFIX ERRORS ----------------
+
     @commands.Cog.listener()
     async def on_command_error(self, ctx: commands.Context, error: Exception):
-        """Handle prefix command errors globally."""
-
         if hasattr(getattr(ctx, "command", None), "on_error"):
             return
 
         error = getattr(error, "original", error)
 
-        if isinstance(error, commands.CommandNotFound):
+        # ignore non-critical errors
+        if isinstance(error, (commands.CommandNotFound, commands.CheckFailure)):
             return
 
-        if isinstance(error, commands.CheckFailure):
-            return
+        cmd_name = getattr(getattr(ctx, "command", None), "qualified_name", "unknown")
 
+        # permissions
         if isinstance(error, commands.MissingPermissions):
             await ctx.send(
                 embed=self._make_embed(
@@ -65,6 +92,7 @@ class ErrorHandler(commands.Cog):
             )
             return
 
+        # missing args
         if isinstance(error, commands.MissingRequiredArgument):
             name = getattr(getattr(error, "param", None), "name", "unknown")
 
@@ -78,20 +106,23 @@ class ErrorHandler(commands.Cog):
             )
             return
 
+        # cooldown
         if isinstance(error, commands.CommandOnCooldown):
             await ctx.send(
                 embed=self._make_embed(
                     "⏳ Cooldown",
-                    f"Try again in {error.retry_after:.1f}s.",
+                    f"Try again in `{error.retry_after:.1f}s`.",
                     0xF39C12,
                 ),
                 delete_after=10,
             )
             return
 
-        # generic fallback (no logging, just silent + user message)
-        cmd_name = getattr(getattr(ctx, "command", None), "qualified_name", "unknown")
+        # log unexpected errors (this was missing in your version)
+        log.error(f"[PREFIX ERROR] {cmd_name}: {error}")
+        log.error(traceback.format_exc())
 
+        # fallback user message
         try:
             await ctx.send(
                 embed=self._make_embed(
@@ -112,15 +143,6 @@ class ErrorHandler(commands.Cog):
                 )
             except Exception:
                 pass
-
-    def _make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
-        embed = discord.Embed(title=title, description=desc, color=color)
-        embed.set_footer(
-            text="DayZ Manager • Error Handler",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png",
-        )
-        embed.timestamp = discord.utils.utcnow()
-        return embed
 
 
 async def setup(bot: commands.Bot):
