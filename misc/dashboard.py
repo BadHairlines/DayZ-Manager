@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
- 
+
 class dashboard(commands.Cog):
     """Dashboard / Panel Command."""
 
@@ -19,7 +19,13 @@ class dashboard(commands.Cog):
         # Build embed
         embed = discord.Embed(
             title="🌐 Floors DayZ Dashboard",
-            description="Manage your server, track stats, and control everything in one place.\n\nClick the button below to open the dashboard.",
+            description=(
+                "Everything runs through the website — no messy commands, no confusion.\n\n"
+                "💻 Auto Shop, Bank Accounts, Player Stats, Killfeed Systems, Loadouts, and more...\n"
+                "ALL fully managed through your personal dashboard.\n\n"
+                "Think HulksKillfeed / DayZ++ style systems — but completely centralized on a modern web panel.\n"
+                "Track, manage, and control your entire experience from one place: the website."
+            ),
             color=14207502
         )
 
