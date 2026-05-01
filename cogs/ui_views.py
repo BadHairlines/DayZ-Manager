@@ -46,36 +46,14 @@ class FlagManageView(View):
         except Exception as e:
             print(f"⚠️ Failed to refresh flag embed: {e}")
 
+    # ✅ CLEAN ROLE SELECT (NO FACTIONS)
     async def _role_options(self) -> list[discord.SelectOption]:
-        guild_id = str(self.guild.id)
+        roles = [
+            r for r in self.guild.roles
+            if not r.is_default() and not r.managed
+        ]
 
-        try:
-            await utils.ensure_connection()
-            async with utils.safe_acquire() as conn:
-                rows = await conn.fetch(
-                    """
-                    SELECT DISTINCT role_id
-                    FROM factions
-                    WHERE guild_id = $1 AND map = $2
-                    """,
-                    guild_id,
-                    self.map_key,
-                )
-
-            role_ids = {row["role_id"] for row in rows if row["role_id"]}
-            roles: list[discord.Role] = []
-
-            for rid in role_ids:
-                role = self.guild.get_role(int(rid))
-                if role and not role.is_default() and not role.managed:
-                    roles.append(role)
-
-            roles.sort(key=lambda r: (-r.position, r.name.lower()))
-
-        except Exception as e:
-            print(f"⚠️ Failed to build faction role options, falling back to all roles: {e}")
-            roles = [r for r in self.guild.roles if not r.is_default() and not r.managed]
-            roles.sort(key=lambda r: (-r.position, r.name.lower()))
+        roles.sort(key=lambda r: (-r.position, r.name.lower()))
 
         return [
             discord.SelectOption(label=role.name[:100], value=str(role.id))
@@ -101,6 +79,7 @@ class FlagManageView(View):
                 guild_id = str(self.guild.id)
                 all_flags = await utils.get_all_flags(guild_id, self.map_key)
                 unclaimed = [f for f in all_flags if f["status"] == "✅"]
+
                 if not unclaimed:
                     return await interaction.followup.send("⚠️ No unclaimed flags available.", ephemeral=True)
 
@@ -108,6 +87,7 @@ class FlagManageView(View):
                     discord.SelectOption(label=f"🟩 {f['flag']}", value=f["flag"])
                     for f in unclaimed[:MAX_SELECT_OPTIONS]
                 ]
+
                 flag_select = Select(placeholder="🏴 Select a flag to assign", options=flag_options)
                 cancel_button = discord.ui.Button(label="❌ Cancel", style=discord.ButtonStyle.secondary)
 
@@ -135,24 +115,25 @@ class FlagManageView(View):
                     if not role_opts:
                         return await inter2.followup.edit_message(
                             message_id=inter2.message.id,
-                            content="⚠️ No eligible faction roles found to assign.",
+                            content="⚠️ No roles available.",
                             view=None
                         )
 
                     role_select = Select(
                         placeholder=f"🎭 Assign `{selected_flag}` to...",
                         options=role_opts,
-                        min_values=1,
-                        max_values=1,
                     )
+
                     step2_view = View()
                     step2_view.add_item(role_select)
                     step2_view.add_item(cancel_button)
 
                     async def role_chosen(inter3: discord.Interaction):
                         await inter3.response.defer(ephemeral=True)
+
                         role_id = int(role_select.values[0])
                         role = self.guild.get_role(role_id)
+
                         if not role:
                             return await inter3.followup.edit_message(
                                 message_id=inter2.message.id,
@@ -164,16 +145,12 @@ class FlagManageView(View):
                         if not row_now2 or row_now2["status"] != "✅":
                             return await inter3.followup.edit_message(
                                 message_id=inter2.message.id,
-                                content=f"⚠️ Flag `{selected_flag}` was just claimed by someone else.",
+                                content=f"⚠️ Flag `{selected_flag}` was just claimed.",
                                 view=None
                             )
 
+                        # ✅ ONLY UPDATE FLAGS TABLE
                         await utils.set_flag(guild_id, self.map_key, selected_flag, "❌", str(role.id))
-                        async with utils.safe_acquire() as conn:
-                            await conn.execute(
-                                "UPDATE factions SET claimed_flag=$1 WHERE guild_id=$2 AND role_id=$3 AND map=$4",
-                                selected_flag, guild_id, str(role.id), self.map_key
-                            )
 
                         await self.refresh_flag_embed()
 
@@ -182,17 +159,28 @@ class FlagManageView(View):
                             description=f"🏴 **{selected_flag}** → {role.mention}\n🗺️ *{self.map_key.title()}*",
                             color=0x2ECC71
                         )
-                        await inter3.followup.edit_message(message_id=inter2.message.id, embed=embed, view=None)
+
+                        await inter3.followup.edit_message(
+                            message_id=inter2.message.id,
+                            embed=embed,
+                            view=None
+                        )
 
                     role_select.callback = role_chosen
+
                     await inter2.followup.edit_message(
                         message_id=inter2.message.id,
-                        content=f"🏴 Flag `{selected_flag}` selected. Now choose a role to assign it to:",
+                        content=f"🏴 Flag `{selected_flag}` selected. Choose a role:",
                         view=step2_view
                     )
 
                 flag_select.callback = flag_chosen
-                await interaction.followup.send("Select a flag to assign:", view=step1_view, ephemeral=True)
+
+                await interaction.followup.send(
+                    "Select a flag to assign:",
+                    view=step1_view,
+                    ephemeral=True
+                )
 
             except Exception as e:
                 print(f"⚠️ Error during flag assignment: {e}")
@@ -217,6 +205,7 @@ class FlagManageView(View):
                 guild_id = str(self.guild.id)
                 all_flags = await utils.get_all_flags(guild_id, self.map_key)
                 claimed = [f for f in all_flags if f["status"] == "❌"]
+
                 if not claimed:
                     return await interaction.followup.send("⚠️ No claimed flags to release.", ephemeral=True)
 
@@ -224,6 +213,7 @@ class FlagManageView(View):
                     discord.SelectOption(label=f"🟥 {f['flag']}", value=f["flag"])
                     for f in claimed[:MAX_SELECT_OPTIONS]
                 ]
+
                 flag_select = Select(placeholder="🏳️ Select a flag to release", options=flag_options)
                 cancel_button = discord.ui.Button(label="❌ Cancel", style=discord.ButtonStyle.secondary)
 
@@ -248,23 +238,28 @@ class FlagManageView(View):
                         )
 
                     await utils.release_flag(guild_id, self.map_key, flag_value)
-                    async with utils.safe_acquire() as conn:
-                        await conn.execute(
-                            "UPDATE factions SET claimed_flag=NULL WHERE guild_id=$1 AND claimed_flag=$2 AND map=$3",
-                            guild_id, flag_value, self.map_key
-                        )
 
                     await self.refresh_flag_embed()
 
                     embed = discord.Embed(
                         title="✅ Flag Released",
-                        description=f"🏳️ **{flag_value}** has been made available again.\n🗺️ *{self.map_key.title()}*",
+                        description=f"🏳️ **{flag_value}** is now available again.\n🗺️ *{self.map_key.title()}*",
                         color=0x95A5A6
                     )
-                    await inter2.followup.edit_message(message_id=inter2.message.id, embed=embed, view=None)
+
+                    await inter2.followup.edit_message(
+                        message_id=inter2.message.id,
+                        embed=embed,
+                        view=None
+                    )
 
                 flag_select.callback = flag_chosen
-                await interaction.followup.send("Select a flag to release:", view=step_view, ephemeral=True)
+
+                await interaction.followup.send(
+                    "Select a flag to release:",
+                    view=step_view,
+                    ephemeral=True
+                )
 
             except Exception as e:
                 print(f"⚠️ Error during flag release: {e}")
