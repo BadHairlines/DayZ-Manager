@@ -40,11 +40,6 @@ class dashboard(commands.Cog):
             color=14207502
         )
 
-        embed.set_footer(
-            text="Floors DayZ • Control Panel",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-        )
-
         embed.timestamp = discord.utils.utcnow()
 
         # Buttons
@@ -58,15 +53,6 @@ class dashboard(commands.Cog):
             )
         )
 
-        view.add_item(
-            discord.ui.Button(
-                label="📘 Docs",
-                url="https://floorsdayz.xyz/docs",
-                style=discord.ButtonStyle.link
-            )
-        )
-
-        # IMPORTANT: avoid interaction-style message
         await interaction.response.defer()
 
         await interaction.channel.send(
