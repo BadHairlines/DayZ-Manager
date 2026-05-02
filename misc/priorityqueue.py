@@ -42,7 +42,6 @@ class priorityqueue(commands.Cog):
             color=0xF5C542  # hive gold
         )
 
-        # 🔥 NEW BANNER IMAGE
         embed.set_image(
             url="https://i.postimg.cc/HL2f86Rp/Untitled-design.png"
         )
@@ -51,7 +50,6 @@ class priorityqueue(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
 
         view = discord.ui.View()
-
         view.add_item(
             discord.ui.Button(
                 label="⚡ Get Priority Access",
@@ -60,9 +58,8 @@ class priorityqueue(commands.Cog):
             )
         )
 
-        await interaction.response.defer()
-
-        await interaction.channel.send(
+        # ✅ Proper reply (no defer, no channel.send)
+        await interaction.response.send_message(
             embed=embed,
             view=view
         )
