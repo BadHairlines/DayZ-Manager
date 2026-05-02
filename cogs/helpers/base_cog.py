@@ -1,6 +1,5 @@
 import logging
 import discord
-from datetime import datetime
 
 from cogs import utils
 
