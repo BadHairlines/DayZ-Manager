@@ -1,9 +1,11 @@
 import asyncio
+import logging
 import discord
 from discord.ext import commands
 from discord.ui import View, button, Select
 from cogs import utils
 
+log = logging.getLogger("dayz-manager")
 MAX_SELECT_OPTIONS = 25  # Discord limit
 
 
@@ -44,7 +46,7 @@ class FlagManageView(View):
             msg = await channel.fetch_message(int(row["message_id"]))
             await msg.edit(embed=embed, view=self)
         except Exception as e:
-            print(f"⚠️ Failed to refresh flag embed: {e}")
+            log.warning(f"⚠️ Failed to refresh flag embed: {e}")
 
     # ✅ CLEAN ROLE SELECT (NO FACTIONS)
     async def _role_options(self) -> list[discord.SelectOption]:
@@ -183,8 +185,7 @@ class FlagManageView(View):
                 )
 
             except Exception as e:
-                print(f"⚠️ Error during flag assignment: {e}")
-                raise
+                log.error(f"⚠️ Error during flag assignment: {e}", exc_info=True)
 
     @button(label="🟥 Release Flag", style=discord.ButtonStyle.danger, custom_id="release_flag_btn")
     async def release_flag_button(self, interaction: discord.Interaction, _: discord.ui.Button):
@@ -262,5 +263,4 @@ class FlagManageView(View):
                 )
 
             except Exception as e:
-                print(f"⚠️ Error during flag release: {e}")
-                raise
+                log.error(f"⚠️ Error during flag release: {e}", exc_info=True)
