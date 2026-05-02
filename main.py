@@ -4,6 +4,9 @@ import discord
 from discord.ext import commands
 from cogs import utils
 
+# -----------------------------
+# BOT SETUP
+# -----------------------------
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -16,7 +19,7 @@ bot.synced = False
 
 
 # -----------------------------
-# DB connection helper
+# DATABASE CONNECTION HELPER
 # -----------------------------
 async def _acquire_conn():
     if hasattr(utils, "safe_acquire"):
@@ -41,51 +44,7 @@ async def _acquire_conn():
 
 
 # -----------------------------
-# Persistent Flag Views ONLY
-# (no faction logic)
-# -----------------------------
-async def register_persistent_views():
-    try:
-        from cogs.ui_views import FlagManageView
-    except Exception:
-        return
-
-    await utils.ensure_connection()
-
-    try:
-        async with await _acquire_conn() as conn:
-            rows = await conn.fetch(
-                "SELECT guild_id, map, channel_id, message_id FROM flag_messages;"
-            )
-    except Exception:
-        return
-
-    if not rows:
-        return
-
-    for row in rows:
-        try:
-            guild = bot.get_guild(int(row["guild_id"]))
-            if not guild:
-                continue
-
-            channel = guild.get_channel(int(row["channel_id"]))
-            if not channel:
-                continue
-
-            msg = await channel.fetch_message(int(row["message_id"]))
-
-            view = FlagManageView(guild, row["map"], bot)
-            bot.add_view(view, message_id=msg.id)
-
-        except discord.NotFound:
-            pass
-        except Exception:
-            pass
-
-
-# -----------------------------
-# Cog Loader
+# COG LOADER
 # -----------------------------
 SKIP_FILES = {
     "__init__.py",
@@ -113,12 +72,14 @@ async def load_cogs():
                 try:
                     await bot.load_extension(module)
                     loaded += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[COG LOAD ERROR] {module}: {e}")
+
+    print(f"[COGS LOADED] {loaded}")
 
 
 # -----------------------------
-# Ready event
+# READY EVENT
 # -----------------------------
 @bot.event
 async def on_ready():
@@ -129,30 +90,34 @@ async def on_ready():
         try:
             await bot.tree.sync()
             bot.synced = True
-        except Exception:
-            pass
+            print("[SYNC] Slash commands synced")
+        except Exception as e:
+            print(f"[SYNC ERROR] {e}")
 
     try:
         await utils.ensure_connection()
-    except Exception:
-        pass
+        print("[DB] Connected")
+    except Exception as e:
+        print(f"[DB ERROR] {e}")
 
-    await register_persistent_views()
+    print(f"[READY] Logged in as {bot.user}")
 
 
 # -----------------------------
-# Main
+# MAIN ENTRY POINT
 # -----------------------------
 async def main():
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL missing")
 
+    # Retry DB connection
     for i in range(5):
         try:
             await utils.ensure_connection()
             break
-        except Exception:
+        except Exception as e:
+            print(f"[DB RETRY {i+1}] {e}")
             await asyncio.sleep(5 * (i + 1))
     else:
         raise RuntimeError("DB connection failed")
@@ -163,9 +128,17 @@ async def main():
     if not token:
         raise RuntimeError("DISCORD_TOKEN missing")
 
-    async with bot:
-        await bot.start(token)
+    try:
+        async with bot:
+            await bot.start(token)
+    finally:
+        # Clean shutdown
+        await utils.close_db()
+        print("[SHUTDOWN] Database closed")
 
 
+# -----------------------------
+# START BOT
+# -----------------------------
 if __name__ == "__main__":
     asyncio.run(main())
