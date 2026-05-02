@@ -16,7 +16,6 @@ class priorityqueue(commands.Cog):
     )
     async def priorityqueue(self, interaction: discord.Interaction):
 
-        # Build embed
         embed = discord.Embed(
             title="⚡ HIVE PRIORITY QUEUE ACCESS",
             description=(
@@ -40,13 +39,17 @@ class priorityqueue(commands.Cog):
 
                 "💡 *Note: Priority is account-linked — not transferable between users.*"
             ),
-            color=0xF5C542  # hive gold color
+            color=0xF5C542  # hive gold
+        )
+
+        # 🔥 NEW BANNER IMAGE
+        embed.set_image(
+            url="https://i.postimg.cc/HL2f86Rp/Untitled-design.png"
         )
 
         embed.set_footer(text="Hive Priority System • Faster Access • Less Waiting")
         embed.timestamp = discord.utils.utcnow()
 
-        # Buttons
         view = discord.ui.View()
 
         view.add_item(
