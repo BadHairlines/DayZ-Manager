@@ -89,7 +89,7 @@ MAP_DATA: Dict[str, Dict[str, Any]] = {
 
 async def get_flag(guild_id: str, map_key: str, flag_name: str) -> Optional[asyncpg.Record]:
     await ensure_connection()
-    async with db_pool.acquire() as conn:
+    async with safe_acquire() as conn:
         return await conn.fetchrow(
             "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 AND flag=$3",
             guild_id, map_key, flag_name
@@ -98,7 +98,7 @@ async def get_flag(guild_id: str, map_key: str, flag_name: str) -> Optional[asyn
 
 async def get_all_flags(guild_id: str, map_key: str) -> List[asyncpg.Record]:
     await ensure_connection()
-    async with db_pool.acquire() as conn:
+    async with safe_acquire() as conn:
         rows = await conn.fetch(
             "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 ORDER BY flag ASC",
             guild_id, map_key
@@ -115,7 +115,7 @@ async def set_flag(
 ) -> None:
     """Upsert a flag row. status is '✅' or '❌'."""
     await ensure_connection()
-    async with db_pool.acquire() as conn:
+    async with safe_acquire() as conn:
         await conn.execute(
             """
             INSERT INTO flags (guild_id, map, flag, status, role_id)
