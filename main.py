@@ -22,12 +22,8 @@ bot.synced = False
 # DATABASE INIT
 # -----------------------------
 async def init_db():
-    try:
-        await utils.ensure_connection()
-        print("[DB] Connected")
-    except Exception as e:
-        print(f"[DB ERROR] {e}")
-        raise
+    await utils.ensure_connection()
+    print("[DB] Connected")
 
 
 # -----------------------------
@@ -86,14 +82,13 @@ async def startup():
     if not os.getenv("DISCORD_TOKEN"):
         raise RuntimeError("DISCORD_TOKEN missing")
 
-    # DB retry loop
     for attempt in range(5):
         try:
             await init_db()
             break
         except Exception as e:
             print(f"[DB RETRY {attempt + 1}] {e}")
-            await asyncio.sleep(5 * (attempt + 1))
+            await asyncio.sleep(3 * (attempt + 1))
     else:
         raise RuntimeError("DB connection failed after retries")
 
@@ -108,15 +103,8 @@ async def main():
 
     token = os.getenv("DISCORD_TOKEN")
 
-    try:
-        async with bot:
-            await bot.start(token)
-    finally:
-        try:
-            await utils.close_db()
-            print("[SHUTDOWN] DB closed")
-        except Exception as e:
-            print(f"[SHUTDOWN ERROR] {e}")
+    async with bot:
+        await bot.start(token)
 
 
 # -----------------------------
