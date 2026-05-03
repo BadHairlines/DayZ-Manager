@@ -7,139 +7,114 @@ log = logging.getLogger("dayz-manager")
 
 
 class ErrorHandler(commands.Cog):
-    """Global error handler for all commands in the bot."""
+    """Global error handler for both slash + prefix commands."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ---------------- EMBED ----------------
-
-    def _make_embed(self, title: str, desc: str, color: int) -> discord.Embed:
+    # -----------------------------
+    # ERROR RESPONSE HELPERS
+    # -----------------------------
+    async def send_error(self, target, *, title: str, desc: str, color: int):
         embed = discord.Embed(title=title, description=desc, color=color)
         embed.set_footer(
             text="DayZ Manager • Error Handler",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png",
         )
         embed.timestamp = discord.utils.utcnow()
-        return embed
 
-    # ---------------- SLASH ERRORS ----------------
+        try:
+            await target(embed=embed)
+        except Exception:
+            pass
 
+    # -----------------------------
+    # SLASH COMMAND ERRORS
+    # -----------------------------
     @commands.Cog.listener()
     async def on_app_command_error(self, interaction: discord.Interaction, error: Exception):
         error = getattr(error, "original", error)
 
-        cmd_name = (
-            getattr(getattr(interaction, "command", None), "name", None)
-            or "unknown"
-        )
+        cmd_name = getattr(getattr(interaction, "command", None), "name", "unknown")
 
-        # ignore permissions silently
         if isinstance(error, discord.Forbidden):
             return
 
-        # log everything (IMPORTANT — your version didn't actually surface errors)
         log.error(f"[SLASH ERROR] /{cmd_name}: {error}")
         log.error(traceback.format_exc())
 
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    embed=self._make_embed(
-                        "❌ Unexpected Error",
-                        f"Something went wrong while executing `/{cmd_name}`.",
-                        0xE74C3C,
-                    ),
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    embed=self._make_embed(
-                        "❌ Unexpected Error",
-                        f"Something went wrong while executing `/{cmd_name}`.",
-                        0xE74C3C,
-                    ),
-                    ephemeral=True,
-                )
+        response = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
 
-        except Exception:
-            pass
+        await self.send_error(
+            response,
+            title="❌ Unexpected Error",
+            desc=f"Something went wrong while executing `/{cmd_name}`.",
+            color=0xE74C3C,
+        )
 
-    # ---------------- PREFIX ERRORS ----------------
-
+    # -----------------------------
+    # PREFIX COMMAND ERRORS
+    # -----------------------------
     @commands.Cog.listener()
     async def on_command_error(self, ctx: commands.Context, error: Exception):
         if hasattr(getattr(ctx, "command", None), "on_error"):
             return
 
         error = getattr(error, "original", error)
+        cmd_name = getattr(getattr(ctx, "command", None), "qualified_name", "unknown")
 
-        # ignore non-critical errors
+        # ignore harmless errors
         if isinstance(error, (commands.CommandNotFound, commands.CheckFailure)):
             return
 
-        cmd_name = getattr(getattr(ctx, "command", None), "qualified_name", "unknown")
-
-        # permissions
+        # permission error
         if isinstance(error, commands.MissingPermissions):
-            await ctx.send(
-                embed=self._make_embed(
-                    "🚫 Permission Denied",
-                    "You don't have permission to use this command.",
-                    0xE74C3C,
-                ),
-                delete_after=10,
+            return await self.send_error(
+                ctx.send,
+                title="🚫 Permission Denied",
+                desc="You don't have permission to use this command.",
+                color=0xE74C3C,
             )
-            return
 
-        # missing args
+        # missing argument
         if isinstance(error, commands.MissingRequiredArgument):
             name = getattr(getattr(error, "param", None), "name", "unknown")
 
-            await ctx.send(
-                embed=self._make_embed(
-                    "⚠️ Missing Argument",
-                    f"Missing parameter: `{name}`",
-                    0xF1C40F,
-                ),
-                delete_after=10,
+            return await self.send_error(
+                ctx.send,
+                title="⚠️ Missing Argument",
+                desc=f"Missing parameter: `{name}`",
+                color=0xF1C40F,
             )
-            return
 
         # cooldown
         if isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(
-                embed=self._make_embed(
-                    "⏳ Cooldown",
-                    f"Try again in `{error.retry_after:.1f}s`.",
-                    0xF39C12,
-                ),
-                delete_after=10,
+            return await self.send_error(
+                ctx.send,
+                title="⏳ Cooldown",
+                desc=f"Try again in `{error.retry_after:.1f}s`.",
+                color=0xF39C12,
             )
-            return
 
-        # log unexpected errors (this was missing in your version)
+        # log unexpected errors
         log.error(f"[PREFIX ERROR] {cmd_name}: {error}")
         log.error(traceback.format_exc())
 
-        # fallback user message
+        # fallback response
         try:
-            await ctx.send(
-                embed=self._make_embed(
-                    "❌ Unexpected Error",
-                    f"Error running `{cmd_name}`.",
-                    0xE74C3C,
-                ),
-                delete_after=15,
+            await self.send_error(
+                ctx.send,
+                title="❌ Unexpected Error",
+                desc=f"Error running `{cmd_name}`.",
+                color=0xE74C3C,
             )
         except discord.Forbidden:
             try:
-                await ctx.author.send(
-                    embed=self._make_embed(
-                        "❌ Error",
-                        f"Error running `{cmd_name}`.",
-                        0xE74C3C,
-                    )
+                await self.send_error(
+                    ctx.author.send,
+                    title="❌ Error",
+                    desc=f"Error running `{cmd_name}`.",
+                    color=0xE74C3C,
                 )
             except Exception:
                 pass
