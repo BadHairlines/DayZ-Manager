@@ -1,110 +1,135 @@
 import asyncio
 import logging
 import discord
+
 from cogs import utils
 
 log = logging.getLogger("dayz-manager")
 
 
 class FlagManager:
-    """Clean flag system: no factions, no role ownership — just flag state."""
+    """
+    Service layer for flag operations.
+    No UI logic. No commands. Pure business rules.
+    """
 
     _locks: dict[str, asyncio.Lock] = {}
 
+    # -----------------------------
+    # HELPERS
+    # -----------------------------
     @staticmethod
-    def _canonical_flag_name(raw: str) -> str | None:
+    def _normalize_flag(raw: str) -> str | None:
         if not raw:
             return None
-        r = raw.strip().lower()
-        for f in utils.FLAGS:
-            if f.lower() == r:
-                return f
+
+        raw = raw.strip().lower()
+
+        for flag in utils.FLAGS:
+            if flag.lower() == raw:
+                return flag
+
         return None
 
     @staticmethod
-    def _get_lock(guild_id: str, map_key: str) -> asyncio.Lock:
-        key = f"{guild_id}:{map_key}"
-        if key not in FlagManager._locks:
-            FlagManager._locks[key] = asyncio.Lock()
-        return FlagManager._locks[key]
+    def _lock_key(guild_id: str, map_key: str) -> str:
+        return f"{guild_id}:{map_key}"
 
-    # ---------------- ASSIGN ----------------
-    @staticmethod
+    @classmethod
+    def _get_lock(cls, guild_id: str, map_key: str) -> asyncio.Lock:
+        key = cls._lock_key(guild_id, map_key)
+
+        if key not in cls._locks:
+            cls._locks[key] = asyncio.Lock()
+
+        return cls._locks[key]
+
+    # -----------------------------
+    # ASSIGN FLAG
+    # -----------------------------
+    @classmethod
     async def assign_flag(
+        cls,
         guild: discord.Guild,
         map_key: str,
         flag: str,
         user: discord.Member
     ):
         guild_id = str(guild.id)
-        await utils.ensure_connection()
 
-        canonical_flag = FlagManager._canonical_flag_name(flag)
-        if not canonical_flag:
-            raise ValueError(f"Invalid flag name '{flag}'.")
+        canonical = cls._normalize_flag(flag)
+        if not canonical:
+            raise ValueError("Invalid flag.")
 
-        lock = FlagManager._get_lock(guild_id, map_key)
+        lock = cls._get_lock(guild_id, map_key)
 
         async with lock:
-            flag_data = await utils.get_flag(guild_id, map_key, canonical_flag)
+            current = await utils.get_flag(guild_id, map_key, canonical)
 
-            if flag_data and flag_data["status"] == "❌":
-                raise ValueError(f"Flag '{canonical_flag}' is already claimed.")
+            if current and current["status"] == "❌":
+                raise ValueError("Flag already claimed.")
 
             await utils.set_flag(
                 guild_id,
                 map_key,
-                canonical_flag,
+                canonical,
                 "❌",
-                str(user.id)  # optional: store who claimed it (NOT a faction system)
+                str(user.id)
             )
 
-            await FlagManager._refresh_embed_safe(guild, guild_id, map_key)
+            await cls._refresh_embed(guild, guild_id, map_key)
 
-            log.info(f"✅ Flag '{canonical_flag}' assigned in {guild.name} ({map_key}).")
+            log.info(f"Flag assigned: {canonical} in {guild.name} ({map_key})")
 
-    # ---------------- RELEASE ----------------
-    @staticmethod
+    # -----------------------------
+    # RELEASE FLAG
+    # -----------------------------
+    @classmethod
     async def release_flag(
+        cls,
         guild: discord.Guild,
         map_key: str,
         flag: str,
         user: discord.Member
     ):
         guild_id = str(guild.id)
-        await utils.ensure_connection()
 
-        canonical_flag = FlagManager._canonical_flag_name(flag)
-        if not canonical_flag:
-            raise ValueError(f"Invalid flag name '{flag}'.")
+        canonical = cls._normalize_flag(flag)
+        if not canonical:
+            raise ValueError("Invalid flag.")
 
-        lock = FlagManager._get_lock(guild_id, map_key)
+        lock = cls._get_lock(guild_id, map_key)
 
         async with lock:
-            flag_data = await utils.get_flag(guild_id, map_key, canonical_flag)
+            current = await utils.get_flag(guild_id, map_key, canonical)
 
-            if not flag_data or flag_data["status"] == "✅":
-                raise ValueError(f"Flag '{canonical_flag}' is already unclaimed.")
+            if not current or current["status"] == "✅":
+                raise ValueError("Flag already unclaimed.")
 
-            await utils.release_flag(guild_id, map_key, canonical_flag)
+            await utils.release_flag(guild_id, map_key, canonical)
 
-            await FlagManager._refresh_embed_safe(guild, guild_id, map_key)
+            await cls._refresh_embed(guild, guild_id, map_key)
 
-            log.info(f"🏳️ Flag '{canonical_flag}' released in {guild.name} ({map_key}).")
+            log.info(f"Flag released: {canonical} in {guild.name} ({map_key})")
 
-    # ---------------- EMBED REFRESH ----------------
-    @staticmethod
-    async def _refresh_embed_safe(
+    # -----------------------------
+    # EMBED REFRESH
+    # -----------------------------
+    @classmethod
+    async def _refresh_embed(
+        cls,
         guild: discord.Guild,
         guild_id: str,
         map_key: str
     ):
         try:
-            await utils.ensure_connection()
-
             async with utils.safe_acquire() as conn:
                 row = await conn.fetchrow(
-                    "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+                    """
+                    SELECT channel_id, message_id
+                    FROM flag_messages
+                    WHERE guild_id=$1 AND map=$2
+                    """,
                     guild_id,
                     map_key
                 )
@@ -117,11 +142,12 @@ class FlagManager:
                 return
 
             msg = await channel.fetch_message(int(row["message_id"]))
-
             embed = await utils.create_flag_embed(guild_id, map_key)
+
             await msg.edit(embed=embed)
 
         except discord.NotFound:
-            pass
+            return
+
         except Exception as e:
-            log.error(f"Failed to refresh embed: {e}", exc_info=True)
+            log.error(f"Embed refresh failed: {e}", exc_info=True)
