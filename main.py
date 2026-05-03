@@ -19,52 +19,34 @@ bot.synced = False
 
 
 # -----------------------------
-# DATABASE CONNECTION HELPER
+# DATABASE INIT
 # -----------------------------
-async def _acquire_conn():
-    if hasattr(utils, "safe_acquire"):
-        return utils.safe_acquire()
-
-    class _PoolCtx:
-        def __init__(self, pool):
-            self.pool = pool
-            self.conn = None
-
-        async def __aenter__(self):
-            if self.pool is None or getattr(self.pool, "_closed", False):
-                self.pool = await utils.ensure_connection()
-            self.conn = await self.pool.acquire()
-            return self.conn
-
-        async def __aexit__(self, exc_type, exc, tb):
-            if self.conn:
-                await self.pool.release(self.conn)
-
-    return _PoolCtx(utils.db_pool)
+async def init_db():
+    try:
+        await utils.ensure_connection()
+        print("[DB] Connected")
+    except Exception as e:
+        print(f"[DB ERROR] {e}")
+        raise
 
 
 # -----------------------------
-# COG LOADER
+# COG LOADING
 # -----------------------------
-SKIP_FILES = {
-    "__init__.py",
-    "utils.py",
-    "ui_views.py",
-}
+SKIP_FILES = {"__init__.py", "utils.py", "ui_views.py"}
+COG_FOLDERS = ["cogs", "misc"]
+
 
 async def load_cogs():
     loaded = 0
-    folders = ["cogs", "misc"]
 
-    for folder in folders:
+    for folder in COG_FOLDERS:
         if not os.path.isdir(folder):
             continue
 
-        for root, dirs, files in os.walk(folder):
-            dirs[:] = [d for d in dirs if d != "__pycache__"]
-
+        for root, _, files in os.walk(folder):
             for file in files:
-                if not file.endswith(".py") or file in SKIP_FILES or file.startswith("_"):
+                if file in SKIP_FILES or not file.endswith(".py") or file.startswith("_"):
                     continue
 
                 module = os.path.join(root, file).replace(os.sep, ".")[:-3]
@@ -73,9 +55,9 @@ async def load_cogs():
                     await bot.load_extension(module)
                     loaded += 1
                 except Exception as e:
-                    print(f"[COG LOAD ERROR] {module}: {e}")
+                    print(f"[COG ERROR] {module}: {e}")
 
-    print(f"[COGS LOADED] {loaded}")
+    print(f"[COGS] Loaded {loaded}")
 
 
 # -----------------------------
@@ -83,9 +65,6 @@ async def load_cogs():
 # -----------------------------
 @bot.event
 async def on_ready():
-    if not hasattr(bot, "start_time"):
-        bot.start_time = discord.utils.utcnow()
-
     if not bot.synced:
         try:
             await bot.tree.sync()
@@ -94,51 +73,54 @@ async def on_ready():
         except Exception as e:
             print(f"[SYNC ERROR] {e}")
 
-    try:
-        await utils.ensure_connection()
-        print("[DB] Connected")
-    except Exception as e:
-        print(f"[DB ERROR] {e}")
-
     print(f"[READY] Logged in as {bot.user}")
 
 
 # -----------------------------
-# MAIN ENTRY POINT
+# STARTUP FLOW
 # -----------------------------
-async def main():
-    dsn = os.getenv("DATABASE_URL")
-    if not dsn:
+async def startup():
+    if not os.getenv("DATABASE_URL"):
         raise RuntimeError("DATABASE_URL missing")
 
-    # Retry DB connection
-    for i in range(5):
+    if not os.getenv("DISCORD_TOKEN"):
+        raise RuntimeError("DISCORD_TOKEN missing")
+
+    # DB retry loop
+    for attempt in range(5):
         try:
-            await utils.ensure_connection()
+            await init_db()
             break
         except Exception as e:
-            print(f"[DB RETRY {i+1}] {e}")
-            await asyncio.sleep(5 * (i + 1))
+            print(f"[DB RETRY {attempt + 1}] {e}")
+            await asyncio.sleep(5 * (attempt + 1))
     else:
-        raise RuntimeError("DB connection failed")
+        raise RuntimeError("DB connection failed after retries")
 
     await load_cogs()
 
+
+# -----------------------------
+# MAIN
+# -----------------------------
+async def main():
+    await startup()
+
     token = os.getenv("DISCORD_TOKEN")
-    if not token:
-        raise RuntimeError("DISCORD_TOKEN missing")
 
     try:
         async with bot:
             await bot.start(token)
     finally:
-        # Clean shutdown
-        await utils.close_db()
-        print("[SHUTDOWN] Database closed")
+        try:
+            await utils.close_db()
+            print("[SHUTDOWN] DB closed")
+        except Exception as e:
+            print(f"[SHUTDOWN ERROR] {e}")
 
 
 # -----------------------------
-# START BOT
+# ENTRY POINT
 # -----------------------------
 if __name__ == "__main__":
     asyncio.run(main())
