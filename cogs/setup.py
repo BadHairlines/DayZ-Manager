@@ -1,7 +1,8 @@
-from asyncio import sleep
 import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
+
+from asyncio import sleep
 
 from cogs.utils import (
     FLAGS,
@@ -15,20 +16,27 @@ from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 
 
 class Setup(commands.Cog):
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _get_or_create_category(self, guild, name, reason):
+    # -----------------------------
+    # CHANNEL HELPERS
+    # -----------------------------
+    async def get_or_create_category(self, guild: discord.Guild, name: str, reason: str):
         category = discord.utils.get(guild.categories, name=name)
         if category:
             return category
 
-        category = await guild.create_category(name=name, reason=reason)
-        await sleep(0.5)
-        return category
+        return await guild.create_category(name=name, reason=reason)
 
-    async def _get_or_create_text_channel(self, guild, name, category, reason, seed_message=None):
+    async def get_or_create_text_channel(
+        self,
+        guild: discord.Guild,
+        name: str,
+        category: discord.CategoryChannel,
+        reason: str,
+        seed_message: str | None = None,
+    ):
         channel = discord.utils.get(guild.text_channels, name=name)
         if channel:
             return channel
@@ -42,21 +50,24 @@ class Setup(commands.Cog):
         if seed_message:
             await channel.send(seed_message)
 
-        await sleep(0.2)
         return channel
 
+    # -----------------------------
+    # MAIN COMMAND
+    # -----------------------------
     @app_commands.command(name="setup")
     @admin_only()
     @app_commands.choices(selected_map=MAP_CHOICES)
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
-        guild = interaction.guild
-        if not guild:
+        if not interaction.guild:
             return await interaction.response.send_message("❌ Server only.", ephemeral=True)
 
+        guild = interaction.guild
         guild_id = str(guild.id)
-        map_key = normalize_map(selected_map.value)
 
+        map_key = normalize_map(selected_map.value)
         map_info = MAP_DATA.get(map_key)
+
         if not map_info:
             return await interaction.response.send_message("❌ Invalid map.", ephemeral=True)
 
@@ -84,13 +95,13 @@ class Setup(commands.Cog):
                     guild_id, map_key
                 )
 
-            category = await self._get_or_create_category(
+            category = await self.get_or_create_category(
                 guild,
                 f"🌍 {map_info['name']} Flag System",
                 "Flag System Setup",
             )
 
-            channel = await self._get_or_create_text_channel(
+            channel = await self.get_or_create_text_channel(
                 guild,
                 f"flags-{map_key}",
                 category,
@@ -98,14 +109,15 @@ class Setup(commands.Cog):
                 seed_message=f"📜 {map_info['name']} Flag System Initialized",
             )
 
+            # Reset flags
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
-            await sleep(0.3)
 
             embed = await create_flag_embed(guild_id, map_key)
 
             message = None
 
+            # Try update existing message
             if row:
                 try:
                     old_channel = guild.get_channel(int(row["channel_id"]))
@@ -115,9 +127,11 @@ class Setup(commands.Cog):
                 except Exception:
                     message = None
 
+            # Fallback to new message
             if not message:
                 message = await channel.send(embed=embed)
 
+            # Save/update DB
             async with safe_acquire() as conn:
                 await conn.execute("""
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
@@ -132,7 +146,7 @@ class Setup(commands.Cog):
                 embed=Embed(
                     title="SETUP COMPLETE",
                     description=f"✅ **{map_info['name']}** flag system is ready.",
-                    color=0x00FF00,
+                    color=discord.Color.green(),
                 )
             )
 
