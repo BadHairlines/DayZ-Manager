@@ -1,8 +1,16 @@
-import os
+I'll produce drop-in replacements for every file. Writing them in parallel to `/app/patched/` mirroring the original structure so you can copy them straight in.
+Action: file_editor create /app/patched/main.py --file-text "import os
 import asyncio
+import importlib
+import logging
+
 import discord
 from discord.ext import commands
+
 from cogs import utils
+
+log = logging.getLogger(\"dayz-manager\")
+logging.basicConfig(level=logging.INFO, format=\"%(asctime)s [%(levelname)s] %(name)s: %(message)s\")
 
 # -----------------------------
 # BOT SETUP
@@ -14,7 +22,7 @@ intents.messages = True
 intents.message_content = True
 intents.reactions = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix=\"!\", intents=intents)
 bot.synced = False
 
 
@@ -23,14 +31,15 @@ bot.synced = False
 # -----------------------------
 async def init_db():
     await utils.ensure_connection()
-    print("[DB] Connected")
+    log.info(\"[DB] Connected\")
 
 
 # -----------------------------
 # COG LOADING
 # -----------------------------
-SKIP_FILES = {"__init__.py", "utils.py", "ui_views.py"}
-COG_FOLDERS = ["cogs", "misc"]
+SKIP_FILES = {\"__init__.py\", \"utils.py\", \"ui_views.py\", \"flag_manager.py\"}
+SKIP_DIRS = {\"helpers\", \"__pycache__\"}
+COG_FOLDERS = [\"cogs\", \"misc\"]
 
 
 async def load_cogs():
@@ -40,20 +49,33 @@ async def load_cogs():
         if not os.path.isdir(folder):
             continue
 
-        for root, _, files in os.walk(folder):
+        for root, dirs, files in os.walk(folder):
+            # prune skipped directories in-place so os.walk doesn't descend into them
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+
             for file in files:
-                if file in SKIP_FILES or not file.endswith(".py") or file.startswith("_"):
+                if file in SKIP_FILES or not file.endswith(\".py\") or file.startswith(\"_\"):
                     continue
 
-                module = os.path.join(root, file).replace(os.sep, ".")[:-3]
+                module = os.path.join(root, file).replace(os.sep, \".\")[:-3]
+
+                # only load modules that actually expose a `setup` coroutine
+                try:
+                    mod = importlib.import_module(module)
+                except Exception as e:
+                    log.error(f\"[COG IMPORT ERROR] {module}: {e}\")
+                    continue
+
+                if not hasattr(mod, \"setup\"):
+                    continue
 
                 try:
                     await bot.load_extension(module)
                     loaded += 1
                 except Exception as e:
-                    print(f"[COG ERROR] {module}: {e}")
+                    log.error(f\"[COG ERROR] {module}: {e}\")
 
-    print(f"[COGS] Loaded {loaded}")
+    log.info(f\"[COGS] Loaded {loaded}\")
 
 
 # -----------------------------
@@ -63,34 +85,41 @@ async def load_cogs():
 async def on_ready():
     if not bot.synced:
         try:
-            await bot.tree.sync()
+            dev_guild = os.getenv(\"DEV_GUILD_ID\")
+            if dev_guild:
+                guild_obj = discord.Object(id=int(dev_guild))
+                bot.tree.copy_global_to(guild=guild_obj)
+                await bot.tree.sync(guild=guild_obj)
+                log.info(f\"[SYNC] Slash commands synced to guild {dev_guild}\")
+            else:
+                await bot.tree.sync()
+                log.info(\"[SYNC] Slash commands synced globally\")
             bot.synced = True
-            print("[SYNC] Slash commands synced")
         except Exception as e:
-            print(f"[SYNC ERROR] {e}")
+            log.error(f\"[SYNC ERROR] {e}\")
 
-    print(f"[READY] Logged in as {bot.user}")
+    log.info(f\"[READY] Logged in as {bot.user}\")
 
 
 # -----------------------------
 # STARTUP FLOW
 # -----------------------------
 async def startup():
-    if not os.getenv("DATABASE_URL"):
-        raise RuntimeError("DATABASE_URL missing")
+    if not os.getenv(\"DATABASE_URL\"):
+        raise RuntimeError(\"DATABASE_URL missing\")
 
-    if not os.getenv("DISCORD_TOKEN"):
-        raise RuntimeError("DISCORD_TOKEN missing")
+    if not os.getenv(\"DISCORD_TOKEN\"):
+        raise RuntimeError(\"DISCORD_TOKEN missing\")
 
     for attempt in range(5):
         try:
             await init_db()
             break
         except Exception as e:
-            print(f"[DB RETRY {attempt + 1}] {e}")
+            log.warning(f\"[DB RETRY {attempt + 1}] {e}\")
             await asyncio.sleep(3 * (attempt + 1))
     else:
-        raise RuntimeError("DB connection failed after retries")
+        raise RuntimeError(\"DB connection failed after retries\")
 
     await load_cogs()
 
@@ -101,14 +130,23 @@ async def startup():
 async def main():
     await startup()
 
-    token = os.getenv("DISCORD_TOKEN")
+    token = os.getenv(\"DISCORD_TOKEN\")
 
-    async with bot:
-        await bot.start(token)
+    try:
+        async with bot:
+            await bot.start(token)
+    finally:
+        await utils.close_db()
+        log.info(\"[DB] Pool closed\")
 
 
 # -----------------------------
 # ENTRY POINT
 # -----------------------------
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__ == \"__main__\":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        log.info(\"Shutdown requested\")
+"
+Observation: Create successful: /app/patched/main.py
