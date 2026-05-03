@@ -1,18 +1,20 @@
-import asyncio
+
+Action: file_editor create /app/patched/cogs/ui_views.py --file-text "import asyncio
 import logging
+
 import discord
 from discord.ext import commands
-from discord.ui import View, button, Select
+from discord.ui import View, button, Select, Button
 
 from cogs import utils
 
-log = logging.getLogger("dayz-manager")
+log = logging.getLogger(\"dayz-manager\")
 
 MAX_SELECT_OPTIONS = 25
 
 
 class FlagManageView(View):
-    """Persistent flag control panel."""
+    \"\"\"Persistent flag control panel.\"\"\"
 
     _locks: dict[str, asyncio.Lock] = {}
 
@@ -27,7 +29,7 @@ class FlagManageView(View):
     # -----------------------------
     @property
     def session_key(self) -> str:
-        return f"{self.guild.id}:{self.map_key}"
+        return f\"{self.guild.id}:{self.map_key}\"
 
     def get_lock(self) -> asyncio.Lock:
         if self.session_key not in self._locks:
@@ -39,27 +41,14 @@ class FlagManageView(View):
     # -----------------------------
     async def refresh_flag_embed(self):
         try:
-            embed = await utils.create_flag_embed(str(self.guild.id), self.map_key)
-
-            async with utils.safe_acquire() as conn:
-                row = await conn.fetchrow(
-                    "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
-                    str(self.guild.id),
-                    self.map_key,
-                )
-
-            if not row:
-                return
-
-            channel = self.guild.get_channel(int(row["channel_id"]))
-            if not channel:
-                return
-
-            msg = await channel.fetch_message(int(row["message_id"]))
-            await msg.edit(embed=embed, view=self)
-
+            await utils.refresh_flag_message(
+                self.bot,
+                str(self.guild.id),
+                self.map_key,
+                view=self,
+            )
         except Exception as e:
-            log.warning(f"Failed embed refresh: {e}")
+            log.warning(f\"Failed embed refresh: {e}\")
 
     # -----------------------------
     # ROLE OPTIONS
@@ -77,25 +66,33 @@ class FlagManageView(View):
         ]
 
     # -----------------------------
-    # CANCEL BUTTON (shared)
+    # CANCEL BUTTON (shared callback)
     # -----------------------------
     async def cancel(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(content="❌ Cancelled.", view=None)
+        # ephemeral panel is an original response — edit it directly
+        if interaction.response.is_done():
+            await interaction.edit_original_response(content=\"❌ Cancelled.\", view=None)
+        else:
+            await interaction.response.edit_message(content=\"❌ Cancelled.\", view=None)
+
+    def _cancel_button(self) -> Button:
+        btn = Button(label=\"Cancel\", style=discord.ButtonStyle.secondary)
+        btn.callback = self.cancel
+        return btn
 
     # =========================================================
     # ASSIGN FLOW
     # =========================================================
-    @button(label="🟩 Assign Flag", style=discord.ButtonStyle.success, custom_id="assign_flag_btn")
+    @button(label=\"🟩 Assign Flag\", style=discord.ButtonStyle.success, custom_id=\"assign_flag_btn\")
     async def assign_flag(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("🚫 Admins only.", ephemeral=True)
+            return await interaction.response.send_message(\"🚫 Admins only.\", ephemeral=True)
 
         lock = self.get_lock()
-
         if lock.locked():
             return await interaction.response.send_message(
-                "⚠️ Another action is in progress. Please wait.",
-                ephemeral=True
+                \"⚠️ Another action is in progress. Please wait.\",
+                ephemeral=True,
             )
 
         async with lock:
@@ -103,103 +100,93 @@ class FlagManageView(View):
 
             guild_id = str(self.guild.id)
             flags = await utils.get_all_flags(guild_id, self.map_key)
-            available = [f for f in flags if f["status"] == "✅"]
+            available = [f for f in flags if f[\"status\"] == \"✅\"]
 
             if not available:
-                return await interaction.followup.send("⚠️ No unclaimed flags.", ephemeral=True)
+                return await interaction.followup.send(\"⚠️ No unclaimed flags.\", ephemeral=True)
 
             options = [
-                discord.SelectOption(label=f"🟩 {f['flag']}", value=f["flag"])
+                discord.SelectOption(label=f\"🟩 {f['flag']}\", value=f[\"flag\"])
                 for f in available[:MAX_SELECT_OPTIONS]
             ]
 
-            select = Select(placeholder="Select a flag", options=options)
+            select = Select(placeholder=\"Select a flag\", options=options)
             view = View()
             view.add_item(select)
+            view.add_item(self._cancel_button())
 
             async def on_select(inter: discord.Interaction):
                 await inter.response.defer(ephemeral=True)
                 flag = select.values[0]
 
                 row = await utils.get_flag(guild_id, self.map_key, flag)
-                if not row or row["status"] != "✅":
-                    return await inter.followup.edit_message(
-                        message_id=inter.message.id,
-                        content="⚠️ Flag no longer available.",
-                        view=None
+                if not row or row[\"status\"] != \"✅\":
+                    return await inter.edit_original_response(
+                        content=\"⚠️ Flag no longer available.\",
+                        view=None,
                     )
 
                 roles = await self.role_options()
                 if not roles:
-                    return await inter.followup.edit_message(
-                        message_id=inter.message.id,
-                        content="⚠️ No roles available.",
-                        view=None
+                    return await inter.edit_original_response(
+                        content=\"⚠️ No roles available.\",
+                        view=None,
                     )
 
-                role_select = Select(
-                    placeholder="Assign role",
-                    options=roles
-                )
-
+                role_select = Select(placeholder=\"Assign role\", options=roles)
                 step = View()
                 step.add_item(role_select)
+                step.add_item(self._cancel_button())
 
                 async def on_role(inter2: discord.Interaction):
                     await inter2.response.defer(ephemeral=True)
 
                     role = self.guild.get_role(int(role_select.values[0]))
                     if not role:
-                        return await inter2.followup.edit_message(
-                            message_id=inter.message.id,
-                            content="⚠️ Role not found.",
-                            view=None
+                        return await inter2.edit_original_response(
+                            content=\"⚠️ Role not found.\",
+                            view=None,
                         )
 
                     await utils.set_flag(
                         guild_id,
                         self.map_key,
                         flag,
-                        "❌",
-                        str(role.id)
+                        \"❌\",
+                        str(role.id),
                     )
 
                     await self.refresh_flag_embed()
 
-                    await inter2.followup.edit_message(
-                        message_id=inter.message.id,
-                        content=f"🏴 **{flag} → {role.mention}** assigned.",
-                        view=None
+                    await inter2.edit_original_response(
+                        content=f\"🏴 **{flag} → {role.mention}** assigned.\",
+                        view=None,
                     )
 
                 role_select.callback = on_role
 
-                await inter.followup.edit_message(
-                    message_id=inter.message.id,
-                    content=f"Select role for **{flag}**",
-                    view=step
+                await inter.edit_original_response(
+                    content=f\"Select role for **{flag}**\",
+                    view=step,
                 )
 
             select.callback = on_select
 
-            view.add_item(discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, callback=self.cancel))
-
-            await interaction.followup.send("Choose a flag:", view=view, ephemeral=True)
+            await interaction.followup.send(\"Choose a flag:\", view=view, ephemeral=True)
 
     # =========================================================
     # RELEASE FLOW
     # =========================================================
-    @button(label="🟥 Release Flag", style=discord.ButtonStyle.danger, custom_id="release_flag_btn")
+    @button(label=\"🟥 Release Flag\", style=discord.ButtonStyle.danger, custom_id=\"release_flag_btn\")
     async def release_flag(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("🚫 Admins only.", ephemeral=True)
+            return await interaction.response.send_message(\"🚫 Admins only.\", ephemeral=True)
 
         lock = self.get_lock()
-
         if lock.locked():
             return await interaction.response.send_message(
-                "⚠️ Another action is in progress. Please wait.",
-                ephemeral=True
+                \"⚠️ Another action is in progress. Please wait.\",
+                ephemeral=True,
             )
 
         async with lock:
@@ -207,43 +194,42 @@ class FlagManageView(View):
 
             guild_id = str(self.guild.id)
             flags = await utils.get_all_flags(guild_id, self.map_key)
-            claimed = [f for f in flags if f["status"] == "❌"]
+            claimed = [f for f in flags if f[\"status\"] == \"❌\"]
 
             if not claimed:
-                return await interaction.followup.send("⚠️ No claimed flags.", ephemeral=True)
+                return await interaction.followup.send(\"⚠️ No claimed flags.\", ephemeral=True)
 
             options = [
-                discord.SelectOption(label=f"🟥 {f['flag']}", value=f["flag"])
+                discord.SelectOption(label=f\"🟥 {f['flag']}\", value=f[\"flag\"])
                 for f in claimed[:MAX_SELECT_OPTIONS]
             ]
 
-            select = Select(placeholder="Select flag", options=options)
+            select = Select(placeholder=\"Select flag\", options=options)
             view = View()
             view.add_item(select)
+            view.add_item(self._cancel_button())
 
             async def on_select(inter: discord.Interaction):
                 await inter.response.defer(ephemeral=True)
                 flag = select.values[0]
 
                 row = await utils.get_flag(guild_id, self.map_key, flag)
-                if not row or row["status"] != "❌":
-                    return await inter.followup.edit_message(
-                        message_id=inter.message.id,
-                        content="⚠️ Already unclaimed.",
-                        view=None
+                if not row or row[\"status\"] != \"❌\":
+                    return await inter.edit_original_response(
+                        content=\"⚠️ Already unclaimed.\",
+                        view=None,
                     )
 
                 await utils.release_flag(guild_id, self.map_key, flag)
                 await self.refresh_flag_embed()
 
-                await inter.followup.edit_message(
-                    message_id=inter.message.id,
-                    content=f"🏳️ **{flag} released**",
-                    view=None
+                await inter.edit_original_response(
+                    content=f\"🏳️ **{flag} released**\",
+                    view=None,
                 )
 
             select.callback = on_select
 
-            view.add_item(discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, callback=self.cancel))
-
-            await interaction.followup.send("Choose a flag:", view=view, ephemeral=True)
+            await interaction.followup.send(\"Choose a flag:\", view=view, ephemeral=True)
+"
+Observation: calling "initialize": sending "initialize": Bad Request
