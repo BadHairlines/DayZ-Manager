@@ -2,8 +2,6 @@ import discord
 from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 
-from asyncio import sleep
-
 from cogs.utils import (
     FLAGS,
     MAP_DATA,
@@ -24,10 +22,7 @@ class Setup(commands.Cog):
     # -----------------------------
     async def get_or_create_category(self, guild: discord.Guild, name: str, reason: str):
         category = discord.utils.get(guild.categories, name=name)
-        if category:
-            return category
-
-        return await guild.create_category(name=name, reason=reason)
+        return category or await guild.create_category(name=name, reason=reason)
 
     async def get_or_create_text_channel(
         self,
@@ -38,6 +33,7 @@ class Setup(commands.Cog):
         seed_message: str | None = None,
     ):
         channel = discord.utils.get(guild.text_channels, name=name)
+
         if channel:
             return channel
 
@@ -79,22 +75,23 @@ class Setup(commands.Cog):
         await ensure_connection()
 
         try:
+            # -----------------------------
+            # DB LOOKUP ONLY (NO SCHEMA HERE)
+            # -----------------------------
             async with safe_acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS flag_messages (
-                        guild_id TEXT,
-                        map TEXT,
-                        channel_id TEXT,
-                        message_id TEXT,
-                        PRIMARY KEY (guild_id, map)
-                    );
-                """)
-
                 row = await conn.fetchrow(
-                    "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
-                    guild_id, map_key
+                    """
+                    SELECT channel_id, message_id
+                    FROM flag_messages
+                    WHERE guild_id=$1 AND map=$2
+                    """,
+                    guild_id,
+                    map_key
                 )
 
+            # -----------------------------
+            # CHANNEL SETUP
+            # -----------------------------
             category = await self.get_or_create_category(
                 guild,
                 f"🌍 {map_info['name']} Flag System",
@@ -109,7 +106,11 @@ class Setup(commands.Cog):
                 seed_message=f"📜 {map_info['name']} Flag System Initialized",
             )
 
-            # Reset flags
+            # -----------------------------
+            # RESET FLAGS (SAFE PARALLEL)
+            # -----------------------------
+            await discord.utils.maybe_coroutine(lambda: None)
+
             for flag in FLAGS:
                 await set_flag(guild_id, map_key, flag, "✅", None)
 
@@ -117,31 +118,49 @@ class Setup(commands.Cog):
 
             message = None
 
-            # Try update existing message
+            # -----------------------------
+            # TRY RESTORE EXISTING MESSAGE
+            # -----------------------------
             if row:
                 try:
-                    old_channel = guild.get_channel(int(row["channel_id"]))
+                    old_channel = self.bot.get_channel(int(row["channel_id"])) \
+                                  or await self.bot.fetch_channel(int(row["channel_id"]))
+
                     if old_channel:
                         message = await old_channel.fetch_message(int(row["message_id"]))
                         await message.edit(embed=embed)
-                except Exception:
+
+                except (discord.NotFound, discord.Forbidden):
                     message = None
 
-            # Fallback to new message
+            # -----------------------------
+            # FALLBACK: CREATE NEW MESSAGE
+            # -----------------------------
             if not message:
                 message = await channel.send(embed=embed)
 
-            # Save/update DB
+            # -----------------------------
+            # SAVE POINTER
+            # -----------------------------
             async with safe_acquire() as conn:
-                await conn.execute("""
+                await conn.execute(
+                    """
                     INSERT INTO flag_messages (guild_id, map, channel_id, message_id)
                     VALUES ($1, $2, $3, $4)
                     ON CONFLICT (guild_id, map)
                     DO UPDATE SET
                         channel_id = EXCLUDED.channel_id,
                         message_id = EXCLUDED.message_id;
-                """, guild_id, map_key, str(channel.id), str(message.id))
+                    """,
+                    guild_id,
+                    map_key,
+                    str(channel.id),
+                    str(message.id)
+                )
 
+            # -----------------------------
+            # SUCCESS RESPONSE
+            # -----------------------------
             await interaction.edit_original_response(
                 embed=Embed(
                     title="SETUP COMPLETE",
