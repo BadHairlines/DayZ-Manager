@@ -1,13 +1,12 @@
-import logging
 import discord
-
-from cogs import utils
-
-log = logging.getLogger("dayz-manager")
 
 
 class BaseCog:
-    """Reusable base cog with embed utilities only (no system-specific logic)."""
+    """Shared utilities for all cogs (UI helpers only)."""
+
+    MAX_DESC_LENGTH = 4000
+    FOOTER_TEXT = "DayZ Manager"
+    FOOTER_ICON = "https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
 
     def make_embed(
         self,
@@ -17,10 +16,10 @@ class BaseCog:
         author_icon: str,
         author_name: str
     ) -> discord.Embed:
-        """Create a standardized embed for the bot."""
+        """Standardized embed builder."""
 
-        if len(desc) > 4000:
-            desc = desc[:3990] + "…"
+        if len(desc) > self.MAX_DESC_LENGTH:
+            desc = desc[: self.MAX_DESC_LENGTH - 10] + "…"
 
         embed = discord.Embed(
             title=title,
@@ -30,8 +29,8 @@ class BaseCog:
 
         embed.set_author(name=f"{author_icon} {author_name}")
         embed.set_footer(
-            text="DayZ Manager",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+            text=self.FOOTER_TEXT,
+            icon_url=self.FOOTER_ICON
         )
 
         embed.timestamp = discord.utils.utcnow()
