@@ -13,7 +13,7 @@ log = logging.getLogger("dayz-manager")
 
 
 class Status(commands.Cog, BaseCog):
-    """Provides a quick health/status snapshot for administrators."""
+    """Admin system health + flag statistics."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -21,16 +21,16 @@ class Status(commands.Cog, BaseCog):
     # -------------------------
     # UPTIME
     # -------------------------
-    def _format_uptime(self) -> str:
-        start_time = getattr(self.bot, "start_time", None)
-        if not start_time:
+    def format_uptime(self) -> str:
+        start = getattr(self.bot, "start_time", None)
+        if not start:
             return "Unknown"
 
-        delta: timedelta = discord.utils.utcnow() - start_time
+        delta: timedelta = discord.utils.utcnow() - start
 
         days = delta.days
-        hours, remainder = divmod(delta.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
+        hours, rem = divmod(delta.seconds, 3600)
+        minutes, seconds = divmod(rem, 60)
 
         parts = []
         if days:
@@ -46,52 +46,40 @@ class Status(commands.Cog, BaseCog):
     # -------------------------
     # GUILD STATS
     # -------------------------
-    async def _get_guild_stats(self, guild: discord.Guild) -> tuple[str, str]:
-        """DB health + number of maps configured."""
+    async def get_guild_stats(self, guild: discord.Guild):
         try:
-            await utils.ensure_connection()
-
             async with utils.safe_acquire() as conn:
                 count = await conn.fetchval(
                     "SELECT COUNT(*) FROM flag_messages WHERE guild_id=$1",
                     str(guild.id),
                 )
 
-            return "✅ Connected", str(count or 0)
+            return "Connected", count or 0
 
-        except Exception as exc:
-            log.warning(f"Status DB check failed for {guild.name}: {exc}")
-            return "❌ Unavailable", "0"
+        except Exception as e:
+            log.warning(f"DB status check failed: {e}")
+            return "Unavailable", 0
 
     # -------------------------
-    # FLAG STATS (CLEAN VERSION)
+    # FLAG STATS
     # -------------------------
-    async def _get_flag_stats(self, guild: discord.Guild) -> list[tuple[str, int, int]]:
-        """Returns (map, assigned_flags, total_flags)."""
-        await utils.ensure_connection()
-
+    async def get_flag_stats(self, guild: discord.Guild):
         async with utils.safe_acquire() as conn:
-            rows = await conn.fetch(
-                """
+            rows = await conn.fetch("""
                 SELECT 
                     map,
-                    COUNT(*) FILTER (WHERE role_id IS NOT NULL) AS assigned_count,
-                    COUNT(*) AS total_count
+                    COUNT(*) FILTER (WHERE role_id IS NOT NULL) AS assigned,
+                    COUNT(*) AS total
                 FROM flags
                 WHERE guild_id = $1
                 GROUP BY map
                 ORDER BY map
-                """,
-                str(guild.id),
-            )
+            """, str(guild.id))
 
-        return [
-            (row["map"], int(row["assigned_count"]), int(row["total_count"]))
-            for row in rows
-        ]
+        return rows
 
     # -------------------------
-    # STATUS COMMAND
+    # /status
     # -------------------------
     @app_commands.command(
         name="status",
@@ -99,24 +87,25 @@ class Status(commands.Cog, BaseCog):
     )
     @admin_only()
     async def status(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True, ephemeral=True)
-
-        guild = interaction.guild
-        if not guild:
-            return await interaction.followup.send(
-                "❌ This command can only be used inside a server.",
-                ephemeral=True,
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ Server only.",
+                ephemeral=True
             )
 
-        db_status, map_count = await self._get_guild_stats(guild)
-        latency_ms = round(self.bot.latency * 1000)
-        uptime = self._format_uptime()
+        await interaction.response.defer(ephemeral=True)
+
+        guild = interaction.guild
+
+        db_status, map_count = await self.get_guild_stats(guild)
+        latency = round(self.bot.latency * 1000)
+        uptime = self.format_uptime()
 
         embed = self.make_embed(
             title="🧭 DayZ Manager Status",
             desc=(
                 f"**Uptime:** {uptime}\n"
-                f"**Latency:** {latency_ms} ms\n"
+                f"**Latency:** {latency}ms\n"
                 f"**Database:** {db_status}\n"
                 f"**Maps Configured:** {map_count}\n"
                 f"**Servers Connected:** {len(self.bot.guilds)}"
@@ -131,44 +120,45 @@ class Status(commands.Cog, BaseCog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # -------------------------
-    # FLAG STATS COMMAND
+    # /flagstats
     # -------------------------
     @app_commands.command(
         name="flagstats",
-        description="Show flag assignment statistics for each map.",
+        description="Show flag assignment statistics per map.",
     )
     @admin_only()
     async def flagstats(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ Server only.",
+                ephemeral=True
+            )
+
+        await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
-        if not guild:
-            return await interaction.followup.send(
-                "❌ This command can only be used inside a server.",
-                ephemeral=True,
-            )
 
         try:
-            stats = await self._get_flag_stats(guild)
-        except Exception as exc:
-            log.warning(f"Flag stats lookup failed for {guild.name}: {exc}")
+            rows = await self.get_flag_stats(guild)
+        except Exception as e:
+            log.warning(f"Flag stats failed: {e}")
             return await interaction.followup.send(
-                "❌ Unable to load flag stats right now.",
+                "❌ Unable to load stats.",
                 ephemeral=True,
             )
 
-        if not stats:
+        if not rows:
             return await interaction.followup.send(
                 "ℹ️ No flag data found. Run `/setup` first.",
                 ephemeral=True,
             )
 
-        total_assigned = sum(a for _, a, _ in stats)
-        total_flags = sum(t for _, _, t in stats)
+        total_assigned = sum(r["assigned"] for r in rows)
+        total_flags = sum(r["total"] for r in rows)
         total_unassigned = total_flags - total_assigned
 
         embed = self.make_embed(
-            title="🏴 Flag Assignment Overview",
+            title="🏴 Flag Overview",
             desc=(
                 f"**Total Flags:** {total_flags}\n"
                 f"**Assigned:** {total_assigned}\n"
@@ -179,8 +169,11 @@ class Status(commands.Cog, BaseCog):
             author_name="Flag Stats",
         )
 
-        for map_key, assigned, total in stats:
-            map_info = utils.MAP_DATA.get(map_key, {"name": map_key.title()})
+        for row in rows:
+            map_info = utils.MAP_DATA.get(row["map"], {"name": row["map"].title()})
+
+            assigned = row["assigned"]
+            total = row["total"]
             unassigned = total - assigned
 
             embed.add_field(
