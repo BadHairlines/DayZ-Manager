@@ -24,7 +24,7 @@ class ErrorHandler(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
 
         try:
-            await target(embed=embed)
+            await target(embed=embed, ephemeral=True)
         except Exception:
             pass
 

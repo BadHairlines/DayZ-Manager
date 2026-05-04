@@ -182,7 +182,9 @@ class FlagManageView(View):
 
             select.callback = on_select
 
-            view.add_item(discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, callback=self.cancel))
+            cancel_btn = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+            cancel_btn.callback = self.cancel
+            view.add_item(cancel_btn)
 
             await interaction.followup.send("Choose a flag:", view=view, ephemeral=True)
 
@@ -244,6 +246,8 @@ class FlagManageView(View):
 
             select.callback = on_select
 
-            view.add_item(discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, callback=self.cancel))
+            cancel_btn = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+            cancel_btn.callback = self.cancel
+            view.add_item(cancel_btn)
 
             await interaction.followup.send("Choose a flag:", view=view, ephemeral=True)
