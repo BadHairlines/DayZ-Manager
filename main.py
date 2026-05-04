@@ -19,6 +19,7 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.synced = False
+bot.persistent_views_loaded = False  # ✅ Track view registration
 
 
 # -----------------------------
@@ -27,6 +28,15 @@ bot.synced = False
 async def init_db():
     await utils.ensure_connection()
     print("[DB] Connected")
+
+
+# ✅ ADD CLEANUP
+async def cleanup_db():
+    try:
+        await utils.close_connection()
+        print("[DB] Disconnected")
+    except Exception as e:
+        print(f"[DB CLEANUP ERROR] {e}")
 
 
 # -----------------------------
@@ -72,12 +82,34 @@ async def on_ready():
         except Exception as e:
             print(f"[SYNC ERROR] {e}")
 
-    # ✅ REGISTER PERSISTENT VIEWS
-    for guild in bot.guilds:
-        for map_key in utils.MAP_DATA.keys():
-            bot.add_view(FlagManageView(guild, map_key, bot))
+    # ✅ REGISTER PERSISTENT VIEWS ONLY ONCE
+    if not bot.persistent_views_loaded:
+        try:
+            if not hasattr(utils, 'MAP_DATA') or not utils.MAP_DATA:
+                print("[VIEWS] Warning: MAP_DATA not found or empty")
+            else:
+                for guild in bot.guilds:
+                    for map_key in utils.MAP_DATA.keys():
+                        bot.add_view(FlagManageView(guild, map_key, bot))
+                print(f"[VIEWS] Registered persistent views for {len(bot.guilds)} guild(s)")
+            bot.persistent_views_loaded = True
+        except Exception as e:
+            print(f"[VIEWS ERROR] {e}")
 
     print(f"[READY] Logged in as {bot.user}")
+
+
+# ✅ ADD CLOSE EVENT
+@bot.event
+async def on_error(event, *args, **kwargs):
+    print(f"[ERROR] Unhandled exception in {event}: {args}")
+
+
+# ✅ ADD SHUTDOWN HANDLER
+@bot.event
+async def on_disconnect():
+    bot.persistent_views_loaded = False
+    await cleanup_db()
 
 
 # -----------------------------
@@ -112,11 +144,27 @@ async def main():
     token = os.getenv("DISCORD_TOKEN")
 
     async with bot:
-        await bot.start(token)
+        try:
+            await bot.start(token)
+        except KeyboardInterrupt:
+            print("[SHUTDOWN] Keyboard interrupt received")
+            await bot.close()
+
+
+# ✅ ADD SIGNAL HANDLERS FOR GRACEFUL SHUTDOWN
+def setup_signal_handlers():
+    import signal
+    
+    def sigterm_handler(signum, frame):
+        print("[SHUTDOWN] SIGTERM received")
+        asyncio.create_task(bot.close())
+    
+    signal.signal(signal.SIGTERM, sigterm_handler)
 
 
 # -----------------------------
 # ENTRY POINT
 # -----------------------------
 if __name__ == "__main__":
+    setup_signal_handlers()
     asyncio.run(main())
