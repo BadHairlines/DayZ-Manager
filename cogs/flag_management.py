@@ -68,7 +68,7 @@ class FlagManagement(commands.Cog):
             )
 
         try:
-            await set_flag(guild.id, map_key, flag_name, "ASSIGNED", role.id)
+            await set_flag(str(guild.id), map_key, flag_name, "❌", str(role.id))
         except Exception as e:
             return await interaction.followup.send(
                 f"❌ Error assigning flag:\n```{e}```",
@@ -119,7 +119,7 @@ class FlagManagement(commands.Cog):
             )
 
         try:
-            await release_flag(guild.id, map_key, flag_name)
+            await release_flag(str(guild.id), map_key, flag_name)
         except Exception as e:
             return await interaction.followup.send(
                 f"❌ Error releasing flag:\n```{e}```",
