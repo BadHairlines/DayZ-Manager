@@ -1,8 +1,12 @@
+# main.py
+
 import os
 import asyncio
 import discord
 from discord.ext import commands
+
 from cogs import utils
+from cogs.ui_views import FlagManageView
 
 # -----------------------------
 # BOT SETUP
@@ -12,7 +16,6 @@ intents.guilds = True
 intents.members = True
 intents.messages = True
 intents.message_content = True
-intents.reactions = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.synced = False
@@ -68,6 +71,11 @@ async def on_ready():
             print("[SYNC] Slash commands synced")
         except Exception as e:
             print(f"[SYNC ERROR] {e}")
+
+    # ✅ REGISTER PERSISTENT VIEWS
+    for guild in bot.guilds:
+        for map_key in utils.MAP_DATA.keys():
+            bot.add_view(FlagManageView(guild, map_key, bot))
 
     print(f"[READY] Logged in as {bot.user}")
 
