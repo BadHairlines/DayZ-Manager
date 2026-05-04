@@ -15,10 +15,38 @@ db_pool: Optional[asyncpg.Pool] = None
 
 
 # -----------------------------
+# CONSTANTS
+# -----------------------------
+FLAGS: List[str] = [
+    "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
+    "CHEL", "Chedaki", "CMC", "Crook", "HunterZ", "NAPA", "NSahrani",
+    "Pirates", "Rex", "Refuge", "Rooster", "RSTA", "Snake",
+    "TEC", "UEC", "Wolf", "Zagorky", "Zenit"
+]
+
+# 🔥 FIX: canonical lookup (THIS fixes your lowercase issue)
+FLAG_LOOKUP: Dict[str, str] = {f.lower(): f for f in FLAGS}
+
+MAP_DATA: Dict[str, Dict[str, Any]] = {
+    "livonia": {
+        "name": "Livonia",
+        "image": "https://i.postimg.cc/QN9vfr9m/Livonia.jpg"
+    },
+    "chernarus": {
+        "name": "Chernarus",
+        "image": "https://i.postimg.cc/3RWzMsLK/Chernarus.jpg"
+    },
+    "sakhal": {
+        "name": "Sakhal",
+        "image": "https://i.postimg.cc/HkBSpS8j/Sakhal.png"
+    },
+}
+
+
+# -----------------------------
 # CONNECTION
 # -----------------------------
 async def ensure_connection() -> asyncpg.Pool:
-    """Ensure DB pool exists and core tables are initialized."""
     global db_pool
 
     if db_pool and not db_pool._closed:
@@ -61,7 +89,6 @@ async def ensure_connection() -> asyncpg.Pool:
 
 @contextlib.asynccontextmanager
 async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
-    """Safely acquire a DB connection from the pool."""
     pool = await ensure_connection()
     conn = await pool.acquire()
     try:
@@ -71,7 +98,6 @@ async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
 
 
 async def close_db() -> None:
-    """Close DB pool cleanly."""
     global db_pool
 
     if db_pool and not db_pool._closed:
@@ -80,47 +106,29 @@ async def close_db() -> None:
 
 
 # -----------------------------
-# CONSTANTS
+# DB HELPERS (FIXED NORMALIZATION)
 # -----------------------------
-FLAGS: List[str] = [
-    "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
-    "CHEL", "Chedaki", "CMC", "Crook", "HunterZ", "NAPA", "NSahrani",
-    "Pirates", "Rex", "Refuge", "Rooster", "RSTA", "Snake",
-    "TEC", "UEC", "Wolf", "Zagorky", "Zenit"
-]
-
-MAP_DATA: Dict[str, Dict[str, Any]] = {
-    "livonia": {
-        "name": "Livonia",
-        "image": "https://i.postimg.cc/QN9vfr9m/Livonia.jpg"
-    },
-    "chernarus": {
-        "name": "Chernarus",
-        "image": "https://i.postimg.cc/3RWzMsLK/Chernarus.jpg"
-    },
-    "sakhal": {
-        "name": "Sakhal",
-        "image": "https://i.postimg.cc/HkBSpS8j/Sakhal.png"
-    },
-}
+def normalize_flag(flag: str) -> Optional[str]:
+    """Convert user input → canonical flag name."""
+    return FLAG_LOOKUP.get(flag.lower())
 
 
 # -----------------------------
 # DB OPERATIONS
 # -----------------------------
 async def get_flag(guild_id: str, map_key: str, flag: str):
-    await ensure_connection()
+    canonical = normalize_flag(flag)
+    if not canonical:
+        return None
 
     async with safe_acquire() as conn:
         return await conn.fetchrow(
             "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 AND flag=$3",
-            guild_id, map_key, flag
+            guild_id, map_key, canonical
         )
 
 
 async def get_all_flags(guild_id: str, map_key: str):
-    await ensure_connection()
-
     async with safe_acquire() as conn:
         return await conn.fetch(
             "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 ORDER BY flag ASC",
@@ -135,8 +143,10 @@ async def set_flag(
     status: str,
     role_id: Optional[str]
 ) -> None:
-    """Insert or update a flag."""
-    await ensure_connection()
+
+    canonical = normalize_flag(flag)
+    if not canonical:
+        raise ValueError(f"Invalid flag: {flag}")
 
     async with safe_acquire() as conn:
         await conn.execute("""
@@ -146,25 +156,27 @@ async def set_flag(
             DO UPDATE SET
                 status = EXCLUDED.status,
                 role_id = EXCLUDED.role_id
-        """, guild_id, map_key, flag, status, role_id)
+        """, guild_id, map_key, canonical, status, role_id)
 
 
 async def release_flag(guild_id: str, map_key: str, flag: str) -> None:
-    await set_flag(guild_id, map_key, flag, "✅", None)
+    canonical = normalize_flag(flag)
+    if not canonical:
+        return
+
+    await set_flag(guild_id, map_key, canonical, "✅", None)
 
 
 # -----------------------------
 # EMBED BUILDER (PURE UI LAYER)
 # -----------------------------
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
-    """Build flag ownership embed (UI only)."""
 
     rows = await get_all_flags(guild_id, map_key)
 
-    # Auto-seed if empty
     if not rows:
-        for flag in FLAGS:
-            await set_flag(guild_id, map_key, flag, "✅", None)
+        for f in FLAGS:
+            await set_flag(guild_id, map_key, f, "✅", None)
         rows = await get_all_flags(guild_id, map_key)
 
     map_info = MAP_DATA.get(
@@ -186,7 +198,6 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     )
     embed.timestamp = discord.utils.utcnow()
 
-    # Order: claimed first, then unclaimed
     claimed = [r for r in rows if r["role_id"]]
     unclaimed = [r for r in rows if not r["role_id"]]
 
