@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
-from cogs.utils import FLAGS, set_flag, release_flag
+from cogs.utils import FLAGS, set_flag, release_flag, normalize_flag
 
 
 class FlagManagement(commands.Cog):
@@ -17,15 +17,12 @@ class FlagManagement(commands.Cog):
         current = current.lower()
 
         return [
-            app_commands.Choice(name=f, value=f)
+            app_commands.Choice(name=f, value=f)  # keep canonical display
             for f in FLAGS
             if current in f.lower()
         ][:25]
 
     # ---------------- HELPERS ----------------
-    def _is_valid_flag(self, flag: str) -> bool:
-        return flag in FLAGS
-
     def _base_embed(self, title: str, color: int):
         embed = discord.Embed(title=title, color=color)
         embed.set_footer(text="Flag System")
@@ -59,16 +56,24 @@ class FlagManagement(commands.Cog):
 
         guild = interaction.guild
         map_key = normalize_map(selected_map.value)
-        flag_name = flag.strip().title()
 
-        if not self._is_valid_flag(flag_name):
+        # 🔥 FIX: canonical normalization (NO .title())
+        flag_name = normalize_flag(flag)
+
+        if not flag_name:
             return await interaction.followup.send(
-                f"❌ Invalid flag `{flag_name}`.",
+                f"❌ Invalid flag `{flag}`.",
                 ephemeral=True
             )
 
         try:
-            await set_flag(str(guild.id), map_key, flag_name, "❌", str(role.id))
+            await set_flag(
+                str(guild.id),
+                map_key,
+                flag_name,
+                "❌",
+                str(role.id)
+            )
         except Exception as e:
             return await interaction.followup.send(
                 f"❌ Error assigning flag:\n```{e}```",
@@ -110,16 +115,22 @@ class FlagManagement(commands.Cog):
 
         guild = interaction.guild
         map_key = normalize_map(selected_map.value)
-        flag_name = flag.strip().title()
 
-        if not self._is_valid_flag(flag_name):
+        # 🔥 FIX: canonical normalization (NO .title())
+        flag_name = normalize_flag(flag)
+
+        if not flag_name:
             return await interaction.followup.send(
-                f"❌ Invalid flag `{flag_name}`.",
+                f"❌ Invalid flag `{flag}`.",
                 ephemeral=True
             )
 
         try:
-            await release_flag(str(guild.id), map_key, flag_name)
+            await release_flag(
+                str(guild.id),
+                map_key,
+                flag_name
+            )
         except Exception as e:
             return await interaction.followup.send(
                 f"❌ Error releasing flag:\n```{e}```",
