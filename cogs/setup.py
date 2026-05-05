@@ -34,7 +34,11 @@ class Setup(commands.Cog):
 
         return channel
 
-    @app_commands.command(name="setup")
+    # 🔥 FIX: added description (THIS is what fixes "...")
+    @app_commands.command(
+        name="setup",
+        description="Set up the flag system for the selected map."
+    )
     @admin_only()
     @app_commands.choices(selected_map=MAP_CHOICES)
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
@@ -64,9 +68,6 @@ class Setup(commands.Cog):
         await utils.ensure_connection()
 
         try:
-            # -----------------------------
-            # FETCH EXISTING MESSAGE DATA
-            # -----------------------------
             async with utils.safe_acquire() as conn:
                 row = await conn.fetchrow(
                     """
@@ -78,18 +79,12 @@ class Setup(commands.Cog):
                     map_key
                 )
 
-            # -----------------------------
-            # SETUP CATEGORY
-            # -----------------------------
             category = await self.get_or_create_category(
                 guild,
                 f"🌍 {map_info['name']} Flag System",
                 "Flag System Setup",
             )
 
-            # -----------------------------
-            # SETUP CHANNEL
-            # -----------------------------
             channel = await self.get_or_create_text_channel(
                 guild,
                 f"flags-{map_key}",
@@ -98,9 +93,6 @@ class Setup(commands.Cog):
                 seed_message=f"📜 {map_info['name']} Flag System Initialized",
             )
 
-            # -----------------------------
-            # RESET FLAGS
-            # -----------------------------
             for flag in utils.FLAGS:
                 await utils.set_flag(guild_id, map_key, flag, "✅", None)
 
@@ -108,13 +100,9 @@ class Setup(commands.Cog):
 
             message = None
 
-            # -----------------------------
-            # UPDATE EXISTING MESSAGE IF POSSIBLE
-            # -----------------------------
             if row:
                 try:
                     old_channel = self.bot.get_channel(int(row["channel_id"]))
-
                     if old_channel:
                         message = await old_channel.fetch_message(int(row["message_id"]))
                         await message.edit(embed=embed)
@@ -122,15 +110,9 @@ class Setup(commands.Cog):
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     message = None
 
-            # -----------------------------
-            # CREATE NEW MESSAGE IF NEEDED
-            # -----------------------------
             if message is None:
                 message = await channel.send(embed=embed)
 
-            # -----------------------------
-            # SAVE TO DATABASE
-            # -----------------------------
             async with utils.safe_acquire() as conn:
                 await conn.execute(
                     """
@@ -147,9 +129,6 @@ class Setup(commands.Cog):
                     str(message.id),
                 )
 
-            # -----------------------------
-            # FINAL RESPONSE
-            # -----------------------------
             await interaction.edit_original_response(
                 embed=Embed(
                     title="SETUP COMPLETE",
