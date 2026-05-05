@@ -24,7 +24,6 @@ FLAGS: List[str] = [
     "TEC", "UEC", "Wolf", "Zagorky", "Zenit"
 ]
 
-# 🔥 FIX: canonical lookup (THIS fixes your lowercase issue)
 FLAG_LOOKUP: Dict[str, str] = {f.lower(): f for f in FLAGS}
 
 MAP_DATA: Dict[str, Dict[str, Any]] = {
@@ -62,6 +61,7 @@ async def ensure_connection() -> asyncpg.Pool:
     db_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
 
     async with db_pool.acquire() as conn:
+        # Flags table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
                 guild_id TEXT NOT NULL,
@@ -73,6 +73,7 @@ async def ensure_connection() -> asyncpg.Pool:
             );
         """)
 
+        # Message tracking table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flag_messages (
                 guild_id TEXT NOT NULL,
@@ -106,7 +107,7 @@ async def close_db() -> None:
 
 
 # -----------------------------
-# DB HELPERS (FIXED NORMALIZATION)
+# HELPERS
 # -----------------------------
 def normalize_flag(flag: str) -> Optional[str]:
     """Convert user input → canonical flag name."""
@@ -123,7 +124,10 @@ async def get_flag(guild_id: str, map_key: str, flag: str):
 
     async with safe_acquire() as conn:
         return await conn.fetchrow(
-            "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 AND flag=$3",
+            """
+            SELECT * FROM flags
+            WHERE guild_id=$1 AND map=$2 AND flag=$3
+            """,
             guild_id, map_key, canonical
         )
 
@@ -131,7 +135,11 @@ async def get_flag(guild_id: str, map_key: str, flag: str):
 async def get_all_flags(guild_id: str, map_key: str):
     async with safe_acquire() as conn:
         return await conn.fetch(
-            "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 ORDER BY flag ASC",
+            """
+            SELECT * FROM flags
+            WHERE guild_id=$1 AND map=$2
+            ORDER BY flag ASC
+            """,
             guild_id, map_key
         )
 
@@ -151,7 +159,7 @@ async def set_flag(
     async with safe_acquire() as conn:
         await conn.execute("""
             INSERT INTO flags (guild_id, map, flag, status, role_id)
-            VALUES ($1,$2,$3,$4,$5)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (guild_id, map, flag)
             DO UPDATE SET
                 status = EXCLUDED.status,
@@ -168,15 +176,22 @@ async def release_flag(guild_id: str, map_key: str, flag: str) -> None:
 
 
 # -----------------------------
-# EMBED BUILDER (PURE UI LAYER)
+# EMBED BUILDER
 # -----------------------------
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
     rows = await get_all_flags(guild_id, map_key)
 
+    # Only initialize ONCE per empty state (avoids recursion spam)
     if not rows:
-        for f in FLAGS:
-            await set_flag(guild_id, map_key, f, "✅", None)
+        async with safe_acquire() as conn:
+            for f in FLAGS:
+                await conn.execute("""
+                    INSERT INTO flags (guild_id, map, flag, status, role_id)
+                    VALUES ($1, $2, $3, '✅', NULL)
+                    ON CONFLICT DO NOTHING
+                """, guild_id, map_key, f)
+
         rows = await get_all_flags(guild_id, map_key)
 
     map_info = MAP_DATA.get(
@@ -189,25 +204,35 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
         color=0x3498DB
     )
 
-    if map_info["image"]:
+    if map_info.get("image"):
         embed.set_image(url=map_info["image"])
 
     embed.set_footer(
         text="DayZ Manager",
         icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
     )
+
     embed.timestamp = discord.utils.utcnow()
 
-    claimed = [r for r in rows if r["role_id"]]
-    unclaimed = [r for r in rows if not r["role_id"]]
+    # -----------------------------
+    # SORTING (FIXED LOGIC)
+    # -----------------------------
+    claimed = []
+    unclaimed = []
 
-    lines = []
-
-    for r in (claimed + unclaimed):
-        if r["role_id"]:
-            lines.append(f"❌ **{r['flag']}** — <@&{r['role_id']}>")
+    for r in rows:
+        if r.get("role_id"):
+            claimed.append(r)
         else:
-            lines.append(f"✅ **{r['flag']}** — *Unclaimed*")
+            unclaimed.append(r)
+
+    lines: List[str] = []
+
+    for r in claimed:
+        lines.append(f"❌ **{r['flag']}** — <@&{r['role_id']}>")
+
+    for r in unclaimed:
+        lines.append(f"✅ **{r['flag']}** — *Unclaimed*")
 
     embed.description = "\n".join(lines) if lines else "_No flags found_"
 
