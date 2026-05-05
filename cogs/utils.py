@@ -61,7 +61,6 @@ async def ensure_connection() -> asyncpg.Pool:
     db_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
 
     async with db_pool.acquire() as conn:
-        # Flags table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flags (
                 guild_id TEXT NOT NULL,
@@ -73,7 +72,6 @@ async def ensure_connection() -> asyncpg.Pool:
             );
         """)
 
-        # Message tracking table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flag_messages (
                 guild_id TEXT NOT NULL,
@@ -110,7 +108,6 @@ async def close_db() -> None:
 # HELPERS
 # -----------------------------
 def normalize_flag(flag: str) -> Optional[str]:
-    """Convert user input → canonical flag name."""
     return FLAG_LOOKUP.get(flag.lower())
 
 
@@ -124,10 +121,7 @@ async def get_flag(guild_id: str, map_key: str, flag: str):
 
     async with safe_acquire() as conn:
         return await conn.fetchrow(
-            """
-            SELECT * FROM flags
-            WHERE guild_id=$1 AND map=$2 AND flag=$3
-            """,
+            "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 AND flag=$3",
             guild_id, map_key, canonical
         )
 
@@ -135,11 +129,7 @@ async def get_flag(guild_id: str, map_key: str, flag: str):
 async def get_all_flags(guild_id: str, map_key: str):
     async with safe_acquire() as conn:
         return await conn.fetch(
-            """
-            SELECT * FROM flags
-            WHERE guild_id=$1 AND map=$2
-            ORDER BY flag ASC
-            """,
+            "SELECT * FROM flags WHERE guild_id=$1 AND map=$2 ORDER BY flag ASC",
             guild_id, map_key
         )
 
@@ -176,23 +166,11 @@ async def release_flag(guild_id: str, map_key: str, flag: str) -> None:
 
 
 # -----------------------------
-# EMBED BUILDER
+# EMBED BUILDER (READ ONLY NOW - FIXED)
 # -----------------------------
 async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
     rows = await get_all_flags(guild_id, map_key)
-
-    # Only initialize ONCE per empty state (avoids recursion spam)
-    if not rows:
-        async with safe_acquire() as conn:
-            for f in FLAGS:
-                await conn.execute("""
-                    INSERT INTO flags (guild_id, map, flag, status, role_id)
-                    VALUES ($1, $2, $3, '✅', NULL)
-                    ON CONFLICT DO NOTHING
-                """, guild_id, map_key, f)
-
-        rows = await get_all_flags(guild_id, map_key)
 
     map_info = MAP_DATA.get(
         map_key,
@@ -214,9 +192,6 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
 
     embed.timestamp = discord.utils.utcnow()
 
-    # -----------------------------
-    # SORTING (FIXED LOGIC)
-    # -----------------------------
     claimed = []
     unclaimed = []
 
@@ -237,3 +212,34 @@ async def create_flag_embed(guild_id: str, map_key: str) -> discord.Embed:
     embed.description = "\n".join(lines) if lines else "_No flags found_"
 
     return embed
+
+
+# -----------------------------
+# 🔥 FIX: CENTRAL REFRESH SYSTEM (THIS WAS MISSING)
+# -----------------------------
+async def refresh_flag_embed(bot: discord.Client, guild_id: str, map_key: str):
+    embed = await create_flag_embed(guild_id, map_key)
+
+    async with safe_acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT channel_id, message_id FROM flag_messages WHERE guild_id=$1 AND map=$2",
+            guild_id,
+            map_key
+        )
+
+    if not row:
+        return
+
+    guild = bot.get_guild(int(guild_id))
+    if not guild:
+        return
+
+    channel = guild.get_channel(int(row["channel_id"]))
+    if not channel:
+        return
+
+    try:
+        msg = await channel.fetch_message(int(row["message_id"]))
+        await msg.edit(embed=embed)
+    except:
+        pass
