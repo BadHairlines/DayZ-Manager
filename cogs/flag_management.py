@@ -4,6 +4,7 @@ from discord.ext import commands
 
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
 from cogs.utils import FLAGS, set_flag, release_flag, normalize_flag
+from cogs.ui_views import FlagManageView  # 🔥 FIX: required for embed refresh
 
 
 class FlagManagement(commands.Cog):
@@ -83,6 +84,10 @@ class FlagManagement(commands.Cog):
                 ephemeral=True
             )
 
+        # 🔥 FIX: refresh live embed
+        view = FlagManageView(guild, map_key, self.bot)
+        await view.refresh_flag_embed()
+
         embed = self._base_embed("Flag Assigned", 0x2ECC71)
         embed.description = (
             f"🏳️ **Flag:** `{flag_name}`\n"
@@ -142,6 +147,10 @@ class FlagManagement(commands.Cog):
                 f"❌ Error releasing flag:\n```{type(e).__name__}: {e}```",
                 ephemeral=True
             )
+
+        # 🔥 FIX: refresh live embed
+        view = FlagManageView(guild, map_key, self.bot)
+        await view.refresh_flag_embed()
 
         embed = self._base_embed("Flag Released", 0x95A5A6)
         embed.description = (
