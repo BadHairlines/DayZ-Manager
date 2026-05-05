@@ -17,7 +17,7 @@ class FlagManagement(commands.Cog):
         current = current.lower()
 
         return [
-            app_commands.Choice(name=f, value=f)  # keep canonical display
+            app_commands.Choice(name=f, value=f)
             for f in FLAGS
             if current in f.lower()
         ][:25]
@@ -29,7 +29,9 @@ class FlagManagement(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
         return embed
 
-    # ---------------- ASSIGN ----------------
+    # =========================================================
+    # ASSIGN COMMAND
+    # =========================================================
     @app_commands.command(
         name="assign",
         description="Assign a flag to a role for a selected map."
@@ -50,16 +52,17 @@ class FlagManagement(commands.Cog):
         role: discord.Role
     ):
         if not interaction.guild:
-            return await interaction.response.send_message("❌ Server only.", ephemeral=True)
+            return await interaction.response.send_message(
+                "❌ Server only.",
+                ephemeral=True
+            )
 
         await interaction.response.defer(thinking=True)
 
         guild = interaction.guild
         map_key = normalize_map(selected_map.value)
 
-        # 🔥 FIX: canonical normalization (NO .title())
         flag_name = normalize_flag(flag)
-
         if not flag_name:
             return await interaction.followup.send(
                 f"❌ Invalid flag `{flag}`.",
@@ -76,21 +79,23 @@ class FlagManagement(commands.Cog):
             )
         except Exception as e:
             return await interaction.followup.send(
-                f"❌ Error assigning flag:\n```{e}```",
+                f"❌ Error assigning flag:\n```{type(e).__name__}: {e}```",
                 ephemeral=True
             )
 
         embed = self._base_embed("Flag Assigned", 0x2ECC71)
         embed.description = (
-            f"🏳️ Flag: `{flag_name}`\n"
-            f"🗺️ Map: `{map_key}`\n"
-            f"🎭 Role: {role.mention}\n"
-            f"👤 By: {interaction.user.mention}"
+            f"🏳️ **Flag:** `{flag_name}`\n"
+            f"🗺️ **Map:** `{map_key}`\n"
+            f"🎭 **Role:** {role.mention}\n"
+            f"👤 **By:** {interaction.user.mention}"
         )
 
         await interaction.followup.send(embed=embed)
 
-    # ---------------- RELEASE ----------------
+    # =========================================================
+    # RELEASE COMMAND
+    # =========================================================
     @app_commands.command(
         name="release",
         description="Release a flag back to available pool."
@@ -109,16 +114,17 @@ class FlagManagement(commands.Cog):
         flag: str
     ):
         if not interaction.guild:
-            return await interaction.response.send_message("❌ Server only.", ephemeral=True)
+            return await interaction.response.send_message(
+                "❌ Server only.",
+                ephemeral=True
+            )
 
         await interaction.response.defer(thinking=True)
 
         guild = interaction.guild
         map_key = normalize_map(selected_map.value)
 
-        # 🔥 FIX: canonical normalization (NO .title())
         flag_name = normalize_flag(flag)
-
         if not flag_name:
             return await interaction.followup.send(
                 f"❌ Invalid flag `{flag}`.",
@@ -133,15 +139,15 @@ class FlagManagement(commands.Cog):
             )
         except Exception as e:
             return await interaction.followup.send(
-                f"❌ Error releasing flag:\n```{e}```",
+                f"❌ Error releasing flag:\n```{type(e).__name__}: {e}```",
                 ephemeral=True
             )
 
         embed = self._base_embed("Flag Released", 0x95A5A6)
         embed.description = (
-            f"🏳️ Flag: `{flag_name}`\n"
-            f"🗺️ Map: `{map_key}`\n"
-            f"👤 By: {interaction.user.mention}"
+            f"🏳️ **Flag:** `{flag_name}`\n"
+            f"🗺️ **Map:** `{map_key}`\n"
+            f"👤 **By:** {interaction.user.mention}"
         )
 
         await interaction.followup.send(embed=embed)
