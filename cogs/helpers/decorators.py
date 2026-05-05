@@ -1,7 +1,14 @@
 import discord
 from discord import app_commands
 from functools import wraps
-from typing import Union, Callable, Awaitable
+from typing import Union, Callable, Awaitable, TypeVar, ParamSpec
+
+
+# -----------------------------
+# TYPE SAFETY
+# -----------------------------
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 # -----------------------------
@@ -29,22 +36,40 @@ def admin_only():
     Restrict slash commands to server administrators only.
     """
 
-    def decorator(func: Callable[..., Awaitable]):
+    def decorator(func: Callable[P, Awaitable[T]]):
 
         @wraps(func)
-        async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
+        async def wrapper(self, interaction: discord.Interaction, *args: P.args, **kwargs: P.kwargs):
 
-            if not interaction.guild:
+            # -----------------------------
+            # FIX: safer guild check
+            # -----------------------------
+            if interaction.guild is None or interaction.user is None:
+                if interaction.response.is_done():
+                    return
                 return await interaction.response.send_message(
                     "⚠️ Server only command.",
                     ephemeral=True
                 )
 
+            # -----------------------------
+            # FIX: defer-safe response handling
+            # -----------------------------
             if not interaction.user.guild_permissions.administrator:
-                return await interaction.response.send_message(
-                    "🚫 Administrator permissions required.",
-                    ephemeral=True
-                )
+                try:
+                    if interaction.response.is_done():
+                        await interaction.followup.send(
+                            "🚫 Administrator permissions required.",
+                            ephemeral=True
+                        )
+                    else:
+                        await interaction.response.send_message(
+                            "🚫 Administrator permissions required.",
+                            ephemeral=True
+                        )
+                except discord.InteractionResponded:
+                    pass
+                return
 
             return await func(self, interaction, *args, **kwargs)
 
