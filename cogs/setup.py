@@ -4,6 +4,7 @@ from discord.ext import commands
 
 from cogs import utils
 from cogs.helpers.decorators import admin_only, MAP_CHOICES, normalize_map
+from cogs.ui_views import FlagManageView  # ✅ FIX: missing view import
 
 
 class Setup(commands.Cog):
@@ -34,7 +35,6 @@ class Setup(commands.Cog):
 
         return channel
 
-    # 🔥 FIX: added description (THIS is what fixes "...")
     @app_commands.command(
         name="setup",
         description="Set up the flag system for the selected map."
@@ -42,6 +42,7 @@ class Setup(commands.Cog):
     @admin_only()
     @app_commands.choices(selected_map=MAP_CHOICES)
     async def setup(self, interaction: Interaction, selected_map: app_commands.Choice[str]):
+
         if not interaction.guild:
             return await interaction.response.send_message(
                 "❌ Server only.",
@@ -100,19 +101,30 @@ class Setup(commands.Cog):
 
             message = None
 
+            view = FlagManageView(guild, map_key, self.bot)  # ✅ FIX: create view once
+
+            # -----------------------------
+            # UPDATE OLD MESSAGE IF EXISTS
+            # -----------------------------
             if row:
                 try:
                     old_channel = self.bot.get_channel(int(row["channel_id"]))
                     if old_channel:
                         message = await old_channel.fetch_message(int(row["message_id"]))
-                        await message.edit(embed=embed)
+                        await message.edit(embed=embed, view=view)  # ✅ FIX: ADD VIEW
 
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     message = None
 
+            # -----------------------------
+            # CREATE NEW MESSAGE
+            # -----------------------------
             if message is None:
-                message = await channel.send(embed=embed)
+                message = await channel.send(embed=embed, view=view)  # ✅ FIX: ADD VIEW
 
+            # -----------------------------
+            # SAVE TO DB
+            # -----------------------------
             async with utils.safe_acquire() as conn:
                 await conn.execute(
                     """
