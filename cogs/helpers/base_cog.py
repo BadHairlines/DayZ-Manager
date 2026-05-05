@@ -13,25 +13,40 @@ class BaseCog:
         title: str,
         desc: str,
         color: int,
-        author_icon: str,
-        author_name: str
+        author_icon: str | None = None,
+        author_name: str | None = None
     ) -> discord.Embed:
         """Standardized embed builder."""
 
-        if len(desc) > self.MAX_DESC_LENGTH:
-            desc = desc[: self.MAX_DESC_LENGTH - 10] + "…"
+        # -----------------------------
+        # SAFETY: description limit
+        # -----------------------------
+        if desc and len(desc) > self.MAX_DESC_LENGTH:
+            desc = desc[: self.MAX_DESC_LENGTH - 1] + "…"
 
         embed = discord.Embed(
             title=title,
-            description=desc,
+            description=desc or "",
             color=color
         )
 
-        embed.set_author(name=f"{author_icon} {author_name}")
+        # -----------------------------
+        # AUTHOR (SAFE OPTIONAL)
+        # -----------------------------
+        if author_name:
+            name = author_name
+            if author_icon:
+                name = f"{author_icon} {author_name}"
+            embed.set_author(name=name)
+
+        # -----------------------------
+        # FOOTER
+        # -----------------------------
         embed.set_footer(
             text=self.FOOTER_TEXT,
             icon_url=self.FOOTER_ICON
         )
 
         embed.timestamp = discord.utils.utcnow()
+
         return embed
