@@ -13,9 +13,9 @@ class ErrorHandler(commands.Cog):
         self.bot = bot
 
     # -----------------------------
-    # ERROR RESPONSE HELPERS
+    # ERROR RESPONSE HELPER
     # -----------------------------
-    async def send_error(self, target, *, title: str, desc: str, color: int):
+    async def send_error(self, send_func, *, title: str, desc: str, color: int):
         embed = discord.Embed(title=title, description=desc, color=color)
         embed.set_footer(
             text="DayZ Manager • Error Handler",
@@ -24,7 +24,10 @@ class ErrorHandler(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
 
         try:
-            await target(embed=embed, ephemeral=True)
+            await send_func(embed=embed, ephemeral=True)
+        except TypeError:
+            # fallback for ctx.send (no ephemeral support)
+            await send_func(embed=embed)
         except Exception:
             pass
 
@@ -37,16 +40,21 @@ class ErrorHandler(commands.Cog):
 
         cmd_name = getattr(getattr(interaction, "command", None), "name", "unknown")
 
+        # ignore permission silently (optional: you can notify instead)
         if isinstance(error, discord.Forbidden):
             return
 
         log.error(f"[SLASH ERROR] /{cmd_name}: {error}")
         log.error(traceback.format_exc())
 
-        response = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+        send = (
+            interaction.followup.send
+            if interaction.response.is_done()
+            else interaction.response.send_message
+        )
 
         await self.send_error(
-            response,
+            send,
             title="❌ Unexpected Error",
             desc=f"Something went wrong while executing `/{cmd_name}`.",
             color=0xE74C3C,
@@ -57,17 +65,22 @@ class ErrorHandler(commands.Cog):
     # -----------------------------
     @commands.Cog.listener()
     async def on_command_error(self, ctx: commands.Context, error: Exception):
-        if hasattr(getattr(ctx, "command", None), "on_error"):
+        # ignore per-command overrides
+        if hasattr(getattr(ctx.command, "on_error", None)):
             return
 
         error = getattr(error, "original", error)
-        cmd_name = getattr(getattr(ctx, "command", None), "qualified_name", "unknown")
+        cmd_name = getattr(getattr(ctx.command, "qualified_name", None), "unknown", "unknown")
 
-        # ignore harmless errors
+        # -----------------------------
+        # IGNORE SILENT ERRORS
+        # -----------------------------
         if isinstance(error, (commands.CommandNotFound, commands.CheckFailure)):
             return
 
-        # permission error
+        # -----------------------------
+        # HANDLED ERRORS
+        # -----------------------------
         if isinstance(error, commands.MissingPermissions):
             return await self.send_error(
                 ctx.send,
@@ -76,7 +89,6 @@ class ErrorHandler(commands.Cog):
                 color=0xE74C3C,
             )
 
-        # missing argument
         if isinstance(error, commands.MissingRequiredArgument):
             name = getattr(getattr(error, "param", None), "name", "unknown")
 
@@ -87,7 +99,6 @@ class ErrorHandler(commands.Cog):
                 color=0xF1C40F,
             )
 
-        # cooldown
         if isinstance(error, commands.CommandOnCooldown):
             return await self.send_error(
                 ctx.send,
@@ -96,11 +107,15 @@ class ErrorHandler(commands.Cog):
                 color=0xF39C12,
             )
 
-        # log unexpected errors
+        # -----------------------------
+        # LOG UNEXPECTED ERRORS
+        # -----------------------------
         log.error(f"[PREFIX ERROR] {cmd_name}: {error}")
         log.error(traceback.format_exc())
 
-        # fallback response
+        # -----------------------------
+        # FALLBACK RESPONSE
+        # -----------------------------
         try:
             await self.send_error(
                 ctx.send,
@@ -110,11 +125,12 @@ class ErrorHandler(commands.Cog):
             )
         except discord.Forbidden:
             try:
-                await self.send_error(
-                    ctx.author.send,
-                    title="❌ Error",
-                    desc=f"Error running `{cmd_name}`.",
-                    color=0xE74C3C,
+                await ctx.author.send(
+                    embed=discord.Embed(
+                        title="❌ Error",
+                        description=f"Error running `{cmd_name}`.",
+                        color=0xE74C3C,
+                    )
                 )
             except Exception:
                 pass
