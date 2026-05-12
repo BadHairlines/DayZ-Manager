@@ -1,7 +1,9 @@
 import discord
 from discord.ext import commands
-from datetime import datetime, timezone
-import os
+from datetime import datetime
+
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 
 class WelcomeGoodbye(commands.Cog):
@@ -13,81 +15,88 @@ class WelcomeGoodbye(commands.Cog):
         self.goodbye_channel_id = 1503603543603413134
         self.rules_channel_id = 1503604467843469444
 
-        # Banner
-        self.welcome_banner = "welcome_banner.png"
-
     # -----------------------------
-    # HELPERS
+    # CHANNEL HELPER (SAFE)
     # -----------------------------
-    async def get_channel(self, channel_id: int):
+    async def fetch_channel(self, channel_id: int):
         channel = self.bot.get_channel(channel_id)
-        if channel:
-            return channel
-        try:
-            return await self.bot.fetch_channel(channel_id)
-        except:
-            return None
+        if channel is None:
+            channel = await self.bot.fetch_channel(channel_id)
+        return channel
 
+    # -----------------------------
+    # IMAGE CREATOR (ASYNC SAFE)
+    # -----------------------------
+    async def create_welcome_image(self, member: discord.Member):
+        base = Image.new("RGB", (900, 300), (10, 10, 10))
+        draw = ImageDraw.Draw(base)
+
+        # -----------------------------
+        # Avatar download (NO requests blocking)
+        # -----------------------------
+        avatar_url = member.display_avatar.url
+
+        async with self.bot.session.get(avatar_url) as resp:
+            avatar_bytes = await resp.read()
+
+        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+        avatar = avatar.resize((180, 180))
+
+        # Circle mask
+        mask = Image.new("L", (180, 180), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0, 0, 180, 180), fill=255)
+
+        base.paste(avatar, (40, 60), mask)
+
+        # Fonts
+        try:
+            font_big = ImageFont.truetype("arial.ttf", 40)
+            font_small = ImageFont.truetype("arial.ttf", 25)
+        except:
+            font_big = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+
+        # Text
+        draw.text((250, 80), member.name, fill="white", font=font_big)
+        draw.text((250, 140), "just joined the server", fill="gray", font=font_small)
+        draw.text(
+            (250, 190),
+            f"Member #{member.guild.member_count}",
+            fill="lightgray",
+            font=font_small
+        )
+
+        buffer = io.BytesIO()
+        base.save(buffer, format="PNG")
+        buffer.seek(0)
+        return buffer
+
+    # -----------------------------
+    # WELCOME
+    # -----------------------------
     async def send_welcome(self, member: discord.Member):
-        channel = await self.get_channel(self.welcome_channel_id)
-        if not channel:
-            return
+        channel = await self.fetch_channel(self.welcome_channel_id)
 
-        embed = discord.Embed(
-            title="👋 Welcome to The Hive!",
-            description=(
-                f"Welcome {member.mention}!\n\n"
-                f"Make sure to check out <#{self.rules_channel_id}> "
-                f"to get yourself **verified** and access everything.\n\n"
-                f"⚡ Follow the rules, stay sharp, and enjoy your time here!"
-            ),
-            color=discord.Color.dark_gray(),
-            timestamp=datetime.now(timezone.utc)
+        image = await self.create_welcome_image(member)
+        file = discord.File(image, filename="welcome.png")
+
+        await channel.send(
+            content=f"👋 Welcome {member.mention} to The Hive!",
+            file=file
         )
 
-        embed.set_thumbnail(url=member.display_avatar.url)
-
-        icon_url = getattr(member.guild.icon, "url", None)
-        embed.set_footer(
-            text=f"Member #{member.guild.member_count}",
-            icon_url=icon_url
-        )
-
-        try:
-            if os.path.exists(self.welcome_banner):
-                file = discord.File(self.welcome_banner, filename="welcome_banner.png")
-                embed.set_image(url="attachment://welcome_banner.png")
-
-                await channel.send(
-                    content=f"Welcome {member.mention} 👋",
-                    embed=embed,
-                    file=file
-                )
-            else:
-                await channel.send(
-                    content=f"Welcome {member.mention} 👋",
-                    embed=embed
-                )
-
-        except:
-            await channel.send(
-                content=f"Welcome {member.mention} 👋",
-                embed=embed
-            )
-
+    # -----------------------------
+    # GOODBYE
+    # -----------------------------
     async def send_goodbye(self, member: discord.Member):
-        channel = await self.get_channel(self.goodbye_channel_id)
-        if not channel:
-            return
+        channel = await self.fetch_channel(self.goodbye_channel_id)
 
         embed = discord.Embed(
             title="🚪 Member Left",
-            description=(
-                f"**{member.name}** has left the server.\n\n"
-                f"We hope to see them again soon."
-            ),
+            description=f"**{member.name}** has left the server.",
             color=discord.Color.red(),
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.utcnow()
         )
 
         embed.set_thumbnail(url=member.display_avatar.url)
@@ -110,12 +119,10 @@ class WelcomeGoodbye(commands.Cog):
     # TEST COMMANDS
     # -----------------------------
     @commands.command()
-    @commands.is_owner()
     async def test_welcome(self, ctx):
         await self.send_welcome(ctx.author)
 
     @commands.command()
-    @commands.is_owner()
     async def test_goodbye(self, ctx):
         await self.send_goodbye(ctx.author)
 
