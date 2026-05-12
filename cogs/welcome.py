@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from datetime import datetime
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import io
 
 
@@ -25,14 +25,23 @@ class WelcomeGoodbye(commands.Cog):
         return channel
 
     # -----------------------------
-    # IMAGE CREATOR (ASYNC SAFE)
+    # MEE6-STYLE IMAGE CREATOR
     # -----------------------------
     async def create_welcome_image(self, member: discord.Member):
-        base = Image.new("RGB", (900, 300), (10, 10, 10))
+
+        # Background base
+        base = Image.new("RGB", (900, 300), "#0f0f1a")
         draw = ImageDraw.Draw(base)
 
+        # Gradient background (smooth MEE6 style)
+        for y in range(300):
+            r = int(20 + (y * 0.18))
+            g = int(25 + (y * 0.12))
+            b = int(45 + (y * 0.22))
+            draw.line([(0, y), (900, y)], fill=(r, g, b))
+
         # -----------------------------
-        # Avatar download (NO requests blocking)
+        # Avatar download (async safe)
         # -----------------------------
         avatar_url = member.display_avatar.url
 
@@ -40,33 +49,68 @@ class WelcomeGoodbye(commands.Cog):
             avatar_bytes = await resp.read()
 
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-        avatar = avatar.resize((180, 180))
+        avatar = avatar.resize((160, 160))
 
         # Circle mask
-        mask = Image.new("L", (180, 180), 0)
+        mask = Image.new("L", (160, 160), 0)
         mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, 180, 180), fill=255)
+        mask_draw.ellipse((0, 0, 160, 160), fill=255)
 
-        base.paste(avatar, (40, 60), mask)
+        # Glow effect (MEE6 ring)
+        glow = Image.new("RGBA", (190, 190), (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow)
+        glow_draw.ellipse((0, 0, 190, 190), fill=(0, 170, 255, 90))
+        glow = glow.filter(ImageFilter.GaussianBlur(10))
 
+        base.paste(glow, (40, 70), glow)
+        base.paste(avatar, (50, 80), mask)
+
+        # -----------------------------
         # Fonts
+        # -----------------------------
         try:
-            font_big = ImageFont.truetype("arial.ttf", 40)
-            font_small = ImageFont.truetype("arial.ttf", 25)
+            font_big = ImageFont.truetype("arial.ttf", 42)
+            font_mid = ImageFont.truetype("arial.ttf", 28)
+            font_small = ImageFont.truetype("arial.ttf", 22)
         except:
             font_big = ImageFont.load_default()
+            font_mid = ImageFont.load_default()
             font_small = ImageFont.load_default()
 
-        # Text
-        draw.text((250, 80), member.name, fill="white", font=font_big)
-        draw.text((250, 140), "just joined the server", fill="gray", font=font_small)
+        # -----------------------------
+        # Card panel (center UI box)
+        # -----------------------------
+        card = Image.new("RGBA", (560, 180), (0, 0, 0, 140))
+        card = card.filter(ImageFilter.GaussianBlur(0))
+        base.paste(card, (240, 60), card)
+
+        # -----------------------------
+        # Text (MEE6 hierarchy style)
+        # -----------------------------
+        draw.text((260, 85), "WELCOME", fill=(120, 200, 255), font=font_small)
+
         draw.text(
-            (250, 190),
+            (260, 115),
+            member.name,
+            fill="white",
+            font=font_big
+        )
+
+        draw.text(
+            (260, 170),
             f"Member #{member.guild.member_count}",
-            fill="lightgray",
+            fill=(200, 200, 200),
+            font=font_mid
+        )
+
+        draw.text(
+            (260, 205),
+            "Glad to have you here!",
+            fill=(160, 160, 160),
             font=font_small
         )
 
+        # Output buffer
         buffer = io.BytesIO()
         base.save(buffer, format="PNG")
         buffer.seek(0)
