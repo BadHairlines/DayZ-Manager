@@ -25,68 +25,62 @@ class WelcomeGoodbye(commands.Cog):
         return channel
 
     # -----------------------------
-    # HD WELCOME IMAGE (MAX SIZE)
+    # CLEAN CENTERED WELCOME IMAGE
     # -----------------------------
     async def create_welcome_image(self, member: discord.Member):
 
-        # HD canvas
-        W, H = 1920, 640
-        base = Image.new("RGB", (W, H), (0, 0, 0))
+        # Pure black background
+        base = Image.new("RGB", (900, 300), (0, 0, 0))
         draw = ImageDraw.Draw(base)
 
         # -----------------------------
-        # AVATAR
+        # AVATAR (CENTER TOP)
         # -----------------------------
         avatar_url = member.display_avatar.url
 
         async with self.bot.session.get(avatar_url) as resp:
             avatar_bytes = await resp.read()
 
-        avatar_size = 260
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-        avatar = avatar.resize((avatar_size, avatar_size))
+        avatar = avatar.resize((140, 140))
 
         # Circle mask
-        mask = Image.new("L", (avatar_size, avatar_size), 0)
+        mask = Image.new("L", (140, 140), 0)
         mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+        mask_draw.ellipse((0, 0, 140, 140), fill=255)
 
         # Center position
-        avatar_x = (W - avatar_size) // 2
-        avatar_y = 70
+        avatar_x = (900 - 140) // 2
+        avatar_y = 30
 
         # Glow ring
-        glow_size = avatar_size + 80
-        glow = Image.new("RGBA", (glow_size, glow_size), (0, 0, 0, 0))
+        glow = Image.new("RGBA", (170, 170), (0, 0, 0, 0))
         glow_draw = ImageDraw.Draw(glow)
-        glow_draw.ellipse(
-            (0, 0, glow_size, glow_size),
-            fill=(0, 170, 255, 90)
-        )
-        glow = glow.filter(ImageFilter.GaussianBlur(20))
+        glow_draw.ellipse((0, 0, 170, 170), fill=(0, 170, 255, 80))
+        glow = glow.filter(ImageFilter.GaussianBlur(8))
 
-        base.paste(glow, (avatar_x - 40, avatar_y - 40), glow)
+        base.paste(glow, (avatar_x - 15, avatar_y - 15), glow)
         base.paste(avatar, (avatar_x, avatar_y), mask)
 
         # -----------------------------
-        # FONTS (SCALED FOR HD)
+        # FONTS
         # -----------------------------
         try:
-            font_big = ImageFont.truetype("arial.ttf", 84)
-            font_mid = ImageFont.truetype("arial.ttf", 48)
-            font_small = ImageFont.truetype("arial.ttf", 34)
+            font_big = ImageFont.truetype("arial.ttf", 42)
+            font_mid = ImageFont.truetype("arial.ttf", 26)
+            font_small = ImageFont.truetype("arial.ttf", 20)
         except:
             font_big = ImageFont.load_default()
             font_mid = ImageFont.load_default()
             font_small = ImageFont.load_default()
 
         # -----------------------------
-        # CENTERED TEXT
+        # CENTERED TEXT STACK
         # -----------------------------
 
         name_text = member.name
         draw.text(
-            ((W - draw.textlength(name_text, font=font_big)) / 2, 380),
+            ((900 - draw.textlength(name_text, font=font_big)) / 2, 190),
             name_text,
             fill="white",
             font=font_big
@@ -94,7 +88,7 @@ class WelcomeGoodbye(commands.Cog):
 
         join_text = "just joined the server"
         draw.text(
-            ((W - draw.textlength(join_text, font=font_mid)) / 2, 470),
+            ((900 - draw.textlength(join_text, font=font_mid)) / 2, 235),
             join_text,
             fill=(180, 180, 180),
             font=font_mid
@@ -102,15 +96,15 @@ class WelcomeGoodbye(commands.Cog):
 
         member_text = f"Member #{member.guild.member_count}"
         draw.text(
-            ((W - draw.textlength(member_text, font=font_small)) / 2, 540),
+            ((900 - draw.textlength(member_text, font=font_small)) / 2, 265),
             member_text,
             fill=(120, 120, 120),
             font=font_small
         )
 
-        # Output
+        # Output buffer
         buffer = io.BytesIO()
-        base.save(buffer, format="PNG", optimize=True)
+        base.save(buffer, format="PNG")
         buffer.seek(0)
         return buffer
 
