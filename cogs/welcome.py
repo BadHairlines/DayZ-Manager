@@ -25,23 +25,16 @@ class WelcomeGoodbye(commands.Cog):
         return channel
 
     # -----------------------------
-    # MEE6-STYLE IMAGE CREATOR
+    # CLEAN CENTERED WELCOME IMAGE
     # -----------------------------
     async def create_welcome_image(self, member: discord.Member):
 
-        # Background base
-        base = Image.new("RGB", (900, 300), "#0f0f1a")
+        # Pure black background
+        base = Image.new("RGB", (900, 300), (0, 0, 0))
         draw = ImageDraw.Draw(base)
 
-        # Gradient background (smooth MEE6 style)
-        for y in range(300):
-            r = int(20 + (y * 0.18))
-            g = int(25 + (y * 0.12))
-            b = int(45 + (y * 0.22))
-            draw.line([(0, y), (900, y)], fill=(r, g, b))
-
         # -----------------------------
-        # Avatar download (async safe)
+        # AVATAR (CENTER TOP)
         # -----------------------------
         avatar_url = member.display_avatar.url
 
@@ -49,64 +42,63 @@ class WelcomeGoodbye(commands.Cog):
             avatar_bytes = await resp.read()
 
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-        avatar = avatar.resize((160, 160))
+        avatar = avatar.resize((140, 140))
 
         # Circle mask
-        mask = Image.new("L", (160, 160), 0)
+        mask = Image.new("L", (140, 140), 0)
         mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, 160, 160), fill=255)
+        mask_draw.ellipse((0, 0, 140, 140), fill=255)
 
-        # Glow effect (MEE6 ring)
-        glow = Image.new("RGBA", (190, 190), (0, 0, 0, 0))
+        # Center position
+        avatar_x = (900 - 140) // 2
+        avatar_y = 30
+
+        # Glow ring
+        glow = Image.new("RGBA", (170, 170), (0, 0, 0, 0))
         glow_draw = ImageDraw.Draw(glow)
-        glow_draw.ellipse((0, 0, 190, 190), fill=(0, 170, 255, 90))
-        glow = glow.filter(ImageFilter.GaussianBlur(10))
+        glow_draw.ellipse((0, 0, 170, 170), fill=(0, 170, 255, 80))
+        glow = glow.filter(ImageFilter.GaussianBlur(8))
 
-        base.paste(glow, (40, 70), glow)
-        base.paste(avatar, (50, 80), mask)
+        base.paste(glow, (avatar_x - 15, avatar_y - 15), glow)
+        base.paste(avatar, (avatar_x, avatar_y), mask)
 
         # -----------------------------
-        # Fonts
+        # FONTS
         # -----------------------------
         try:
             font_big = ImageFont.truetype("arial.ttf", 42)
-            font_mid = ImageFont.truetype("arial.ttf", 28)
-            font_small = ImageFont.truetype("arial.ttf", 22)
+            font_mid = ImageFont.truetype("arial.ttf", 26)
+            font_small = ImageFont.truetype("arial.ttf", 20)
         except:
             font_big = ImageFont.load_default()
             font_mid = ImageFont.load_default()
             font_small = ImageFont.load_default()
 
         # -----------------------------
-        # Card panel (center UI box)
+        # CENTERED TEXT STACK
         # -----------------------------
-        card = Image.new("RGBA", (560, 180), (0, 0, 0, 140))
-        card = card.filter(ImageFilter.GaussianBlur(0))
-        base.paste(card, (240, 60), card)
 
-        # -----------------------------
-        # Text (MEE6 hierarchy style)
-        # -----------------------------
-        draw.text((260, 85), "WELCOME", fill=(120, 200, 255), font=font_small)
-
+        name_text = member.name
         draw.text(
-            (260, 115),
-            member.name,
+            ((900 - draw.textlength(name_text, font=font_big)) / 2, 190),
+            name_text,
             fill="white",
             font=font_big
         )
 
+        join_text = "just joined the server"
         draw.text(
-            (260, 170),
-            f"Member #{member.guild.member_count}",
-            fill=(200, 200, 200),
+            ((900 - draw.textlength(join_text, font=font_mid)) / 2, 235),
+            join_text,
+            fill=(180, 180, 180),
             font=font_mid
         )
 
+        member_text = f"Member #{member.guild.member_count}"
         draw.text(
-            (260, 205),
-            "Glad to have you here!",
-            fill=(160, 160, 160),
+            ((900 - draw.textlength(member_text, font=font_small)) / 2, 265),
+            member_text,
+            fill=(120, 120, 120),
             font=font_small
         )
 
