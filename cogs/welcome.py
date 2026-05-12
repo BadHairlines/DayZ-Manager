@@ -8,11 +8,11 @@ class WelcomeGoodbye(commands.Cog):
         self.bot = bot
 
         # Set these in your main file or env later
-        self.welcome_channel_id = None
-        self.goodbye_channel_id = None
+        self.welcome_channel_id = 1503603498850455655
+        self.goodbye_channel_id = 1503603543603413134
 
         # Optional: rules channel id (like your screenshot)
-        self.rules_channel_id = None
+        self.rules_channel_id = 1503604467843469444
 
         # Optional banner image (local file or hosted URL)
         self.welcome_banner = "welcome_banner.png"
