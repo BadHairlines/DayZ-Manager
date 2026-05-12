@@ -2,6 +2,7 @@ import os
 import asyncio
 import signal
 import discord
+import aiohttp
 from discord.ext import commands
 
 from cogs import utils
@@ -9,7 +10,7 @@ from cogs.ui_views import FlagManageView
 
 
 # -----------------------------
-# BOT SETUP
+# INTENTS
 # -----------------------------
 intents = discord.Intents.default()
 intents.guilds = True
@@ -17,10 +18,35 @@ intents.members = True
 intents.messages = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
 
-bot.synced = False
-bot._fully_ready = False
+# -----------------------------
+# BOT CLASS (FIXED: adds session)
+# -----------------------------
+class MyBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
+        self.session = None
+        self.synced = False
+        self._fully_ready = False
+
+    async def setup_hook(self):
+        # ✅ THIS FIXES YOUR ERROR
+        self.session = aiohttp.ClientSession()
+
+        await load_cogs()
+        print("[COGS] Loaded via setup_hook")
+
+    async def close(self):
+        print("[SHUTDOWN] Closing bot...")
+
+        if self.session:
+            await self.session.close()
+
+        await cleanup_db()
+        await super().close()
+
+
+bot = MyBot()
 
 
 # -----------------------------
@@ -98,7 +124,7 @@ async def on_ready():
         except Exception as e:
             print(f"[SYNC ERROR] {e}")
 
-    # Register persistent views (GLOBAL ONLY — not per guild)
+    # Persistent views
     try:
         if not hasattr(utils, "MAP_DATA") or not utils.MAP_DATA:
             print("[VIEWS] Warning: MAP_DATA missing or empty")
@@ -141,8 +167,6 @@ async def startup():
             await asyncio.sleep(3 * (attempt + 1))
     else:
         raise RuntimeError("DB connection failed after retries")
-
-    await load_cogs()
 
 
 # -----------------------------
