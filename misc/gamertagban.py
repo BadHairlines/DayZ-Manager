@@ -2,13 +2,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-class BanNotification(commands.Cog):
+class GamertagBan(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @app_commands.command(
-        name="ban",
-        description="Send a DayZ ban notification."
+        name="gtban",
+        description="Send a DayZ gamertag ban notification."
     )
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(
@@ -19,7 +19,7 @@ class BanNotification(commands.Cog):
         bail="Bail amount",
         channel="Channel to send the notification to"
     )
-    async def ban(
+    async def gtban(
         self,
         interaction: discord.Interaction,
         gamertag: str,
@@ -30,7 +30,6 @@ class BanNotification(commands.Cog):
         channel: discord.TextChannel
     ):
 
-        # Confirmation to the admin
         confirm = discord.Embed(
             description=(
                 f"> **Banned:** `{gamertag}`\n"
@@ -41,6 +40,7 @@ class BanNotification(commands.Cog):
             ),
             color=discord.Color.random()
         )
+
         confirm.set_footer(
             text="DayZ Manager",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
@@ -48,7 +48,6 @@ class BanNotification(commands.Cog):
 
         await interaction.response.send_message(embed=confirm, ephemeral=True)
 
-        # Public Ban Embed
         embed = discord.Embed(
             title="🔨 Ban Notification 🔨",
             color=discord.Color.random()
@@ -82,8 +81,8 @@ class BanNotification(commands.Cog):
 
         await channel.send(embed=embed)
 
-    @ban.error
-    async def ban_error(self, interaction: discord.Interaction, error):
+    @gtban.error
+    async def gtban_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
                 "❌ This command is for admins only.",
@@ -91,4 +90,4 @@ class BanNotification(commands.Cog):
             )
 
 async def setup(bot):
-    await bot.add_cog(BanNotification(bot))
+    await bot.add_cog(GamertagBan(bot))
