@@ -2,12 +2,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-class DiscordBanNotification(commands.Cog):
+class DiscordBan(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @app_commands.command(
-        name="discordban",
+        name="dcban",
         description="Send a Discord ban notification."
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -18,7 +18,7 @@ class DiscordBanNotification(commands.Cog):
         bail="Bail amount",
         channel="Channel to send the notification to"
     )
-    async def discordban(
+    async def dcban(
         self,
         interaction: discord.Interaction,
         user: discord.Member,
@@ -28,7 +28,7 @@ class DiscordBanNotification(commands.Cog):
         channel: discord.TextChannel
     ):
 
-        # Confirmation to the admin
+        # Admin confirmation
         confirm = discord.Embed(
             description=(
                 f"> **Banned:** {user.mention}\n"
@@ -45,12 +45,9 @@ class DiscordBanNotification(commands.Cog):
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
         )
 
-        await interaction.response.send_message(
-            embed=confirm,
-            ephemeral=True
-        )
+        await interaction.response.send_message(embed=confirm, ephemeral=True)
 
-        # Public Ban Embed
+        # Public embed
         embed = discord.Embed(
             title="🔨 Ban Notification 🔨",
             color=discord.Color.random()
@@ -83,8 +80,8 @@ class DiscordBanNotification(commands.Cog):
 
         await channel.send(embed=embed)
 
-    @discordban.error
-    async def discordban_error(self, interaction: discord.Interaction, error):
+    @dcban.error
+    async def dcban_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
                 "❌ This command is for admins only.",
@@ -92,4 +89,4 @@ class DiscordBanNotification(commands.Cog):
             )
 
 async def setup(bot):
-    await bot.add_cog(DiscordBanNotification(bot))
+    await bot.add_cog(DiscordBan(commands.Cog))
