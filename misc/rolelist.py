@@ -21,68 +21,120 @@ class RoleList(commands.Cog):
         interaction: discord.Interaction,
         role: discord.Role
     ):
-        # Make sure we have a guild
+        # Immediately acknowledge the command
+        await interaction.response.defer()
+
+        # Make sure we're in a server
         if interaction.guild is None:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "This command can only be used inside a server.",
                 ephemeral=True
             )
 
-        # Fetch EVERY member from Discord
-        members = [
-            member async for member in interaction.guild.fetch_members(limit=None)
-        ]
+        try:
+            # Fetch EVERY member from Discord
+            members = [
+                member
+                async for member in interaction.guild.fetch_members(limit=None)
+            ]
 
-        # Find everyone with the selected role
-        role_members = [
-            member for member in members
-            if role in member.roles
-        ]
+            # Find everyone with the selected role
+            role_members = [
+                member
+                for member in members
+                if role in member.roles
+            ]
 
-        # No members
-        if not role_members:
-            embed = discord.Embed(
-                title=f"{role.name}",
-                description="No members currently have this role.",
-                color=role.color if role.color.value else discord.Color.blurple()
+            # Sort alphabetically
+            role_members.sort(
+                key=lambda member: member.display_name.lower()
             )
 
-            embed.set_footer(
-                text="DayZ Manager",
-                icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+            # No members
+            if not role_members:
+                embed = discord.Embed(
+                    title=f"{role.name}",
+                    description="No members currently have this role.",
+                    color=role.color if role.color.value else discord.Color.blurple()
+                )
+
+                embed.set_footer(
+                    text="DayZ Manager",
+                    icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+                )
+
+                embed.timestamp = discord.utils.utcnow()
+
+                return await interaction.followup.send(embed=embed)
+
+            # Build member list
+            member_list = "\n".join(
+                f"• {member.mention}"
+                for member in role_members
             )
 
-            return await interaction.response.send_message(embed=embed)
+            # Discord embeds have a 4096 character description limit
+            # So split the list if needed
+            chunks = []
 
-        # Sort alphabetically
-        role_members.sort(key=lambda member: member.display_name.lower())
+            while member_list:
+                if len(member_list) <= 4000:
+                    chunks.append(member_list)
+                    break
 
-        # Create member list
-        member_list = "\n".join(
-            f"• {member.mention}"
-            for member in role_members
-        )
+                split_at = member_list.rfind("\n", 0, 4000)
 
-        embed = discord.Embed(
-            title=f"{role.name}",
-            description=member_list,
-            color=role.color if role.color.value else discord.Color.blurple()
-        )
+                if split_at == -1:
+                    split_at = 4000
 
-        embed.add_field(
-            name="Members",
-            value=str(len(role_members)),
-            inline=True
-        )
+                chunks.append(member_list[:split_at])
+                member_list = member_list[split_at:].lstrip("\n")
 
-        embed.set_footer(
-            text="DayZ Manager",
-            icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-        )
+            # Send each chunk
+            for index, chunk in enumerate(chunks):
 
-        embed.timestamp = discord.utils.utcnow()
+                embed = discord.Embed(
+                    title=f"{role.name} — Members",
+                    description=chunk,
+                    color=role.color if role.color.value else discord.Color.blurple()
+                )
 
-        await interaction.response.send_message(embed=embed)
+                # Only show count on first embed
+                if index == 0:
+                    embed.add_field(
+                        name="Members",
+                        value=str(len(role_members)),
+                        inline=True
+                    )
+
+                embed.set_footer(
+                    text="DayZ Manager",
+                    icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
+                )
+
+                embed.timestamp = discord.utils.utcnow()
+
+                await interaction.followup.send(embed=embed)
+
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ I don't have permission to fetch the server members.",
+                ephemeral=True
+            )
+
+        except discord.HTTPException as e:
+            await interaction.followup.send(
+                f"❌ Discord returned an error while fetching members:\n`{e}`",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            print(f"RoleList Error: {e}")
+
+            await interaction.followup.send(
+                "❌ Something went wrong while fetching the role members.",
+                ephemeral=True
+            )
 
 
 async def setup(bot: commands.Bot):
