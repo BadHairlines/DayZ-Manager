@@ -9,7 +9,6 @@ class RoleList(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ========= /rolelist =========
     @app_commands.command(
         name="rolelist",
         description="Show everyone who has a specific role."
@@ -22,11 +21,26 @@ class RoleList(commands.Cog):
         interaction: discord.Interaction,
         role: discord.Role
     ):
-        # Get all members with the selected role
-        members = [member for member in interaction.guild.members if role in member.roles]
+        # Make sure we have a guild
+        if interaction.guild is None:
+            return await interaction.response.send_message(
+                "This command can only be used inside a server.",
+                ephemeral=True
+            )
 
-        # No members have the role
-        if not members:
+        # Fetch EVERY member from Discord
+        members = [
+            member async for member in interaction.guild.fetch_members(limit=None)
+        ]
+
+        # Find everyone with the selected role
+        role_members = [
+            member for member in members
+            if role in member.roles
+        ]
+
+        # No members
+        if not role_members:
             embed = discord.Embed(
                 title=f"{role.name}",
                 description="No members currently have this role.",
@@ -37,14 +51,16 @@ class RoleList(commands.Cog):
                 text="DayZ Manager",
                 icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
             )
-            embed.timestamp = discord.utils.utcnow()
 
             return await interaction.response.send_message(embed=embed)
+
+        # Sort alphabetically
+        role_members.sort(key=lambda member: member.display_name.lower())
 
         # Create member list
         member_list = "\n".join(
             f"• {member.mention}"
-            for member in members
+            for member in role_members
         )
 
         embed = discord.Embed(
@@ -55,7 +71,7 @@ class RoleList(commands.Cog):
 
         embed.add_field(
             name="Members",
-            value=f"**{len(members)}**",
+            value=str(len(role_members)),
             inline=True
         )
 
@@ -63,6 +79,7 @@ class RoleList(commands.Cog):
             text="DayZ Manager",
             icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
         )
+
         embed.timestamp = discord.utils.utcnow()
 
         await interaction.response.send_message(embed=embed)
