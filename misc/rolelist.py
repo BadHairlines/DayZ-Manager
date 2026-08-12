@@ -55,7 +55,11 @@ class RoleList(commands.Cog):
                 embed = discord.Embed(
                     title=f"{role.name}",
                     description="No members currently have this role.",
-                    color=role.color if role.color.value else discord.Color.blurple()
+                    color=(
+                        role.color
+                        if role.color.value
+                        else discord.Color.blurple()
+                    )
                 )
 
                 embed.set_footer(
@@ -69,12 +73,12 @@ class RoleList(commands.Cog):
 
             # Build member list
             member_list = "\n".join(
-                f"• {member.mention}"
+                f"• {member.display_name}"
                 for member in role_members
             )
 
             # Discord embeds have a 4096 character description limit
-            # So split the list if needed
+            # Split the list if needed
             chunks = []
 
             while member_list:
@@ -96,7 +100,11 @@ class RoleList(commands.Cog):
                 embed = discord.Embed(
                     title=f"{role.name} — Members",
                     description=chunk,
-                    color=role.color if role.color.value else discord.Color.blurple()
+                    color=(
+                        role.color
+                        if role.color.value
+                        else discord.Color.blurple()
+                    )
                 )
 
                 # Only show count on first embed
