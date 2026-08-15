@@ -107,6 +107,7 @@ def normalize_map(map_key: str) -> str:
 
 
 def normalize_flag(flag: str) -> Optional[str]:
+
     if not flag:
         return None
 
@@ -462,6 +463,7 @@ async def create_flag_embed(
     guild_id: str,
     map_key: str,
     server: str,
+    guild: Optional[discord.Guild] = None,
 ) -> discord.Embed:
 
     map_key = normalize_map(map_key)
@@ -509,22 +511,55 @@ async def create_flag_embed(
 
     lines: List[str] = []
 
+    # =====================================================
+    # CLAIMED FLAGS
+    # =====================================================
+
     for row in claimed:
 
+        emoji = ""
+
+        if guild:
+
+            custom_emoji = discord.utils.get(
+                guild.emojis,
+                name=row["flag"],
+            )
+
+            if custom_emoji:
+                emoji = f"{custom_emoji} "
+
         lines.append(
-            f"❌ **{row['flag']}** — "
+            f"{emoji}❌ **{row['flag']}** — "
             f"<@&{row['role_id']}>"
         )
 
+    # =====================================================
+    # UNCLAIMED FLAGS
+    # =====================================================
+
     for row in unclaimed:
 
+        emoji = ""
+
+        if guild:
+
+            custom_emoji = discord.utils.get(
+                guild.emojis,
+                name=row["flag"],
+            )
+
+            if custom_emoji:
+                emoji = f"{custom_emoji} "
+
         lines.append(
-            f"✅ **{row['flag']}** — "
+            f"{emoji}✅ **{row['flag']}** — "
             f"*Unclaimed*"
         )
 
-    # Discord embed field values have a 1024 character limit.
-    # Split the flags across multiple fields if necessary.
+    # =====================================================
+    # EMBED FIELDS
+    # =====================================================
 
     if not lines:
 
@@ -563,6 +598,10 @@ async def create_flag_embed(
                 inline=False,
             )
 
+    # =====================================================
+    # FOOTER
+    # =====================================================
+
     embed.set_footer(
         text="DayZ Manager",
         icon_url=(
@@ -590,11 +629,31 @@ async def refresh_flag_embed(
     map_key = normalize_map(map_key)
     server = normalize_server(server)
 
+    # =====================================================
+    # FIND GUILD FIRST
+    # =====================================================
+
+    guild = bot.get_guild(
+        int(guild_id)
+    )
+
+    if not guild:
+        return
+
+    # =====================================================
+    # BUILD EMBED WITH GUILD
+    # =====================================================
+
     embed = await create_flag_embed(
         guild_id,
         map_key,
         server,
+        guild,
     )
+
+    # =====================================================
+    # FIND STORED MESSAGE
+    # =====================================================
 
     async with safe_acquire() as conn:
 
@@ -615,19 +674,16 @@ async def refresh_flag_embed(
     if not row:
         return
 
-    guild = bot.get_guild(
-        int(guild_id)
-    )
-
-    if not guild:
-        return
-
     channel = guild.get_channel(
         int(row["channel_id"])
     )
 
     if not channel:
         return
+
+    # =====================================================
+    # UPDATE MESSAGE
+    # =====================================================
 
     try:
 
