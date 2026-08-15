@@ -3,7 +3,6 @@ import hashlib
 import logging
 
 import discord
-
 from discord.ext import commands
 from discord.ui import View, Select
 
@@ -14,6 +13,60 @@ log = logging.getLogger("dayz-manager")
 
 MAX_SELECT_OPTIONS = 25
 
+
+# =========================================================
+# ASSIGN BUTTON
+# =========================================================
+
+class AssignFlagButton(discord.ui.Button):
+
+    def __init__(self, custom_id: str):
+
+        super().__init__(
+            label="🟩 Assign Flag",
+            style=discord.ButtonStyle.success,
+            custom_id=custom_id
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        view = self.view
+
+        if isinstance(view, FlagManageView):
+            await view.assign_flag(interaction)
+
+
+# =========================================================
+# RELEASE BUTTON
+# =========================================================
+
+class ReleaseFlagButton(discord.ui.Button):
+
+    def __init__(self, custom_id: str):
+
+        super().__init__(
+            label="🟥 Release Flag",
+            style=discord.ButtonStyle.danger,
+            custom_id=custom_id
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        view = self.view
+
+        if isinstance(view, FlagManageView):
+            await view.release_flag(interaction)
+
+
+# =========================================================
+# FLAG MANAGE VIEW
+# =========================================================
 
 class FlagManageView(View):
 
@@ -35,7 +88,7 @@ class FlagManageView(View):
         self.bot = bot
 
         # -----------------------------------------
-        # UNIQUE CUSTOM IDS
+        # CREATE UNIQUE SERVER IDENTIFIER
         # -----------------------------------------
         raw_key = (
             f"{guild.id if guild else 'global'}:"
@@ -47,27 +100,25 @@ class FlagManageView(View):
             raw_key.encode("utf-8")
         ).hexdigest()[:16]
 
-        # Give each server its own button IDs
-        for item in self.children:
+        # -----------------------------------------
+        # ADD SERVER-SPECIFIC BUTTONS
+        # -----------------------------------------
+        self.add_item(
+            AssignFlagButton(
+                f"assign_flag:{identifier}"
+            )
+        )
 
-            if isinstance(
-                item,
-                discord.ui.Button
-            ):
+        self.add_item(
+            ReleaseFlagButton(
+                f"release_flag:{identifier}"
+            )
+        )
 
-                if item.label == "🟩 Assign Flag":
-                    item.custom_id = (
-                        f"assign_flag:{identifier}"
-                    )
-
-                elif item.label == "🟥 Release Flag":
-                    item.custom_id = (
-                        f"release_flag:{identifier}"
-                    )
-
-    # -----------------------------
+    # =========================================================
     # LOCKING
-    # -----------------------------
+    # =========================================================
+
     @property
     def session_key(self) -> str:
 
@@ -84,9 +135,10 @@ class FlagManageView(View):
 
         return self._locks[self.session_key]
 
-    # -----------------------------
+    # =========================================================
     # EMBED REFRESH
-    # -----------------------------
+    # =========================================================
+
     async def refresh_flag_embed(self):
 
         try:
@@ -149,9 +201,10 @@ class FlagManageView(View):
                 f"Failed embed refresh: {e}"
             )
 
-    # -----------------------------
+    # =========================================================
     # ROLE OPTIONS
-    # -----------------------------
+    # =========================================================
+
     async def role_options(self):
 
         roles = [
@@ -176,9 +229,10 @@ class FlagManageView(View):
             for r in roles[:MAX_SELECT_OPTIONS]
         ]
 
-    # -----------------------------
+    # =========================================================
     # CANCEL
-    # -----------------------------
+    # =========================================================
+
     async def cancel(
         self,
         interaction: discord.Interaction
@@ -190,8 +244,9 @@ class FlagManageView(View):
         )
 
     # =========================================================
-    # ASSIGN
+    # ASSIGN FLOW
     # =========================================================
+
     async def assign_flag(
         self,
         interaction: discord.Interaction
@@ -268,9 +323,11 @@ class FlagManageView(View):
 
             cancel_btn.callback = self.cancel
 
-            view.add_item(
-                cancel_btn
-            )
+            view.add_item(cancel_btn)
+
+            # -----------------------------------------
+            # FLAG SELECTED
+            # -----------------------------------------
 
             async def on_select(
                 inter: discord.Interaction
@@ -316,9 +373,11 @@ class FlagManageView(View):
                     timeout=60
                 )
 
-                step.add_item(
-                    role_select
-                )
+                step.add_item(role_select)
+
+                # -----------------------------------------
+                # ROLE SELECTED
+                # -----------------------------------------
 
                 async def on_role(
                     inter2: discord.Interaction
@@ -340,6 +399,10 @@ class FlagManageView(View):
                             view=None
                         )
 
+                    # -----------------------------------------
+                    # ASSIGN FLAG TO ROLE
+                    # -----------------------------------------
+
                     await utils.set_flag(
                         guild_id,
                         self.map_key,
@@ -349,12 +412,21 @@ class FlagManageView(View):
                         str(role.id)
                     )
 
+                    # -----------------------------------------
+                    # REFRESH PUBLIC EMBED
+                    # -----------------------------------------
+
                     await self.refresh_flag_embed()
+
+                    # -----------------------------------------
+                    # UPDATE EPHEMERAL MESSAGE
+                    # -----------------------------------------
 
                     await inter2.followup.edit_message(
                         message_id=inter.message.id,
                         content=(
                             f"🏴 **{flag} → {role.mention}** assigned.\n"
+                            f"🗺️ Map: **{self.map_key.title()}**\n"
                             f"🖥️ Server: **{self.server}**"
                         ),
                         view=None
@@ -366,6 +438,7 @@ class FlagManageView(View):
                     message_id=inter.message.id,
                     content=(
                         f"Select role for **{flag}**\n"
+                        f"🗺️ Map: **{self.map_key.title()}**\n"
                         f"🖥️ Server: **{self.server}**"
                     ),
                     view=step
@@ -374,14 +447,19 @@ class FlagManageView(View):
             select.callback = on_select
 
             await interaction.followup.send(
-                "Choose a flag:",
+                (
+                    f"Choose a flag:\n"
+                    f"🗺️ Map: **{self.map_key.title()}**\n"
+                    f"🖥️ Server: **{self.server}**"
+                ),
                 view=view,
                 ephemeral=True
             )
 
     # =========================================================
-    # RELEASE
+    # RELEASE FLOW
     # =========================================================
+
     async def release_flag(
         self,
         interaction: discord.Interaction
@@ -449,9 +527,7 @@ class FlagManageView(View):
                 timeout=60
             )
 
-            view.add_item(
-                select
-            )
+            view.add_item(select)
 
             cancel_btn = discord.ui.Button(
                 label="Cancel",
@@ -460,9 +536,11 @@ class FlagManageView(View):
 
             cancel_btn.callback = self.cancel
 
-            view.add_item(
-                cancel_btn
-            )
+            view.add_item(cancel_btn)
+
+            # -----------------------------------------
+            # FLAG SELECTED
+            # -----------------------------------------
 
             async def on_select(
                 inter: discord.Interaction
@@ -489,6 +567,10 @@ class FlagManageView(View):
                         view=None
                     )
 
+                # -----------------------------------------
+                # RELEASE FLAG
+                # -----------------------------------------
+
                 await utils.release_flag(
                     guild_id,
                     self.map_key,
@@ -496,12 +578,21 @@ class FlagManageView(View):
                     flag
                 )
 
+                # -----------------------------------------
+                # REFRESH PUBLIC EMBED
+                # -----------------------------------------
+
                 await self.refresh_flag_embed()
+
+                # -----------------------------------------
+                # UPDATE EPHEMERAL MESSAGE
+                # -----------------------------------------
 
                 await inter.followup.edit_message(
                     message_id=inter.message.id,
                     content=(
                         f"🏳️ **{flag} released**\n"
+                        f"🗺️ Map: **{self.map_key.title()}**\n"
                         f"🖥️ Server: **{self.server}**"
                     ),
                     view=None
@@ -510,73 +601,11 @@ class FlagManageView(View):
             select.callback = on_select
 
             await interaction.followup.send(
-                "Choose a flag:",
+                (
+                    f"Choose a flag:\n"
+                    f"🗺️ Map: **{self.map_key.title()}**\n"
+                    f"🖥️ Server: **{self.server}**"
+                ),
                 view=view,
                 ephemeral=True
-            )
-
-
-# =========================================================
-# PERSISTENT BUTTONS
-# =========================================================
-
-class AssignFlagButton(
-    discord.ui.Button
-):
-
-    def __init__(
-        self,
-        custom_id: str
-    ):
-
-        super().__init__(
-            label="🟩 Assign Flag",
-            style=discord.ButtonStyle.success,
-            custom_id=custom_id
-        )
-
-    async def callback(
-        self,
-        interaction: discord.Interaction
-    ):
-
-        view = self.view
-
-        if isinstance(
-            view,
-            FlagManageView
-        ):
-            await view.assign_flag(
-                interaction
-            )
-
-
-class ReleaseFlagButton(
-    discord.ui.Button
-):
-
-    def __init__(
-        self,
-        custom_id: str
-    ):
-
-        super().__init__(
-            label="🟥 Release Flag",
-            style=discord.ButtonStyle.danger,
-            custom_id=custom_id
-        )
-
-    async def callback(
-        self,
-        interaction: discord.Interaction
-    ):
-
-        view = self.view
-
-        if isinstance(
-            view,
-            FlagManageView
-        ):
-            await view.release_flag(
-                interaction
             )
