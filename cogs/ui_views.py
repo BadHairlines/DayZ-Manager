@@ -9,6 +9,7 @@ from discord.ui import View, Select
 from cogs import utils
 from cogs.helpers.decorators import normalize_map
 
+
 log = logging.getLogger("dayz-manager")
 
 MAX_SELECT_OPTIONS = 25
@@ -84,15 +85,19 @@ class FlagManageView(View):
 
         self.guild = guild
 
-        # Normalize map + server immediately
-self.map_key = normalize_map(map_key)
-self.server = utils.normalize_server(server)
+        # -----------------------------------------
+        # NORMALIZE MAP + SERVER IMMEDIATELY
+        # -----------------------------------------
+
+        self.map_key = normalize_map(map_key)
+        self.server = utils.normalize_server(server)
 
         self.bot = bot
 
         # -----------------------------------------
         # CREATE UNIQUE SERVER IDENTIFIER
         # -----------------------------------------
+
         raw_key = (
             f"{guild.id if guild else 'global'}:"
             f"{self.map_key}:"
@@ -106,6 +111,7 @@ self.server = utils.normalize_server(server)
         # -----------------------------------------
         # ADD SERVER-SPECIFIC BUTTONS
         # -----------------------------------------
+
         self.add_item(
             AssignFlagButton(
                 f"assign_flag:{identifier}"
