@@ -16,25 +16,47 @@ class Reminder(commands.Cog):
         description="Set a reminder that will be posted in this channel."
     )
     @app_commands.describe(
-        time="How long until the reminder (e.g. 30m, 2h, 1d).",
+        time="How long until the reminder.",
         message="What you want to be reminded about."
+    )
+    @app_commands.choices(
+        time=[
+            app_commands.Choice(name="30 Seconds", value="30s"),
+            app_commands.Choice(name="1 Minute", value="1m"),
+            app_commands.Choice(name="5 Minutes", value="5m"),
+            app_commands.Choice(name="10 Minutes", value="10m"),
+            app_commands.Choice(name="15 Minutes", value="15m"),
+            app_commands.Choice(name="30 Minutes", value="30m"),
+            app_commands.Choice(name="1 Hour", value="1h"),
+            app_commands.Choice(name="2 Hours", value="2h"),
+            app_commands.Choice(name="6 Hours", value="6h"),
+            app_commands.Choice(name="12 Hours", value="12h"),
+            app_commands.Choice(name="1 Day", value="1d"),
+            app_commands.Choice(name="2 Days", value="2d"),
+            app_commands.Choice(name="3 Days", value="3d"),
+            app_commands.Choice(name="7 Days", value="7d"),
+            app_commands.Choice(name="14 Days", value="14d"),
+            app_commands.Choice(name="30 Days", value="30d"),
+        ]
     )
     async def reminder(
         self,
         interaction: discord.Interaction,
-        time: str,
+        time: app_commands.Choice[str],
         message: str
     ):
+        # Get the selected time value
+        time_value = time.value
+
         # Convert the time into seconds
         match = re.fullmatch(
             r"\s*(\d+)\s*(s|m|h|d)\s*",
-            time.lower()
+            time_value.lower()
         )
 
         if not match:
             return await interaction.response.send_message(
-                "❌ Invalid time format.\n"
-                "Use something like `30s`, `15m`, `2h`, or `1d`.",
+                "❌ Invalid reminder time.",
                 ephemeral=True
             )
 
@@ -70,7 +92,7 @@ class Reminder(commands.Cog):
             title="⏰ Reminder Set",
             description=(
                 f"**Reminder:** {message}\n"
-                f"**Time:** `{time}`\n\n"
+                f"**Time:** `{time.name}`\n\n"
                 "I'll remind you in this channel when it's due."
             ),
             color=discord.Color.blurple()
@@ -104,7 +126,7 @@ class Reminder(commands.Cog):
 
             reminder_embed.add_field(
                 name="Set For",
-                value=f"`{time}`",
+                value=f"`{time.name}`",
                 inline=True
             )
 
