@@ -31,6 +31,7 @@ FLAGS: List[str] = [
     "Chedaki",
     "CMC",
     "Crook",
+    "DayZ",
     "HunterZ",
     "NAPA",
     "NSahrani",
