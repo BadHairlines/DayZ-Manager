@@ -83,8 +83,11 @@ class FlagManageView(View):
         super().__init__(timeout=None)
 
         self.guild = guild
-        self.map_key = map_key
+
+        # Normalize map + server immediately
+        self.map_key = utils.normalize_map(map_key)
         self.server = utils.normalize_server(server)
+
         self.bot = bot
 
         # -----------------------------------------
@@ -92,7 +95,7 @@ class FlagManageView(View):
         # -----------------------------------------
         raw_key = (
             f"{guild.id if guild else 'global'}:"
-            f"{map_key}:"
+            f"{self.map_key}:"
             f"{self.server}"
         )
 
