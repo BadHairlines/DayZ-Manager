@@ -259,11 +259,12 @@ class FlagManageView(
             return []
 
         roles = [
-            role
-            for role in self.guild.roles
-            if not role.is_default()
-            and not role.managed
-        ]
+    role
+    for role in self.guild.roles
+    if not role.is_default()
+    and not role.managed
+ and role.name.startswith("Faction-")
+]
 
         roles.sort(
             key=lambda role: (
