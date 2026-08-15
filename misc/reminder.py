@@ -6,14 +6,14 @@ import re
 
 
 class Reminder(commands.Cog):
-    """Create personal DM reminders."""
+    """Create personal channel reminders."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @app_commands.command(
         name="reminder",
-        description="Set a personal reminder that will be sent to you by DM."
+        description="Set a reminder that will be posted in this channel."
     )
     @app_commands.describe(
         time="How long until the reminder (e.g. 30m, 2h, 1d).",
@@ -65,55 +65,13 @@ class Reminder(commands.Cog):
                 ephemeral=True
             )
 
-        # Try to DM the user immediately to confirm DMs are available
-        try:
-            test_embed = discord.Embed(
-                title="⏰ Reminder Set",
-                description=(
-                    f"**Reminder:** {message}\n"
-                    f"**Time:** `{time}`\n\n"
-                    "I'll DM you when your reminder is due."
-                ),
-                color=discord.Color.blurple()
-            )
-
-            test_embed.set_footer(
-                text="DayZ Manager",
-                icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
-            )
-
-            test_embed.timestamp = discord.utils.utcnow()
-
-            await interaction.user.send(embed=test_embed)
-
-        except discord.Forbidden:
-            return await interaction.response.send_message(
-                "❌ **I couldn't DM you.**\n\n"
-                "Please make sure your Discord DMs are enabled for this "
-                "server, then try the reminder again.",
-                ephemeral=True
-            )
-
-        except discord.HTTPException as e:
-            print(
-                f"Failed to test DM for {interaction.user} "
-                f"({interaction.user.id}): {e}"
-            )
-
-            return await interaction.response.send_message(
-                "❌ I couldn't send you a DM right now. "
-                "Please try again later.",
-                ephemeral=True
-            )
-
-        # Send confirmation in the server
+        # Respond immediately
         embed = discord.Embed(
             title="⏰ Reminder Set",
             description=(
                 f"**Reminder:** {message}\n"
                 f"**Time:** `{time}`\n\n"
-                "✅ DM delivery confirmed.\n"
-                "I'll remind you when it's due."
+                "I'll remind you in this channel when it's due."
             ),
             color=discord.Color.blurple()
         )
@@ -130,47 +88,48 @@ class Reminder(commands.Cog):
             ephemeral=True
         )
 
+        # Save the channel where the command was used
+        channel = interaction.channel
+
         # Wait until reminder is due
         await asyncio.sleep(delay)
 
-        # Send the actual reminder
+        # Send the reminder in the same channel
         try:
-            dm_embed = discord.Embed(
+            reminder_embed = discord.Embed(
                 title="⏰ Reminder",
                 description=message,
                 color=discord.Color.blurple()
             )
 
-            dm_embed.add_field(
+            reminder_embed.add_field(
                 name="Set For",
                 value=f"`{time}`",
                 inline=True
             )
 
-            dm_embed.set_footer(
+            reminder_embed.set_footer(
                 text="DayZ Manager",
                 icon_url="https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
             )
 
-            dm_embed.timestamp = discord.utils.utcnow()
+            reminder_embed.timestamp = discord.utils.utcnow()
 
-            await interaction.user.send(embed=dm_embed)
-
-            print(
-                f"Reminder sent to {interaction.user} "
-                f"({interaction.user.id})"
+            await channel.send(
+                content=interaction.user.mention,
+                embed=reminder_embed
             )
 
         except discord.Forbidden:
             print(
-                f"❌ Could not DM reminder to {interaction.user} "
-                f"({interaction.user.id})."
+                f"❌ Could not send reminder in channel "
+                f"{channel.id}."
             )
 
         except discord.HTTPException as e:
             print(
-                f"❌ Failed to send reminder to {interaction.user} "
-                f"({interaction.user.id}): {e}"
+                f"❌ Failed to send reminder in channel "
+                f"{channel.id}: {e}"
             )
 
 
