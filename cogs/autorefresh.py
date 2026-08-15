@@ -1,111 +1,199 @@
 import asyncio
 import logging
+
 import discord
 from discord.ext import commands
 
 from cogs import utils
 from cogs.ui_views import FlagManageView
 
+
 log = logging.getLogger("dayz-manager")
 
 
 class AutoRefresh(commands.Cog):
-    """Restores persistent flag embeds after bot restart."""
+    """
+    Restores persistent flag embeds after bot restart.
+    Supports multiple servers on the same map.
+    """
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(
+        self,
+        bot: commands.Bot
+    ):
         self.bot = bot
 
-    # -----------------------------
-    # SINGLE EMBED RESTORE
-    # -----------------------------
-    async def restore_flag_message(self, guild: discord.Guild, map_key: str):
+    async def restore_flag_message(
+        self,
+        guild: discord.Guild,
+        map_key: str,
+        server: str
+    ):
+
         if map_key not in utils.MAP_DATA:
             return
 
         try:
+
             async with utils.safe_acquire() as conn:
+
                 row = await conn.fetchrow(
                     """
                     SELECT channel_id, message_id
                     FROM flag_messages
-                    WHERE guild_id=$1 AND map=$2
+                    WHERE guild_id=$1
+                      AND map=$2
+                      AND server=$3
                     """,
                     str(guild.id),
                     map_key,
+                    server
                 )
 
             if not row:
                 return
 
-            channel = guild.get_channel(int(row["channel_id"]))
+            channel = guild.get_channel(
+                int(row["channel_id"])
+            )
+
             if not channel:
-                log.warning(f"[AutoRefresh] Missing channel: {guild.name} ({map_key})")
+
+                log.warning(
+                    f"[AutoRefresh] Missing channel: "
+                    f"{guild.name} "
+                    f"({map_key} / {server})"
+                )
+
                 return
 
             try:
-                msg = await channel.fetch_message(int(row["message_id"]))
+
+                msg = await channel.fetch_message(
+                    int(row["message_id"])
+                )
+
             except discord.NotFound:
-                log.warning(f"[AutoRefresh] Missing message: {guild.name} ({map_key})")
+
+                log.warning(
+                    f"[AutoRefresh] Missing message: "
+                    f"{guild.name} "
+                    f"({map_key} / {server})"
+                )
+
                 return
+
             except discord.Forbidden:
-                log.warning(f"[AutoRefresh] No permission to fetch message: {guild.name} ({map_key})")
+
+                log.warning(
+                    f"[AutoRefresh] No permission: "
+                    f"{guild.name} "
+                    f"({map_key} / {server})"
+                )
+
                 return
 
-            embed = await utils.create_flag_embed(str(guild.id), map_key)
+            embed = await utils.create_flag_embed(
+                str(guild.id),
+                map_key,
+                server
+            )
 
-            # IMPORTANT FIX:
-            # Always reuse same view instance per (guild, map)
-            view = FlagManageView(guild, map_key, self.bot)
+            view = FlagManageView(
+                guild,
+                map_key,
+                server,
+                self.bot
+            )
 
-            await msg.edit(embed=embed, view=view)
+            # Register persistent view
+            self.bot.add_view(
+                view,
+                message_id=msg.id
+            )
+
+            await msg.edit(
+                embed=embed,
+                view=view
+            )
 
         except Exception as e:
-            log.error(f"[AutoRefresh ERROR] {guild.name} ({map_key}): {type(e).__name__}: {e}")
+
+            log.error(
+                f"[AutoRefresh ERROR] "
+                f"{guild.name} "
+                f"({map_key} / {server}): "
+                f"{type(e).__name__}: {e}"
+            )
 
     # -----------------------------
-    # STARTUP RESTORE
+    # STARTUP
     # -----------------------------
     @commands.Cog.listener()
     async def on_ready(self):
+
         await self.bot.wait_until_ready()
 
-        # prevent duplicate execution on reconnect
-        if getattr(self.bot, "_auto_refresh_done", False):
+        if getattr(
+            self.bot,
+            "_auto_refresh_done",
+            False
+        ):
             return
+
         self.bot._auto_refresh_done = True
 
-        log.info("[AutoRefresh] Restoring persistent flag embeds...")
+        log.info(
+            "[AutoRefresh] Restoring persistent flag embeds..."
+        )
 
-        # small delay lets cache + guilds stabilize
         await asyncio.sleep(3)
 
         for guild in self.bot.guilds:
+
             try:
+
                 async with utils.safe_acquire() as conn:
+
                     rows = await conn.fetch(
                         """
-                        SELECT DISTINCT map
+                        SELECT map, server
                         FROM flag_messages
                         WHERE guild_id=$1
+                        ORDER BY map, server
                         """,
-                        str(guild.id),
+                        str(guild.id)
                     )
 
                 if not rows:
                     continue
 
-                map_keys = [r["map"] for r in rows]
+                for row in rows:
 
-                # restore sequentially (safe for rate limits)
-                for map_key in map_keys:
-                    await self.restore_flag_message(guild, map_key)
-                    await asyncio.sleep(0.6)
+                    await self.restore_flag_message(
+                        guild,
+                        row["map"],
+                        row["server"]
+                    )
+
+                    await asyncio.sleep(
+                        0.6
+                    )
 
             except Exception as e:
-                log.error(f"[AutoRefresh Guild Error] {guild.name}: {type(e).__name__}: {e}")
 
-        log.info("[AutoRefresh] Completed restoration.")
+                log.error(
+                    f"[AutoRefresh Guild Error] "
+                    f"{guild.name}: "
+                    f"{type(e).__name__}: {e}"
+                )
+
+        log.info(
+            "[AutoRefresh] Completed restoration."
+        )
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(AutoRefresh(bot))
+    await bot.add_cog(
+        AutoRefresh(bot)
+    )
