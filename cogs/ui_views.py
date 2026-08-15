@@ -7,7 +7,7 @@ from discord.ext import commands
 from discord.ui import View, Select
 
 from cogs import utils
-
+from cogs.helpers.decorators import normalize_map
 
 log = logging.getLogger("dayz-manager")
 
@@ -85,8 +85,8 @@ class FlagManageView(View):
         self.guild = guild
 
         # Normalize map + server immediately
-        self.map_key = utils.normalize_map(map_key)
-        self.server = utils.normalize_server(server)
+self.map_key = normalize_map(map_key)
+self.server = utils.normalize_server(server)
 
         self.bot = bot
 
