@@ -838,23 +838,6 @@ async def create_flag_embed(
             )
 
     # =====================================================
-    # STATUS LEGEND
-    # =====================================================
-
-    if rows:
-
-        embed.add_field(
-            name="📋  STATUS",
-            value=(
-                f"{CLAIMED_EMOJI} **Claimed** — "
-                "Currently assigned to a faction\n"
-                f"{AVAILABLE_EMOJI} **Available** — "
-                "Ready to be claimed"
-            ),
-            inline=False,
-        )
-
-    # =====================================================
     # FOOTER
     # =====================================================
 
