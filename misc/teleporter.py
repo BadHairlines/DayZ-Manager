@@ -6,6 +6,16 @@ import json
 import asyncio
 import re
 
+
+# =========================================================
+# ALLOWED GUILDS
+# =========================================================
+
+ALLOWED_GUILD_IDS = [
+    1109306235808911360,  # The Hive
+]
+
+
 class Teleporter(commands.Cog):
     """Generate teleporter JSON configuration files."""
 
@@ -15,6 +25,12 @@ class Teleporter(commands.Cog):
     @app_commands.command(
         name="teleporter",
         description="Generate 1-way or 2-way teleporter JSON files for DayZ teleporters."
+    )
+    @app_commands.check(
+        lambda interaction: (
+            interaction.guild is not None
+            and interaction.guild.id in ALLOWED_GUILD_IDS
+        )
     )
     @app_commands.describe(
         position_a="First position array (e.g. [1234,56,789]) or comma-separated (1234,56,789)",
@@ -32,6 +48,7 @@ class Teleporter(commands.Cog):
         Creates two teleporter JSON files using user-supplied coordinates.
         Automatically reverses the name for the second file and includes file path examples.
         """
+
         await interaction.response.defer(ephemeral=True)
 
         # Show progress message
@@ -56,12 +73,23 @@ class Teleporter(commands.Cog):
             )
             return
 
-        # --- Swap file name (Base2NWAF -> NWAF2Base or BaseToNWAF -> NWAFToBase) ---
+        # --- Swap file name ---
         def swap_name(base_name: str) -> str:
-            match = re.split(r'2|to', base_name, maxsplit=1, flags=re.IGNORECASE)
+            match = re.split(
+                r'2|to',
+                base_name,
+                maxsplit=1,
+                flags=re.IGNORECASE
+            )
+
             if len(match) == 2:
                 part1, part2 = match
-                return f"{part2}2{part1}" if part2 and part1 else f"{base_name}_Reversed"
+                return (
+                    f"{part2}2{part1}"
+                    if part2 and part1
+                    else f"{base_name}_Reversed"
+                )
+
             return f"{base_name}_Reversed"
 
         name_a_to_b = name.replace(" ", "_")
@@ -91,8 +119,15 @@ class Teleporter(commands.Cog):
         file2_name = f"Teleporter_{name_b_to_a}.json"
 
         # --- Create files in memory ---
-        file1 = discord.File(io.BytesIO(json1.encode("utf-8")), filename=file1_name)
-        file2 = discord.File(io.BytesIO(json2.encode("utf-8")), filename=file2_name)
+        file1 = discord.File(
+            io.BytesIO(json1.encode("utf-8")),
+            filename=file1_name
+        )
+
+        file2 = discord.File(
+            io.BytesIO(json2.encode("utf-8")),
+            filename=file2_name
+        )
 
         # --- UX delay ---
         await asyncio.sleep(1.2)
@@ -115,6 +150,7 @@ class Teleporter(commands.Cog):
             ),
             attachments=[file1, file2]
         )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Teleporter(bot))
