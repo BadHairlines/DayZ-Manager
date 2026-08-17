@@ -9,14 +9,49 @@ import discord
 
 db_pool: Optional[asyncpg.Pool] = None
 
+
+# =========================================================
+# FLAGS
+# =========================================================
+
 FLAGS: list[str] = [
-    "APA", "Altis", "BabyDeer", "Bear", "Bohemia", "BrainZ", "Cannibals",
-    "CHEL", "Chedaki", "CMC", "Crook", "DayZ", "HunterZ", "NAPA",
-    "NSahrani", "Pirates", "Rex", "Refuge", "Rooster", "RSTA", "Snake",
-    "TEC", "UEC", "Wolf", "Zagorky", "Zenit",
+    "APA",
+    "Altis",
+    "BabyDeer",
+    "Bear",
+    "Bohemia",
+    "BrainZ",
+    "Cannibals",
+    "CHEL",
+    "Chedaki",
+    "CMC",
+    "Crook",
+    "DayZ",
+    "HunterZ",
+    "NAPA",
+    "NSahrani",
+    "Pirates",
+    "Rex",
+    "Refuge",
+    "Rooster",
+    "RSTA",
+    "Snake",
+    "TEC",
+    "UEC",
+    "Wolf",
+    "Zagorky",
+    "Zenit",
 ]
 
-FLAG_LOOKUP = {flag.casefold(): flag for flag in FLAGS}
+FLAG_LOOKUP = {
+    flag.casefold(): flag
+    for flag in FLAGS
+}
+
+
+# =========================================================
+# MAP DATA
+# =========================================================
 
 MAP_DATA: dict[str, dict[str, Any]] = {
     "livonia": {
@@ -33,11 +68,27 @@ MAP_DATA: dict[str, dict[str, Any]] = {
     },
 }
 
+
+# =========================================================
+# EMBED CONFIG
+# =========================================================
+
 FOOTER_ICON = "https://i.postimg.cc/rmXpLFpv/ewn60cg6.png"
 
+EMBED_COLOR = 0x3498DB
+
+CLAIMED_EMOJI = "🟥"
+AVAILABLE_EMOJI = "🟩"
+TOTAL_EMOJI = "🏴"
+
+
+# =========================================================
+# NORMALIZATION
+# =========================================================
 
 def normalize_map(value: str) -> str:
     value = str(value or "").strip().casefold()
+
     aliases = {
         "livonia": "livonia",
         "chernarus": "chernarus",
@@ -45,26 +96,46 @@ def normalize_map(value: str) -> str:
         "chernarus plus": "chernarus",
         "sakhal": "sakhal",
     }
+
     return aliases.get(value, value)
 
 
 def normalize_flag(value: str) -> Optional[str]:
     if not value:
         return None
-    return FLAG_LOOKUP.get(str(value).strip().casefold())
+
+    return FLAG_LOOKUP.get(
+        str(value).strip().casefold()
+    )
 
 
 def normalize_server(value: str) -> str:
-    return " ".join(str(value or "").strip().casefold().split())
+    return " ".join(
+        str(value or "").strip().casefold().split()
+    )
 
 
 def channel_name_for(map_key: str, server: str) -> str:
-    raw = f"flags-{normalize_map(map_key)}-{normalize_server(server)}"
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in raw)
+    raw = (
+        f"flags-"
+        f"{normalize_map(map_key)}-"
+        f"{normalize_server(server)}"
+    )
+
+    safe = "".join(
+        ch if ch.isalnum() or ch in "-_" else "-"
+        for ch in raw
+    )
+
     while "--" in safe:
         safe = safe.replace("--", "-")
+
     return safe.strip("-")[:100] or "flags"
 
+
+# =========================================================
+# DATABASE CONNECTION
+# =========================================================
 
 async def ensure_connection() -> asyncpg.Pool:
     global db_pool
@@ -77,8 +148,11 @@ async def ensure_connection() -> asyncpg.Pool:
             pass
 
     dsn = os.getenv("DATABASE_URL")
+
     if not dsn:
-        raise RuntimeError("DATABASE_URL environment variable is missing.")
+        raise RuntimeError(
+            "DATABASE_URL environment variable is missing."
+        )
 
     if dsn.startswith("postgres://"):
         dsn = "postgresql://" + dsn[len("postgres://"):]
@@ -86,7 +160,9 @@ async def ensure_connection() -> asyncpg.Pool:
     db_pool = await asyncpg.create_pool(
         dsn=dsn,
         min_size=1,
-        max_size=int(os.getenv("DB_MAX_POOL_SIZE", "10")),
+        max_size=int(
+            os.getenv("DB_MAX_POOL_SIZE", "10")
+        ),
         command_timeout=30,
         max_inactive_connection_lifetime=300,
     )
@@ -115,7 +191,8 @@ async def migrate(conn: asyncpg.Connection) -> None:
         for row in await conn.fetch("""
             SELECT column_name
             FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'flags'
+            WHERE table_schema = 'public'
+              AND table_name = 'flags'
         """)
     }
 
@@ -124,7 +201,12 @@ async def migrate(conn: asyncpg.Connection) -> None:
             ALTER TABLE flags
             ADD COLUMN server TEXT NOT NULL DEFAULT 'server 1'
         """)
-        await conn.execute("ALTER TABLE flags DROP CONSTRAINT IF EXISTS flags_pkey")
+
+        await conn.execute(
+            "ALTER TABLE flags "
+            "DROP CONSTRAINT IF EXISTS flags_pkey"
+        )
+
         await conn.execute("""
             ALTER TABLE flags
             ADD PRIMARY KEY (guild_id, map, server, flag)
@@ -147,7 +229,8 @@ async def migrate(conn: asyncpg.Connection) -> None:
         for row in await conn.fetch("""
             SELECT column_name
             FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'flag_messages'
+            WHERE table_schema = 'public'
+              AND table_name = 'flag_messages'
         """)
     }
 
@@ -156,9 +239,12 @@ async def migrate(conn: asyncpg.Connection) -> None:
             ALTER TABLE flag_messages
             ADD COLUMN server TEXT NOT NULL DEFAULT 'server 1'
         """)
+
         await conn.execute(
-            "ALTER TABLE flag_messages DROP CONSTRAINT IF EXISTS flag_messages_pkey"
+            "ALTER TABLE flag_messages "
+            "DROP CONSTRAINT IF EXISTS flag_messages_pkey"
         )
+
         await conn.execute("""
             ALTER TABLE flag_messages
             ADD PRIMARY KEY (guild_id, map, server)
@@ -178,48 +264,119 @@ async def migrate(conn: asyncpg.Connection) -> None:
 @contextlib.asynccontextmanager
 async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
     pool = await ensure_connection()
+
     async with pool.acquire() as conn:
         yield conn
 
 
 async def close_db() -> None:
     global db_pool
+
     if db_pool is not None:
         await db_pool.close()
         db_pool = None
 
 
-async def get_flag(guild_id: str, map_key: str, server: str, flag: str):
+# =========================================================
+# FLAG DATABASE OPERATIONS
+# =========================================================
+
+async def get_flag(
+    guild_id: str,
+    map_key: str,
+    server: str,
+    flag: str,
+):
     canonical = normalize_flag(flag)
+
     if not canonical:
         return None
 
     async with safe_acquire() as conn:
         return await conn.fetchrow("""
-            SELECT guild_id, map, server, flag, status, role_id
+            SELECT
+                guild_id,
+                map,
+                server,
+                flag,
+                status,
+                role_id
             FROM flags
-            WHERE guild_id=$1 AND map=$2 AND server=$3 AND flag=$4
-        """, str(guild_id), normalize_map(map_key), normalize_server(server), canonical)
+            WHERE guild_id=$1
+              AND map=$2
+              AND server=$3
+              AND flag=$4
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+            canonical,
+        )
 
 
-async def get_all_flags(guild_id: str, map_key: str, server: str):
+async def get_all_flags(
+    guild_id: str,
+    map_key: str,
+    server: str,
+):
     async with safe_acquire() as conn:
         return await conn.fetch("""
-            SELECT guild_id, map, server, flag, status, role_id
+            SELECT
+                guild_id,
+                map,
+                server,
+                flag,
+                status,
+                role_id
             FROM flags
-            WHERE guild_id=$1 AND map=$2 AND server=$3
+            WHERE guild_id=$1
+              AND map=$2
+              AND server=$3
             ORDER BY flag ASC
-        """, str(guild_id), normalize_map(map_key), normalize_server(server))
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+        )
 
 
-async def initialize_flags(guild_id: str, map_key: str, server: str) -> None:
+async def initialize_flags(
+    guild_id: str,
+    map_key: str,
+    server: str,
+) -> None:
     async with safe_acquire() as conn:
         await conn.executemany("""
-            INSERT INTO flags (guild_id, map, server, flag, status, role_id)
-            VALUES ($1, $2, $3, $4, '✅', NULL)
-            ON CONFLICT (guild_id, map, server, flag) DO NOTHING
+            INSERT INTO flags (
+                guild_id,
+                map,
+                server,
+                flag,
+                status,
+                role_id
+            )
+            VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                '✅',
+                NULL
+            )
+            ON CONFLICT (
+                guild_id,
+                map,
+                server,
+                flag
+            )
+            DO NOTHING
         """, [
-            (str(guild_id), normalize_map(map_key), normalize_server(server), flag)
+            (
+                str(guild_id),
+                normalize_map(map_key),
+                normalize_server(server),
+                flag,
+            )
             for flag in FLAGS
         ])
 
@@ -232,13 +389,16 @@ async def claim_flag(
     role_id: str,
 ):
     canonical = normalize_flag(flag)
+
     if not canonical:
         return None
 
     async with safe_acquire() as conn:
         return await conn.fetchrow("""
             UPDATE flags
-            SET status='❌', role_id=$5
+            SET
+                status='❌',
+                role_id=$5
             WHERE guild_id=$1
               AND map=$2
               AND server=$3
@@ -246,19 +406,32 @@ async def claim_flag(
               AND status='✅'
               AND role_id IS NULL
             RETURNING *
-        """, str(guild_id), normalize_map(map_key), normalize_server(server),
-             canonical, str(role_id))
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+            canonical,
+            str(role_id),
+        )
 
 
-async def release_flag(guild_id: str, map_key: str, server: str, flag: str):
+async def release_flag(
+    guild_id: str,
+    map_key: str,
+    server: str,
+    flag: str,
+):
     canonical = normalize_flag(flag)
+
     if not canonical:
         return None
 
     async with safe_acquire() as conn:
         return await conn.fetchrow("""
             UPDATE flags
-            SET status='✅', role_id=NULL
+            SET
+                status='✅',
+                role_id=NULL
             WHERE guild_id=$1
               AND map=$2
               AND server=$3
@@ -266,8 +439,17 @@ async def release_flag(guild_id: str, map_key: str, server: str, flag: str):
               AND status='❌'
               AND role_id IS NOT NULL
             RETURNING *
-        """, str(guild_id), normalize_map(map_key), normalize_server(server), canonical)
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+            canonical,
+        )
 
+
+# =========================================================
+# FLAG MESSAGE STORAGE
+# =========================================================
 
 async def save_flag_message(
     guild_id: str,
@@ -279,43 +461,144 @@ async def save_flag_message(
     async with safe_acquire() as conn:
         await conn.execute("""
             INSERT INTO flag_messages (
-                guild_id, map, server, channel_id, message_id
+                guild_id,
+                map,
+                server,
+                channel_id,
+                message_id
             )
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (guild_id, map, server)
+            ON CONFLICT (
+                guild_id,
+                map,
+                server
+            )
             DO UPDATE SET
                 channel_id=EXCLUDED.channel_id,
                 message_id=EXCLUDED.message_id
-        """, str(guild_id), normalize_map(map_key), normalize_server(server),
-             str(channel_id), str(message_id))
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+            str(channel_id),
+            str(message_id),
+        )
 
 
-async def get_flag_message(guild_id: str, map_key: str, server: str):
+async def get_flag_message(
+    guild_id: str,
+    map_key: str,
+    server: str,
+):
     async with safe_acquire() as conn:
         return await conn.fetchrow("""
-            SELECT channel_id, message_id
+            SELECT
+                channel_id,
+                message_id
             FROM flag_messages
-            WHERE guild_id=$1 AND map=$2 AND server=$3
-        """, str(guild_id), normalize_map(map_key), normalize_server(server))
+            WHERE guild_id=$1
+              AND map=$2
+              AND server=$3
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+        )
 
 
-async def get_flag_sessions(guild_id: str):
+async def get_flag_sessions(
+    guild_id: str,
+):
     async with safe_acquire() as conn:
         return await conn.fetch("""
-            SELECT map, server, channel_id, message_id
+            SELECT
+                map,
+                server,
+                channel_id,
+                message_id
             FROM flag_messages
             WHERE guild_id=$1
             ORDER BY map, server
-        """, str(guild_id))
+        """,
+            str(guild_id),
+        )
 
 
-def flag_emoji(guild: discord.Guild | None, flag: str) -> str:
+# =========================================================
+# FLAG EMOJIS
+# =========================================================
+
+def flag_emoji(
+    guild: discord.Guild | None,
+    flag: str,
+    status: str | None = None,
+) -> str:
+    """
+    Use a custom Discord emoji matching the flag name when available.
+
+    If no custom emoji exists, fall back to:
+        🟥 = claimed
+        🟩 = available
+    """
+
     if guild:
-        custom = discord.utils.get(guild.emojis, name=flag)
+        custom = discord.utils.get(
+            guild.emojis,
+            name=flag,
+        )
+
         if custom:
             return f"{custom} "
-    return ""
 
+    if status == "claimed":
+        return f"{CLAIMED_EMOJI} "
+
+    return f"{AVAILABLE_EMOJI} "
+
+
+# =========================================================
+# EMBED HELPERS
+# =========================================================
+
+def _split_embed_lines(
+    lines: list[str],
+    max_length: int = 1024,
+) -> list[str]:
+    """
+    Safely split lines into Discord embed field values.
+
+    Discord limits each embed field value to 1024 characters.
+    This keeps the split invisible to users by using the same
+    field title for every section.
+    """
+
+    chunks: list[str] = []
+    current = ""
+
+    for line in lines:
+        candidate = (
+            f"{current}\n{line}"
+            if current
+            else line
+        )
+
+        if len(candidate) > max_length:
+            if current:
+                chunks.append(current)
+
+            current = line
+        else:
+            current = candidate
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
+# =========================================================
+# FLAG EMBED
+# =========================================================
 
 async def create_flag_embed(
     guild_id: str,
@@ -326,59 +609,153 @@ async def create_flag_embed(
     map_key = normalize_map(map_key)
     server = normalize_server(server)
 
-    rows = await get_all_flags(guild_id, map_key, server)
-    map_info = MAP_DATA.get(map_key, {"name": map_key.title(), "image": None})
-
-    claimed = [row for row in rows if row["role_id"]]
-    unclaimed = [row for row in rows if not row["role_id"]]
-
-    embed = discord.Embed(
-        title=f"🏴 Flag Ownership — {map_info['name']}",
-        description=f"**Server:** `{server}`",
-        color=0x3498DB,
+    rows = await get_all_flags(
+        guild_id,
+        map_key,
+        server,
     )
 
+    map_info = MAP_DATA.get(
+        map_key,
+        {
+            "name": map_key.title(),
+            "image": None,
+        },
+    )
+
+    claimed = [
+        row
+        for row in rows
+        if row["role_id"]
+    ]
+
+    unclaimed = [
+        row
+        for row in rows
+        if not row["role_id"]
+    ]
+
+    total = len(rows)
+    claimed_count = len(claimed)
+    available_count = len(unclaimed)
+
+    # =====================================================
+    # MAIN EMBED
+    # =====================================================
+
+    embed = discord.Embed(
+        title="🏴  Flag Ownership",
+        description=(
+            f"**{map_info['name']}**  •  `{server}`\n\n"
+            f"{CLAIMED_EMOJI} **{claimed_count} Claimed**"
+            f"  •  "
+            f"{AVAILABLE_EMOJI} **{available_count} Available**"
+            f"  •  "
+            f"{TOTAL_EMOJI} **{total} Total**"
+        ),
+        color=EMBED_COLOR,
+    )
+
+    # =====================================================
+    # MAP IMAGE
+    # =====================================================
+
     if map_info.get("image"):
-        embed.set_image(url=map_info["image"])
-
-    lines: list[str] = []
-
-    for row in claimed:
-        lines.append(
-            f"{flag_emoji(guild, row['flag'])}❌ **{row['flag']}** — <@&{row['role_id']}>"
+        embed.set_image(
+            url=map_info["image"]
         )
 
-    for row in unclaimed:
-        lines.append(
-            f"{flag_emoji(guild, row['flag'])}✅ **{row['flag']}** — *Unclaimed*"
+    # =====================================================
+    # CLAIMED FLAGS
+    # =====================================================
+
+    if claimed:
+        claimed_lines: list[str] = []
+
+        for row in claimed:
+            emoji = flag_emoji(
+                guild,
+                row["flag"],
+                "claimed",
+            )
+
+            claimed_lines.append(
+                f"{emoji}**{row['flag']}**  —  "
+                f"<@&{row['role_id']}>"
+            )
+
+        claimed_chunks = _split_embed_lines(
+            claimed_lines
         )
 
-    if not lines:
-        embed.add_field(name="Flags", value="_No flags found._", inline=False)
-    else:
-        chunks: list[str] = []
-        current = ""
-
-        for line in lines:
-            if len(current) + len(line) + 1 > 1024:
-                chunks.append(current.rstrip())
-                current = ""
-            current += line + "\n"
-
-        if current:
-            chunks.append(current.rstrip())
-
-        for index, chunk in enumerate(chunks):
+        for chunk in claimed_chunks:
             embed.add_field(
-                name="Flags" if index == 0 else f"Flags — Continued {index + 1}",
+                name="🟥  Claimed Flags",
                 value=chunk,
                 inline=False,
             )
 
-    embed.set_footer(text="DayZ Manager", icon_url=FOOTER_ICON)
+    # =====================================================
+    # AVAILABLE FLAGS
+    # =====================================================
+
+    if unclaimed:
+        available_lines: list[str] = []
+
+        for row in unclaimed:
+            emoji = flag_emoji(
+                guild,
+                row["flag"],
+                "available",
+            )
+
+            available_lines.append(
+                f"{emoji}**{row['flag']}**  —  "
+                f"*Available*"
+            )
+
+        available_chunks = _split_embed_lines(
+            available_lines
+        )
+
+        for chunk in available_chunks:
+            embed.add_field(
+                name="🟩  Available Flags",
+                value=chunk,
+                inline=False,
+            )
+
+    # =====================================================
+    # EMPTY STATE
+    # =====================================================
+
+    if not rows:
+        embed.add_field(
+            name="🏴  Flags",
+            value=(
+                "*No flags have been configured "
+                "for this server.*"
+            ),
+            inline=False,
+        )
+
+    # =====================================================
+    # FOOTER
+    # =====================================================
+
+    embed.set_footer(
+        text="DayZ Manager  •  Flag Management",
+        icon_url=FOOTER_ICON,
+    )
+
     embed.timestamp = discord.utils.utcnow()
+
     return embed
 
+
+# =========================================================
+# REFRESH FLAG EMBED
+# =========================================================
 
 async def refresh_flag_embed(
     bot: discord.Client,
@@ -386,22 +763,53 @@ async def refresh_flag_embed(
     map_key: str,
     server: str,
 ) -> bool:
-    guild = bot.get_guild(int(guild_id))
+    guild = bot.get_guild(
+        int(guild_id)
+    )
+
     if not guild:
         return False
 
-    row = await get_flag_message(guild_id, map_key, server)
+    row = await get_flag_message(
+        guild_id,
+        map_key,
+        server,
+    )
+
     if not row:
         return False
 
-    channel = guild.get_channel(int(row["channel_id"]))
-    if not isinstance(channel, discord.TextChannel):
+    channel = guild.get_channel(
+        int(row["channel_id"])
+    )
+
+    if not isinstance(
+        channel,
+        discord.TextChannel,
+    ):
         return False
 
     try:
-        message = await channel.fetch_message(int(row["message_id"]))
-        embed = await create_flag_embed(guild_id, map_key, server, guild)
-        await message.edit(embed=embed)
+        message = await channel.fetch_message(
+            int(row["message_id"])
+        )
+
+        embed = await create_flag_embed(
+            guild_id,
+            map_key,
+            server,
+            guild,
+        )
+
+        await message.edit(
+            embed=embed
+        )
+
         return True
-    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+
+    except (
+        discord.NotFound,
+        discord.Forbidden,
+        discord.HTTPException,
+    ):
         return False
