@@ -20,6 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 COG_DIRECTORIES = (
     BASE_DIR / "cogs",
+    BASE_DIR / "misc",
 )
 
 # Files that should never be loaded as Discord extensions.
