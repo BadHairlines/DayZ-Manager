@@ -1,135 +1,215 @@
-import os
+from __future__ import annotations
+
 import asyncio
+import os
 import signal
+from pathlib import Path
+
 import discord
 from discord.ext import commands
 
 from cogs import utils
-from cogs.ui_views import FlagManageView
 
 
-# -----------------------------
-# BOT SETUP
-# -----------------------------
-intents = discord.Intents.default()
-intents.guilds = True
-intents.members = True
-intents.messages = True
-intents.message_content = True
+# =========================================================
+# PATHS
+# =========================================================
 
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents
+BASE_DIR = Path(__file__).resolve().parent
+
+COG_DIRECTORIES = (
+    BASE_DIR / "cogs",
+    BASE_DIR / "misc",
 )
 
-bot.synced = False
-bot._fully_ready = False
-
-
-# -----------------------------
-# DATABASE INIT
-# -----------------------------
-async def init_db():
-    await utils.ensure_connection()
-    print("[DB] Connected")
-
-
-async def cleanup_db():
-    try:
-        if hasattr(utils, "close_connection"):
-            await utils.close_connection()
-
-        print("[DB] Disconnected")
-
-    except Exception as e:
-        print(
-            f"[DB CLEANUP ERROR] {e}"
-        )
-
-
-# -----------------------------
-# COG LOADING
-# -----------------------------
 SKIP_FILES = {
     "__init__.py",
     "utils.py",
     "ui_views.py",
 }
 
-COG_FOLDERS = [
-    "cogs",
-    "misc",
-]
+
+# =========================================================
+# BOT SETUP
+# =========================================================
+
+intents = discord.Intents.default()
+
+intents.guilds = True
+intents.members = True
+intents.messages = True
+intents.message_content = True
 
 
-async def load_cogs():
-    loaded = 0
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+)
 
-    for folder in COG_FOLDERS:
+# Runtime state
+bot.synced = False
+bot._fully_ready = False
+bot._shutdown_started = False
 
-        if not os.path.isdir(folder):
+
+# =========================================================
+# DATABASE
+# =========================================================
+
+async def init_db() -> None:
+    """Initialize the database connection."""
+
+    await utils.ensure_connection()
+
+    print("[DB] Connected")
+
+
+async def cleanup_db() -> None:
+    """Close the database connection safely."""
+
+    try:
+
+        await utils.close_db()
+
+        print("[DB] Disconnected")
+
+    except Exception as exc:
+
+        print(
+            f"[DB CLEANUP ERROR] "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+
+# =========================================================
+# COG DISCOVERY
+# =========================================================
+
+def discover_cogs() -> list[str]:
+    """
+    Discover all cog modules recursively.
+
+    Example:
+
+        misc/reminder.py
+            -> misc.reminder
+
+        misc/server/restartinfo.py
+            -> misc.server.restartinfo
+
+        cogs/flags/setup.py
+            -> cogs.flags.setup
+    """
+
+    modules: list[str] = []
+
+    for directory in COG_DIRECTORIES:
+
+        if not directory.is_dir():
             continue
 
-        for root, _, files in os.walk(folder):
+        for file_path in directory.rglob("*.py"):
 
-            for file in files:
+            if file_path.name in SKIP_FILES:
+                continue
 
-                if (
-                    file in SKIP_FILES
-                    or not file.endswith(".py")
-                    or file.startswith("_")
-                ):
-                    continue
+            if file_path.name.startswith("_"):
+                continue
 
-                module = (
-                    os.path.splitext(
-                        os.path.relpath(
-                            os.path.join(
-                                root,
-                                file,
-                            ),
-                            start=".",
-                        )
-                    )[0]
-                    .replace(
-                        os.sep,
-                        ".",
-                    )
-                )
+            relative_path = file_path.relative_to(BASE_DIR)
 
-                try:
+            module = ".".join(
+                relative_path.with_suffix("").parts
+            )
 
-                    await bot.load_extension(
-                        module
-                    )
+            modules.append(module)
 
-                    loaded += 1
+    return sorted(modules)
 
-                except Exception as e:
 
-                    print(
-                        f"[COG ERROR] {module}: {e}"
-                    )
+# =========================================================
+# COG LOADING
+# =========================================================
+
+async def load_cogs() -> None:
+    """Load every discovered Discord.py extension."""
+
+    modules = discover_cogs()
+
+    if not modules:
+
+        print("[COGS] No cog files found.")
+
+        return
+
+    loaded = 0
+    failed = 0
 
     print(
-        f"[COGS] Loaded {loaded}"
+        f"[COGS] Found {len(modules)} extension(s)"
     )
 
+    for module in modules:
 
-# -----------------------------
-# READY EVENT
-# -----------------------------
+        try:
+
+            await bot.load_extension(module)
+
+            loaded += 1
+
+            print(
+                f"[COG] Loaded: {module}"
+            )
+
+        except Exception as exc:
+
+            failed += 1
+
+            print(
+                f"[COG ERROR] {module}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    print(
+        f"[COGS] Loaded: {loaded} | "
+        f"Failed: {failed}"
+    )
+
+    if failed:
+
+        print(
+            "[COGS] One or more extensions "
+            "failed to load."
+        )
+
+
+# =========================================================
+# READY
+# =========================================================
+
 @bot.event
-async def on_ready():
+async def on_ready() -> None:
+    """
+    Discord ready event.
+
+    Persistent flag views are restored by the
+    AutoRefresh cog rather than being hard-coded here.
+    """
 
     if bot._fully_ready:
+
+        print(
+            f"[READY] Reconnected as {bot.user}"
+        )
+
         return
 
     bot._fully_ready = True
 
-    # -----------------------------
-    # SYNC SLASH COMMANDS
-    # -----------------------------
+    # -----------------------------------------------------
+    # SLASH COMMAND SYNC
+    # -----------------------------------------------------
+
     if not bot.synced:
 
         try:
@@ -142,111 +222,88 @@ async def on_ready():
                 "[SYNC] Slash commands synced"
             )
 
-        except Exception as e:
+        except Exception as exc:
 
             print(
-                f"[SYNC ERROR] {e}"
+                f"[SYNC ERROR] "
+                f"{type(exc).__name__}: {exc}"
             )
 
-    # -----------------------------
-    # REGISTER PERSISTENT VIEWS
-    # -----------------------------
-    try:
-
-        if (
-            not hasattr(
-                utils,
-                "MAP_DATA",
-            )
-            or not utils.MAP_DATA
-        ):
-
-            print(
-                "[VIEWS] Warning: "
-                "MAP_DATA missing or empty"
-            )
-
-        else:
-
-            # Register persistent views
-            # for each map and server.
-            #
-            # The FlagManageView constructor
-            # now requires:
-            #
-            # guild,
-            # map_key,
-            # server,
-            # bot
-
-            servers = [
-                "server 1",
-            ]
-
-            for map_key in utils.MAP_DATA.keys():
-
-                for server in servers:
-
-                    bot.add_view(
-                        FlagManageView(
-                            None,
-                            map_key,
-                            server,
-                            bot,
-                        )
-                    )
-
-            print(
-                "[VIEWS] Persistent views registered"
-            )
-
-    except Exception as e:
-
-        print(
-            f"[VIEWS ERROR] {e}"
-        )
+    # -----------------------------------------------------
+    # READY
+    # -----------------------------------------------------
 
     print(
-        f"[READY] Logged in as {bot.user}"
+        f"[READY] Logged in as "
+        f"{bot.user} "
+        f"(ID: {bot.user.id})"
+    )
+
+    print(
+        f"[READY] Connected to "
+        f"{len(bot.guilds)} guild(s)"
     )
 
 
-# -----------------------------
-# ERROR HANDLING
-# -----------------------------
+# =========================================================
+# GLOBAL ERROR HANDLING
+# =========================================================
+
 @bot.event
 async def on_error(
-    event,
+    event: str,
     *args,
     **kwargs,
-):
+) -> None:
 
     print(
         f"[ERROR] Unhandled exception "
-        f"in {event}: {args}"
+        f"in event '{event}'"
     )
 
 
-# -----------------------------
-# STARTUP FLOW
-# -----------------------------
-async def startup():
+# =========================================================
+# STARTUP
+# =========================================================
 
-    if not os.getenv(
+async def startup() -> None:
+    """Validate environment and start bot services."""
+
+    print(
+        "[STARTUP] Starting DayZ Manager..."
+    )
+
+    # -----------------------------------------------------
+    # ENVIRONMENT
+    # -----------------------------------------------------
+
+    database_url = os.getenv(
         "DATABASE_URL"
-    ):
-        raise RuntimeError(
-            "DATABASE_URL missing"
-        )
+    )
 
-    if not os.getenv(
+    discord_token = os.getenv(
         "DISCORD_TOKEN"
-    ):
+    )
+
+    if not database_url:
+
         raise RuntimeError(
-            "DISCORD_TOKEN missing"
+            "DATABASE_URL environment variable "
+            "is missing."
         )
 
-    for attempt in range(5):
+    if not discord_token:
+
+        raise RuntimeError(
+            "DISCORD_TOKEN environment variable "
+            "is missing."
+        )
+
+    # -----------------------------------------------------
+    # DATABASE
+    # -----------------------------------------------------
+
+    for attempt in range(1, 6):
 
         try:
 
@@ -254,69 +311,120 @@ async def startup():
 
             break
 
-        except Exception as e:
+        except Exception as exc:
 
             print(
-                f"[DB RETRY {attempt + 1}] {e}"
+                f"[DB RETRY {attempt}/5] "
+                f"{type(exc).__name__}: {exc}"
             )
+
+            if attempt >= 5:
+
+                raise RuntimeError(
+                    "Database connection failed "
+                    "after 5 attempts."
+                ) from exc
 
             await asyncio.sleep(
-                3 * (attempt + 1)
+                3 * attempt
             )
 
-    else:
-
-        raise RuntimeError(
-            "DB connection failed "
-            "after retries"
-        )
+    # -----------------------------------------------------
+    # COGS
+    # -----------------------------------------------------
 
     await load_cogs()
 
+    print(
+        "[STARTUP] Startup complete."
+    )
 
-# -----------------------------
+
+# =========================================================
 # SHUTDOWN
-# -----------------------------
-async def shutdown():
+# =========================================================
+
+async def shutdown() -> None:
+    """Safely shut down the bot and database."""
+
+    if bot._shutdown_started:
+
+        return
+
+    bot._shutdown_started = True
 
     print(
         "[SHUTDOWN] Cleaning up..."
     )
 
-    await cleanup_db()
+    try:
 
-    await bot.close()
+        await cleanup_db()
 
+    finally:
+
+        if not bot.is_closed():
+
+            await bot.close()
+
+    print(
+        "[SHUTDOWN] Complete."
+    )
+
+
+# =========================================================
+# SIGNAL HANDLERS
+# =========================================================
 
 def setup_signal_handlers(
-    loop,
-):
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    """Register SIGINT/SIGTERM shutdown handlers."""
 
-    def handler():
+    def handler() -> None:
+
+        if bot._shutdown_started:
+
+            return
 
         print(
             "[SHUTDOWN] Signal received"
         )
 
-        loop.create_task(
+        asyncio.create_task(
             shutdown()
         )
 
     for sig in (
-        signal.SIGTERM,
         signal.SIGINT,
+        signal.SIGTERM,
     ):
 
-        signal.signal(
-            sig,
-            lambda s, f: handler(),
-        )
+        try:
+
+            loop.add_signal_handler(
+                sig,
+                handler,
+            )
+
+        except (
+            NotImplementedError,
+            RuntimeError,
+        ):
+
+            # Windows may not support all asyncio
+            # signal handling functionality.
+            signal.signal(
+                sig,
+                lambda *_: handler(),
+            )
 
 
-# -----------------------------
+# =========================================================
 # MAIN
-# -----------------------------
-async def main():
+# =========================================================
+
+async def main() -> None:
 
     await startup()
 
@@ -330,18 +438,31 @@ async def main():
         loop
     )
 
-    async with bot:
+    try:
 
         await bot.start(
             token
         )
 
+    finally:
 
-# -----------------------------
+        if not bot._shutdown_started:
+
+            await shutdown()
+
+
+# =========================================================
 # ENTRY POINT
-# -----------------------------
+# =========================================================
+
 if __name__ == "__main__":
 
-    asyncio.run(
-        main()
-    )
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        pass
