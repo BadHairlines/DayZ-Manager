@@ -11,9 +11,33 @@ from discord.ext import commands
 
 from cogs import utils
 
+
+# =========================================================
+# PATHS / COG DISCOVERY
+# =========================================================
+
 BASE_DIR = Path(__file__).resolve().parent
-COG_DIRECTORIES = (BASE_DIR / "cogs",)
-SKIP_FILES = {"__init__.py", "utils.py"}
+
+COG_DIRECTORIES = (
+    BASE_DIR / "cogs",
+)
+
+# Files that should never be loaded as Discord extensions.
+SKIP_FILES = {
+    "__init__.py",
+    "utils.py",
+}
+
+# Directories containing support modules rather than actual Cogs.
+SKIP_DIRECTORIES = {
+    "helpers",
+    "ui",
+}
+
+
+# =========================================================
+# LOGGING
+# =========================================================
 
 LOG = logging.getLogger("dayz-manager")
 
@@ -26,21 +50,40 @@ def configure_logging() -> None:
     )
 
 
+# =========================================================
+# DISCORD BOT
+# =========================================================
+
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
 intents.messages = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+)
 
+# Internal bot state.
 bot.synced = False
 bot._fully_ready = False
 bot._shutdown_started = False
 bot._auto_refresh_done = False
 
 
+# =========================================================
+# COG DISCOVERY
+# =========================================================
+
 def discover_cogs() -> list[str]:
+    """
+    Automatically discover actual Discord Cog extensions.
+
+    Helper modules, UI/view modules, __init__.py files,
+    and utility modules are intentionally ignored.
+    """
+
     modules: set[str] = set()
 
     for directory in COG_DIRECTORIES:
@@ -48,14 +91,49 @@ def discover_cogs() -> list[str]:
             continue
 
         for path in directory.rglob("*.py"):
-            if path.name in SKIP_FILES or path.name.startswith("_"):
+            # -------------------------------------------------
+            # Skip files that aren't Discord extensions.
+            # -------------------------------------------------
+            if path.name in SKIP_FILES:
                 continue
 
+            if path.name.startswith("_"):
+                continue
+
+            # -------------------------------------------------
+            # Skip support directories.
+            # Example:
+            # cogs/helpers/base_cog.py
+            # cogs/helpers/decorators.py
+            # cogs/ui/flag_views.py
+            # -------------------------------------------------
+            if any(
+                directory_name in SKIP_DIRECTORIES
+                for directory_name in path.relative_to(BASE_DIR).parts
+            ):
+                continue
+
+            # -------------------------------------------------
+            # Convert filesystem path to Python module path.
+            #
+            # cogs/flags/setup.py
+            # becomes:
+            # cogs.flags.setup
+            # -------------------------------------------------
             relative = path.relative_to(BASE_DIR)
-            modules.add(".".join(relative.with_suffix("").parts))
+
+            module = ".".join(
+                relative.with_suffix("").parts
+            )
+
+            modules.add(module)
 
     return sorted(modules)
 
+
+# =========================================================
+# LOAD COGS
+# =========================================================
 
 async def load_cogs() -> None:
     modules = discover_cogs()
@@ -64,127 +142,261 @@ async def load_cogs() -> None:
         LOG.warning("No cog files found.")
         return
 
-    loaded = failed = 0
+    loaded = 0
+    failed = 0
+
+    LOG.info("Discovered %d cog(s).", len(modules))
 
     for module in modules:
         try:
             await bot.load_extension(module)
+
             loaded += 1
             LOG.info("Loaded cog: %s", module)
+
         except Exception:
             failed += 1
             LOG.exception("Failed to load cog: %s", module)
 
-    LOG.info("Cog loading complete | loaded=%d failed=%d", loaded, failed)
+    LOG.info(
+        "Cog loading complete | loaded=%d failed=%d",
+        loaded,
+        failed,
+    )
 
     if failed:
-        raise RuntimeError(f"{failed} cog(s) failed to load.")
+        raise RuntimeError(
+            f"{failed} cog(s) failed to load."
+        )
 
+
+# =========================================================
+# INITIALIZATION
+# =========================================================
 
 async def initialize() -> None:
     database_url = os.getenv("DATABASE_URL")
     token = os.getenv("DISCORD_TOKEN")
 
     if not database_url:
-        raise RuntimeError("DATABASE_URL environment variable is missing.")
+        raise RuntimeError(
+            "DATABASE_URL environment variable is missing."
+        )
 
     if not token:
-        raise RuntimeError("DISCORD_TOKEN environment variable is missing.")
+        raise RuntimeError(
+            "DISCORD_TOKEN environment variable is missing."
+        )
+
+    # -----------------------------------------------------
+    # Database connection with retry logic.
+    # -----------------------------------------------------
 
     for attempt in range(1, 6):
         try:
             await utils.ensure_connection()
+
             LOG.info("Database connected.")
             break
+
         except Exception:
-            LOG.exception("Database connection attempt %d/5 failed.", attempt)
+            LOG.exception(
+                "Database connection attempt %d/5 failed.",
+                attempt,
+            )
+
             if attempt == 5:
                 raise
-            await asyncio.sleep(min(3 * attempt, 15))
+
+            await asyncio.sleep(
+                min(3 * attempt, 15)
+            )
+
+    # -----------------------------------------------------
+    # Load Discord Cogs.
+    # -----------------------------------------------------
 
     await load_cogs()
 
 
+# =========================================================
+# DISCORD EVENTS
+# =========================================================
+
 @bot.event
 async def on_ready() -> None:
+    # Discord can fire on_ready more than once after reconnects.
     if bot._fully_ready:
-        LOG.info("Reconnected as %s (%s).", bot.user, bot.user.id if bot.user else "unknown")
+        LOG.info(
+            "Reconnected as %s (%s).",
+            bot.user,
+            bot.user.id if bot.user else "unknown",
+        )
         return
 
     bot._fully_ready = True
 
+    # -----------------------------------------------------
+    # Sync slash commands once.
+    # -----------------------------------------------------
+
     if not bot.synced:
         try:
             await bot.tree.sync()
-            bot.synced = True
-            LOG.info("Slash commands synced.")
-        except Exception:
-            LOG.exception("Slash command sync failed.")
 
-    LOG.info("Logged in as %s (%s).", bot.user, bot.user.id if bot.user else "unknown")
-    LOG.info("Connected to %d guild(s).", len(bot.guilds))
+            bot.synced = True
+
+            LOG.info("Slash commands synced.")
+
+        except Exception:
+            LOG.exception(
+                "Slash command sync failed."
+            )
+
+    LOG.info(
+        "Logged in as %s (%s).",
+        bot.user,
+        bot.user.id if bot.user else "unknown",
+    )
+
+    LOG.info(
+        "Connected to %d guild(s).",
+        len(bot.guilds),
+    )
 
 
 @bot.event
-async def on_error(event: str, *args, **kwargs) -> None:
-    LOG.exception("Unhandled exception in event '%s'.", event)
+async def on_error(
+    event: str,
+    *args,
+    **kwargs,
+) -> None:
+    LOG.exception(
+        "Unhandled exception in event '%s'.",
+        event,
+    )
 
+
+# =========================================================
+# SHUTDOWN
+# =========================================================
 
 async def shutdown() -> None:
     if bot._shutdown_started:
         return
 
     bot._shutdown_started = True
+
     LOG.info("Shutdown started.")
+
+    # -----------------------------------------------------
+    # Close database.
+    # -----------------------------------------------------
 
     try:
         await utils.close_db()
+
     except Exception:
-        LOG.exception("Database cleanup failed.")
+        LOG.exception(
+            "Database cleanup failed."
+        )
+
+    # -----------------------------------------------------
+    # Close Discord connection.
+    # -----------------------------------------------------
 
     try:
         if not bot.is_closed():
             await bot.close()
+
     except Exception:
-        LOG.exception("Discord client cleanup failed.")
+        LOG.exception(
+            "Discord client cleanup failed."
+        )
 
     LOG.info("Shutdown complete.")
 
 
-def install_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
+# =========================================================
+# SIGNAL HANDLERS
+# =========================================================
+
+def install_signal_handlers(
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+
     def request_shutdown() -> None:
         if bot._shutdown_started:
             return
-        LOG.info("Shutdown signal received.")
-        asyncio.create_task(shutdown())
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
+        LOG.info(
+            "Shutdown signal received."
+        )
+
+        asyncio.create_task(
+            shutdown()
+        )
+
+    for sig in (
+        signal.SIGINT,
+        signal.SIGTERM,
+    ):
         try:
-            loop.add_signal_handler(sig, request_shutdown)
-        except (NotImplementedError, RuntimeError):
+            loop.add_signal_handler(
+                sig,
+                request_shutdown,
+            )
+
+        except (
+            NotImplementedError,
+            RuntimeError,
+        ):
             try:
-                signal.signal(sig, lambda *_: request_shutdown())
-            except (ValueError, OSError):
+                signal.signal(
+                    sig,
+                    lambda *_: request_shutdown(),
+                )
+
+            except (
+                ValueError,
+                OSError,
+            ):
                 pass
 
 
+# =========================================================
+# MAIN
+# =========================================================
+
 async def main() -> None:
     configure_logging()
-    LOG.info("Starting DayZ Manager...")
+
+    LOG.info(
+        "Starting DayZ Manager..."
+    )
 
     await initialize()
 
     loop = asyncio.get_running_loop()
+
     install_signal_handlers(loop)
 
     try:
-        await bot.start(os.environ["DISCORD_TOKEN"])
+        await bot.start(
+            os.environ["DISCORD_TOKEN"]
+        )
+
     finally:
         await shutdown()
 
 
+# =========================================================
+# ENTRY POINT
+# =========================================================
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
+
     except KeyboardInterrupt:
         pass
