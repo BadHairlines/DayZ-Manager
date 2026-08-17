@@ -80,7 +80,6 @@ EMBED_COLOR = 0x3498DB
 
 CLAIMED_EMOJI = "🟥"
 AVAILABLE_EMOJI = "🟩"
-TOTAL_EMOJI = "🏴"
 
 
 # =========================================================
@@ -127,7 +126,8 @@ def channel_name_for(
     )
 
     safe = "".join(
-        ch if ch.isalnum() or ch in "-_" else "-"
+        ch if ch.isalnum() or ch in "-_"
+        else "-"
         for ch in raw
     )
 
@@ -568,7 +568,6 @@ def flag_emoji(
 ) -> str:
 
     if guild:
-
         custom = discord.utils.get(
             guild.emojis,
             name=flag,
@@ -637,7 +636,7 @@ def _ownership_bar(
 ) -> str:
 
     if total <= 0:
-        return "▫️" * length
+        return "⬜" * length
 
     ratio = claimed / total
 
@@ -696,7 +695,7 @@ async def create_flag_embed(
     )
 
     # -----------------------------------------------------
-    # DETERMINE OWNERSHIP
+    # DETERMINE STATUS
     # -----------------------------------------------------
 
     claimed = [
@@ -719,7 +718,7 @@ async def create_flag_embed(
     claimed_count = len(claimed)
     available_count = len(available)
 
-    ownership_percent = (
+    claimed_percent = (
         (claimed_count / total) * 100
         if total
         else 0
@@ -730,18 +729,17 @@ async def create_flag_embed(
     # =====================================================
 
     embed = discord.Embed(
-        title="🏴  FLAG CONTROL",
+        title="🏴  FLAG OWNERSHIP",
         description=(
-            f"**{map_info['name']}**  •  "
-            f"`{server}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"**{map_info['name']}**  •  `{server}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"{CLAIMED_EMOJI} **{claimed_count}** Claimed"
             f"   •   "
             f"{AVAILABLE_EMOJI} **{available_count}** Available"
             f"   •   "
             f"**{total}** Total\n\n"
-            f"{_ownership_bar(claimed_count, total)} "
-            f"**{ownership_percent:.0f}% Controlled**"
+            f"{_ownership_bar(claimed_count, total)}  "
+            f"**{claimed_percent:.0f}% Claimed**"
         ),
         color=EMBED_COLOR,
     )
@@ -762,10 +760,10 @@ async def create_flag_embed(
     if not rows:
 
         embed.add_field(
-            name="🏴  Flag Registry",
+            name="🏴  FLAG REGISTRY",
             value=(
-                "There are currently **no flags "
-                "configured** for this server."
+                "There are currently **no flags configured** "
+                "for this server."
             ),
             inline=False,
         )
@@ -788,20 +786,19 @@ async def create_flag_embed(
 
             role_id = row["role_id"]
 
-            if role_id:
-                owner = f"<@&{role_id}>"
-            else:
-                owner = "*Assigned*"
+            owner = (
+                f"<@&{role_id}>"
+                if role_id
+                else "*Assigned*"
+            )
 
             claimed_lines.append(
                 f"{emoji}**{row['flag']}**  —  {owner}"
             )
 
-        claimed_chunks = _split_embed_lines(
+        for chunk in _split_embed_lines(
             claimed_lines
-        )
-
-        for chunk in claimed_chunks:
+        ):
 
             embed.add_field(
                 name="🟥  CLAIMED FLAGS",
@@ -830,11 +827,9 @@ async def create_flag_embed(
                 "*Available for claiming*"
             )
 
-        available_chunks = _split_embed_lines(
+        for chunk in _split_embed_lines(
             available_lines
-        )
-
-        for chunk in available_chunks:
+        ):
 
             embed.add_field(
                 name="🟩  AVAILABLE FLAGS",
@@ -843,7 +838,7 @@ async def create_flag_embed(
             )
 
     # =====================================================
-    # LEGEND
+    # STATUS LEGEND
     # =====================================================
 
     if rows:
@@ -864,9 +859,7 @@ async def create_flag_embed(
     # =====================================================
 
     embed.set_footer(
-        text=(
-            "DayZ Manager  •  Flag Management"
-        ),
+        text="DayZ Manager  •  Flag Management",
         icon_url=FOOTER_ICON,
     )
 
