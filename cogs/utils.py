@@ -7,6 +7,7 @@ from typing import Any, AsyncIterator, Optional
 import asyncpg
 import discord
 
+
 db_pool: Optional[asyncpg.Pool] = None
 
 
@@ -115,7 +116,10 @@ def normalize_server(value: str) -> str:
     )
 
 
-def channel_name_for(map_key: str, server: str) -> str:
+def channel_name_for(
+    map_key: str,
+    server: str,
+) -> str:
     raw = (
         f"flags-"
         f"{normalize_map(map_key)}-"
@@ -173,7 +177,10 @@ async def ensure_connection() -> asyncpg.Pool:
     return db_pool
 
 
-async def migrate(conn: asyncpg.Connection) -> None:
+async def migrate(
+    conn: asyncpg.Connection,
+) -> None:
+
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS flags (
             guild_id TEXT NOT NULL,
@@ -197,9 +204,11 @@ async def migrate(conn: asyncpg.Connection) -> None:
     }
 
     if "server" not in flag_columns:
+
         await conn.execute("""
             ALTER TABLE flags
-            ADD COLUMN server TEXT NOT NULL DEFAULT 'server 1'
+            ADD COLUMN server TEXT
+            NOT NULL DEFAULT 'server 1'
         """)
 
         await conn.execute(
@@ -209,7 +218,12 @@ async def migrate(conn: asyncpg.Connection) -> None:
 
         await conn.execute("""
             ALTER TABLE flags
-            ADD PRIMARY KEY (guild_id, map, server, flag)
+            ADD PRIMARY KEY (
+                guild_id,
+                map,
+                server,
+                flag
+            )
         """)
 
     await conn.execute("""
@@ -235,9 +249,11 @@ async def migrate(conn: asyncpg.Connection) -> None:
     }
 
     if "server" not in message_columns:
+
         await conn.execute("""
             ALTER TABLE flag_messages
-            ADD COLUMN server TEXT NOT NULL DEFAULT 'server 1'
+            ADD COLUMN server TEXT
+            NOT NULL DEFAULT 'server 1'
         """)
 
         await conn.execute(
@@ -247,7 +263,11 @@ async def migrate(conn: asyncpg.Connection) -> None:
 
         await conn.execute("""
             ALTER TABLE flag_messages
-            ADD PRIMARY KEY (guild_id, map, server)
+            ADD PRIMARY KEY (
+                guild_id,
+                map,
+                server
+            )
         """)
 
     await conn.execute("""
@@ -263,6 +283,7 @@ async def migrate(conn: asyncpg.Connection) -> None:
 
 @contextlib.asynccontextmanager
 async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
+
     pool = await ensure_connection()
 
     async with pool.acquire() as conn:
@@ -293,6 +314,7 @@ async def get_flag(
         return None
 
     async with safe_acquire() as conn:
+
         return await conn.fetchrow("""
             SELECT
                 guild_id,
@@ -320,6 +342,7 @@ async def get_all_flags(
     server: str,
 ):
     async with safe_acquire() as conn:
+
         return await conn.fetch("""
             SELECT
                 guild_id,
@@ -345,7 +368,9 @@ async def initialize_flags(
     map_key: str,
     server: str,
 ) -> None:
+
     async with safe_acquire() as conn:
+
         await conn.executemany("""
             INSERT INTO flags (
                 guild_id,
@@ -394,6 +419,7 @@ async def claim_flag(
         return None
 
     async with safe_acquire() as conn:
+
         return await conn.fetchrow("""
             UPDATE flags
             SET
@@ -427,6 +453,7 @@ async def release_flag(
         return None
 
     async with safe_acquire() as conn:
+
         return await conn.fetchrow("""
             UPDATE flags
             SET
@@ -458,7 +485,9 @@ async def save_flag_message(
     channel_id: str,
     message_id: str,
 ) -> None:
+
     async with safe_acquire() as conn:
+
         await conn.execute("""
             INSERT INTO flag_messages (
                 guild_id,
@@ -468,11 +497,13 @@ async def save_flag_message(
                 message_id
             )
             VALUES ($1, $2, $3, $4, $5)
+
             ON CONFLICT (
                 guild_id,
                 map,
                 server
             )
+
             DO UPDATE SET
                 channel_id=EXCLUDED.channel_id,
                 message_id=EXCLUDED.message_id
@@ -491,6 +522,7 @@ async def get_flag_message(
     server: str,
 ):
     async with safe_acquire() as conn:
+
         return await conn.fetchrow("""
             SELECT
                 channel_id,
@@ -510,6 +542,7 @@ async def get_flag_sessions(
     guild_id: str,
 ):
     async with safe_acquire() as conn:
+
         return await conn.fetch("""
             SELECT
                 map,
@@ -531,17 +564,11 @@ async def get_flag_sessions(
 def flag_emoji(
     guild: discord.Guild | None,
     flag: str,
-    status: str | None = None,
+    claimed: bool,
 ) -> str:
-    """
-    Use a custom Discord emoji matching the flag name when available.
-
-    If no custom emoji exists, fall back to:
-        🟥 = claimed
-        🟩 = available
-    """
 
     if guild:
+
         custom = discord.utils.get(
             guild.emojis,
             name=flag,
@@ -550,10 +577,11 @@ def flag_emoji(
         if custom:
             return f"{custom} "
 
-    if status == "claimed":
-        return f"{CLAIMED_EMOJI} "
-
-    return f"{AVAILABLE_EMOJI} "
+    return (
+        f"{CLAIMED_EMOJI} "
+        if claimed
+        else f"{AVAILABLE_EMOJI} "
+    )
 
 
 # =========================================================
@@ -564,36 +592,68 @@ def _split_embed_lines(
     lines: list[str],
     max_length: int = 1024,
 ) -> list[str]:
-    """
-    Safely split lines into Discord embed field values.
-
-    Discord limits each embed field value to 1024 characters.
-    This keeps the split invisible to users by using the same
-    field title for every section.
-    """
 
     chunks: list[str] = []
-    current = ""
+    current: list[str] = []
+    current_length = 0
 
     for line in lines:
-        candidate = (
-            f"{current}\n{line}"
-            if current
-            else line
+
+        line_length = len(line)
+
+        extra_length = (
+            line_length
+            if not current
+            else line_length + 1
         )
 
-        if len(candidate) > max_length:
-            if current:
-                chunks.append(current)
+        if (
+            current
+            and current_length + extra_length > max_length
+        ):
+            chunks.append(
+                "\n".join(current)
+            )
 
-            current = line
+            current = [line]
+            current_length = line_length
+
         else:
-            current = candidate
+            current.append(line)
+            current_length += extra_length
 
     if current:
-        chunks.append(current)
+        chunks.append(
+            "\n".join(current)
+        )
 
     return chunks
+
+
+def _ownership_bar(
+    claimed: int,
+    total: int,
+    length: int = 12,
+) -> str:
+
+    if total <= 0:
+        return "▫️" * length
+
+    ratio = claimed / total
+
+    filled = round(
+        ratio * length
+    )
+
+    filled = max(
+        0,
+        min(length, filled),
+    )
+
+    return (
+        "🟥" * filled
+        + "⬜" * (length - filled)
+    )
 
 
 # =========================================================
@@ -606,6 +666,7 @@ async def create_flag_embed(
     server: str,
     guild: discord.Guild | None = None,
 ) -> discord.Embed:
+
     map_key = normalize_map(map_key)
     server = normalize_server(server)
 
@@ -623,35 +684,64 @@ async def create_flag_embed(
         },
     )
 
+    # -----------------------------------------------------
+    # SORT FLAGS
+    # -----------------------------------------------------
+
+    rows = sorted(
+        rows,
+        key=lambda row: str(
+            row["flag"]
+        ).casefold(),
+    )
+
+    # -----------------------------------------------------
+    # DETERMINE OWNERSHIP
+    # -----------------------------------------------------
+
     claimed = [
         row
         for row in rows
         if row["role_id"]
+        or row["status"] == "❌"
     ]
 
-    unclaimed = [
+    available = [
         row
         for row in rows
-        if not row["role_id"]
+        if not (
+            row["role_id"]
+            or row["status"] == "❌"
+        )
     ]
 
     total = len(rows)
     claimed_count = len(claimed)
-    available_count = len(unclaimed)
+    available_count = len(available)
+
+    ownership_percent = (
+        (claimed_count / total) * 100
+        if total
+        else 0
+    )
 
     # =====================================================
     # MAIN EMBED
     # =====================================================
 
     embed = discord.Embed(
-        title="🏴  Flag Ownership",
+        title="🏴  FLAG CONTROL",
         description=(
-            f"**{map_info['name']}**  •  `{server}`\n\n"
-            f"{CLAIMED_EMOJI} **{claimed_count} Claimed**"
-            f"  •  "
-            f"{AVAILABLE_EMOJI} **{available_count} Available**"
-            f"  •  "
-            f"{TOTAL_EMOJI} **{total} Total**"
+            f"**{map_info['name']}**  •  "
+            f"`{server}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{CLAIMED_EMOJI} **{claimed_count}** Claimed"
+            f"   •   "
+            f"{AVAILABLE_EMOJI} **{available_count}** Available"
+            f"   •   "
+            f"**{total}** Total\n\n"
+            f"{_ownership_bar(claimed_count, total)} "
+            f"**{ownership_percent:.0f}% Controlled**"
         ),
         color=EMBED_COLOR,
     )
@@ -666,22 +756,45 @@ async def create_flag_embed(
         )
 
     # =====================================================
+    # NO FLAGS
+    # =====================================================
+
+    if not rows:
+
+        embed.add_field(
+            name="🏴  Flag Registry",
+            value=(
+                "There are currently **no flags "
+                "configured** for this server."
+            ),
+            inline=False,
+        )
+
+    # =====================================================
     # CLAIMED FLAGS
     # =====================================================
 
     if claimed:
+
         claimed_lines: list[str] = []
 
         for row in claimed:
+
             emoji = flag_emoji(
                 guild,
                 row["flag"],
-                "claimed",
+                claimed=True,
             )
 
+            role_id = row["role_id"]
+
+            if role_id:
+                owner = f"<@&{role_id}>"
+            else:
+                owner = "*Assigned*"
+
             claimed_lines.append(
-                f"{emoji}**{row['flag']}**  —  "
-                f"<@&{row['role_id']}>"
+                f"{emoji}**{row['flag']}**  —  {owner}"
             )
 
         claimed_chunks = _split_embed_lines(
@@ -689,8 +802,9 @@ async def create_flag_embed(
         )
 
         for chunk in claimed_chunks:
+
             embed.add_field(
-                name="🟥  Claimed Flags",
+                name="🟥  CLAIMED FLAGS",
                 value=chunk,
                 inline=False,
             )
@@ -699,19 +813,21 @@ async def create_flag_embed(
     # AVAILABLE FLAGS
     # =====================================================
 
-    if unclaimed:
+    if available:
+
         available_lines: list[str] = []
 
-        for row in unclaimed:
+        for row in available:
+
             emoji = flag_emoji(
                 guild,
                 row["flag"],
-                "available",
+                claimed=False,
             )
 
             available_lines.append(
                 f"{emoji}**{row['flag']}**  —  "
-                f"*Available*"
+                "*Available for claiming*"
             )
 
         available_chunks = _split_embed_lines(
@@ -719,22 +835,26 @@ async def create_flag_embed(
         )
 
         for chunk in available_chunks:
+
             embed.add_field(
-                name="🟩  Available Flags",
+                name="🟩  AVAILABLE FLAGS",
                 value=chunk,
                 inline=False,
             )
 
     # =====================================================
-    # EMPTY STATE
+    # LEGEND
     # =====================================================
 
-    if not rows:
+    if rows:
+
         embed.add_field(
-            name="🏴  Flags",
+            name="📋  STATUS",
             value=(
-                "*No flags have been configured "
-                "for this server.*"
+                f"{CLAIMED_EMOJI} **Claimed** — "
+                "Currently assigned to a faction\n"
+                f"{AVAILABLE_EMOJI} **Available** — "
+                "Ready to be claimed"
             ),
             inline=False,
         )
@@ -744,7 +864,9 @@ async def create_flag_embed(
     # =====================================================
 
     embed.set_footer(
-        text="DayZ Manager  •  Flag Management",
+        text=(
+            "DayZ Manager  •  Flag Management"
+        ),
         icon_url=FOOTER_ICON,
     )
 
@@ -763,6 +885,7 @@ async def refresh_flag_embed(
     map_key: str,
     server: str,
 ) -> bool:
+
     guild = bot.get_guild(
         int(guild_id)
     )
@@ -790,6 +913,7 @@ async def refresh_flag_embed(
         return False
 
     try:
+
         message = await channel.fetch_message(
             int(row["message_id"])
         )
