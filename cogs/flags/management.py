@@ -23,35 +23,58 @@ class FlagManagement(commands.Cog):
         current: str,
     ) -> list[app_commands.Choice[str]]:
         current = current.casefold()
+
         return [
-            app_commands.Choice(name=flag, value=flag)
+            app_commands.Choice(
+                name=flag,
+                value=flag,
+            )
             for flag in utils.FLAGS
             if current in flag.casefold()
         ][:25]
 
-    def base_embed(self, title: str, description: str, color: int) -> discord.Embed:
+    def base_embed(
+        self,
+        title: str,
+        description: str,
+        color: int,
+    ) -> discord.Embed:
+
         embed = discord.Embed(
             title=title,
             description=description,
             color=color,
         )
-        embed.set_footer(text="DayZ Manager")
+
+        embed.set_footer(
+            text="DayZ Manager"
+        )
+
         embed.timestamp = discord.utils.utcnow()
+
         return embed
+
+    # =========================================================
+    # ASSIGN
+    # =========================================================
 
     @app_commands.command(
         name="assign",
         description="Assign a flag to a role for a server.",
     )
     @admin_only()
-    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.choices(
+        selected_map=MAP_CHOICES
+    )
     @app_commands.describe(
         selected_map="Map for this flag.",
         server="Server name/identifier.",
         flag="Flag name.",
         role="Role to assign.",
     )
-    @app_commands.autocomplete(flag=flag_autocomplete)
+    @app_commands.autocomplete(
+        flag=flag_autocomplete
+    )
     async def assign(
         self,
         interaction: discord.Interaction,
@@ -60,35 +83,64 @@ class FlagManagement(commands.Cog):
         flag: str,
         role: discord.Role,
     ):
+
         guild = interaction.guild
+
         if guild is None:
             return await interaction.response.send_message(
-                "❌ Server only.", ephemeral=True
+                "❌ Server only.",
+                ephemeral=True,
             )
 
-        map_key = normalize_map(selected_map)
-        server = utils.normalize_server(server)
-        flag_name = utils.normalize_flag(flag)
+        map_key = normalize_map(
+            selected_map
+        )
+
+        server = utils.normalize_server(
+            server
+        )
+
+        flag_name = utils.normalize_flag(
+            flag
+        )
 
         if not flag_name:
             return await interaction.response.send_message(
-                f"❌ Invalid flag `{flag}`.", ephemeral=True
+                f"❌ Invalid flag `{flag}`.",
+                ephemeral=True,
             )
+
+        # -----------------------------------------------------
+        # Only prevent @everyone and managed/integration roles.
+        #
+        # IMPORTANT:
+        # There is NO Faction- requirement here.
+        #
+        # /assign can therefore use:
+        # Faction-Sand Monkeys
+        # Police
+        # Admin
+        # Moderator
+        # Event Team
+        # etc.
+        # -----------------------------------------------------
 
         if role.is_default() or role.managed:
             return await interaction.response.send_message(
-                "❌ That role cannot be assigned to a flag.", ephemeral=True
+                "❌ That role cannot be assigned to a flag.",
+                ephemeral=True,
             )
 
-        if not role.name.startswith("Faction-"):
-            return await interaction.response.send_message(
-                "❌ Flag roles must start with `Faction-`.", ephemeral=True
-            )
-
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(
+            thinking=True
+        )
 
         result = await utils.claim_flag(
-            str(guild.id), map_key, server, flag_name, str(role.id)
+            str(guild.id),
+            map_key,
+            server,
+            flag_name,
+            str(role.id),
         )
 
         if not result:
@@ -97,8 +149,22 @@ class FlagManagement(commands.Cog):
                 ephemeral=True,
             )
 
-        view = FlagManageView(guild, map_key, server, self.bot)
+        # -----------------------------------------------------
+        # Refresh the public flag message.
+        # -----------------------------------------------------
+
+        view = FlagManageView(
+            guild,
+            map_key,
+            server,
+            self.bot,
+        )
+
         await view.refresh_message()
+
+        # -----------------------------------------------------
+        # Confirmation embed.
+        # -----------------------------------------------------
 
         embed = self.base_embed(
             "🏴 Flag Assigned",
@@ -112,20 +178,30 @@ class FlagManagement(commands.Cog):
             0x2ECC71,
         )
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(
+            embed=embed
+        )
+
+    # =========================================================
+    # RELEASE
+    # =========================================================
 
     @app_commands.command(
         name="release",
         description="Release a flag back to the available pool.",
     )
     @admin_only()
-    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.choices(
+        selected_map=MAP_CHOICES
+    )
     @app_commands.describe(
         selected_map="Map containing the flag.",
         server="Server name/identifier.",
         flag="Flag to release.",
     )
-    @app_commands.autocomplete(flag=flag_autocomplete)
+    @app_commands.autocomplete(
+        flag=flag_autocomplete
+    )
     async def release_cmd(
         self,
         interaction: discord.Interaction,
@@ -133,25 +209,42 @@ class FlagManagement(commands.Cog):
         server: str,
         flag: str,
     ):
+
         guild = interaction.guild
+
         if guild is None:
             return await interaction.response.send_message(
-                "❌ Server only.", ephemeral=True
+                "❌ Server only.",
+                ephemeral=True,
             )
 
-        map_key = normalize_map(selected_map)
-        server = utils.normalize_server(server)
-        flag_name = utils.normalize_flag(flag)
+        map_key = normalize_map(
+            selected_map
+        )
+
+        server = utils.normalize_server(
+            server
+        )
+
+        flag_name = utils.normalize_flag(
+            flag
+        )
 
         if not flag_name:
             return await interaction.response.send_message(
-                f"❌ Invalid flag `{flag}`.", ephemeral=True
+                f"❌ Invalid flag `{flag}`.",
+                ephemeral=True,
             )
 
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(
+            thinking=True
+        )
 
         result = await utils.release_flag(
-            str(guild.id), map_key, server, flag_name
+            str(guild.id),
+            map_key,
+            server,
+            flag_name,
         )
 
         if not result:
@@ -160,8 +253,22 @@ class FlagManagement(commands.Cog):
                 ephemeral=True,
             )
 
-        view = FlagManageView(guild, map_key, server, self.bot)
+        # -----------------------------------------------------
+        # Refresh the public flag message.
+        # -----------------------------------------------------
+
+        view = FlagManageView(
+            guild,
+            map_key,
+            server,
+            self.bot,
+        )
+
         await view.refresh_message()
+
+        # -----------------------------------------------------
+        # Confirmation embed.
+        # -----------------------------------------------------
 
         embed = self.base_embed(
             "🏳️ Flag Released",
@@ -174,8 +281,18 @@ class FlagManagement(commands.Cog):
             0x95A5A6,
         )
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(
+            embed=embed
+        )
 
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(FlagManagement(bot))
+# =========================================================
+# SETUP
+# =========================================================
+
+async def setup(
+    bot: commands.Bot,
+):
+    await bot.add_cog(
+        FlagManagement(bot)
+    )
