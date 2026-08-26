@@ -1063,7 +1063,7 @@ class HistoryView(
             )
 
         previous.callback = previous_callback
-        next_button.callback = next_button_callback
+        next_button.callback = next_callback
 
         self.add_item(previous)
         self.add_item(next_button)
