@@ -1063,7 +1063,7 @@ class HistoryView(
             )
 
         previous.callback = previous_callback
-        next_button.callback = next_callback
+        next_button.callback = next_button_callback
 
         self.add_item(previous)
         self.add_item(next_button)
@@ -1105,18 +1105,6 @@ class TodoView(
         button: discord.ui.Button,
     ):
 
-        if not self.cog.is_staff(
-            interaction.user
-        ):
-
-            await interaction.response.send_message(
-                "❌ You do not have permission "
-                "to add tasks.",
-                ephemeral=True,
-            )
-
-            return
-
         await interaction.response.send_modal(
             AddTaskModal(
                 self.cog
@@ -1139,18 +1127,6 @@ class TodoView(
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-
-        if not self.cog.is_staff(
-            interaction.user
-        ):
-
-            await interaction.response.send_message(
-                "❌ You do not have permission "
-                "to edit tasks.",
-                ephemeral=True,
-            )
-
-            return
 
         tasks = await database.get_open_tasks(
             str(interaction.guild_id)
@@ -1192,18 +1168,6 @@ class TodoView(
         button: discord.ui.Button,
     ):
 
-        if not self.cog.is_staff(
-            interaction.user
-        ):
-
-            await interaction.response.send_message(
-                "❌ You do not have permission "
-                "to complete tasks.",
-                ephemeral=True,
-            )
-
-            return
-
         tasks = await database.get_open_tasks(
             str(interaction.guild_id)
         )
@@ -1243,18 +1207,6 @@ class TodoView(
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-
-        if not self.cog.is_staff(
-            interaction.user
-        ):
-
-            await interaction.response.send_message(
-                "❌ You do not have permission "
-                "to delete tasks.",
-                ephemeral=True,
-            )
-
-            return
 
         tasks = await database.get_open_tasks(
             str(interaction.guild_id)
@@ -1296,18 +1248,6 @@ class TodoView(
         button: discord.ui.Button,
     ):
 
-        if not self.cog.is_staff(
-            interaction.user
-        ):
-
-            await interaction.response.send_message(
-                "❌ You do not have permission "
-                "to view task details.",
-                ephemeral=True,
-            )
-
-            return
-
         tasks = await database.get_open_tasks(
             str(interaction.guild_id)
         )
@@ -1347,18 +1287,6 @@ class TodoView(
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-
-        if not self.cog.is_staff(
-            interaction.user
-        ):
-
-            await interaction.response.send_message(
-                "❌ You do not have permission "
-                "to refresh the board.",
-                ephemeral=True,
-            )
-
-            return
 
         await interaction.response.defer(
             ephemeral=True
@@ -1401,18 +1329,6 @@ class TodoView(
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-
-        if not self.cog.is_staff(
-            interaction.user
-        ):
-
-            await interaction.response.send_message(
-                "❌ You do not have permission "
-                "to view task history.",
-                ephemeral=True,
-            )
-
-            return
 
         tasks = await database.get_task_history(
             str(interaction.guild_id)
