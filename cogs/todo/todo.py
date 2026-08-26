@@ -35,25 +35,6 @@ class Todo(commands.Cog):
 
         self.bot = bot
 
-        self.bot.loop.create_task(
-            self._initialize()
-        )
-
-    # =====================================================
-    # INITIALIZE
-    # =====================================================
-
-    async def _initialize(self):
-
-        await self.bot.wait_until_ready()
-
-        await database.ensure_connection()
-
-        # Register persistent buttons.
-        self.bot.add_view(
-            TodoView(self)
-        )
-
     # =====================================================
     # STAFF CHECK
     # =====================================================
@@ -301,7 +282,16 @@ class Todo(commands.Cog):
             ephemeral=True
         )
 
+        # -------------------------------------------------
+        # Make sure the To-Do database is ready.
+        # -------------------------------------------------
+
+        await database.ensure_connection()
+
+        # -------------------------------------------------
         # Prevent accidental duplicate boards.
+        # -------------------------------------------------
+
         existing = await database.get_board(
             str(interaction.guild.id)
         )
@@ -338,6 +328,10 @@ class Todo(commands.Cog):
                 ):
                     pass
 
+        # -------------------------------------------------
+        # Build board.
+        # -------------------------------------------------
+
         embed = await self.create_embed(
             interaction.guild
         )
@@ -346,6 +340,10 @@ class Todo(commands.Cog):
             embed=embed,
             view=TodoView(self),
         )
+
+        # -------------------------------------------------
+        # Save board location.
+        # -------------------------------------------------
 
         await database.save_board(
             guild_id=str(interaction.guild.id),
@@ -367,6 +365,22 @@ async def setup(
     bot: commands.Bot,
 ):
 
+    cog = Todo(bot)
+
     await bot.add_cog(
-        Todo(bot)
+        cog
+    )
+
+    # -----------------------------------------------------
+    # Initialize the To-Do database.
+    # -----------------------------------------------------
+
+    await database.ensure_connection()
+
+    # -----------------------------------------------------
+    # Register persistent To-Do buttons.
+    # -----------------------------------------------------
+
+    bot.add_view(
+        TodoView(cog)
     )
