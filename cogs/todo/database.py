@@ -37,8 +37,11 @@ VALID_STATUSES = (
 # =========================================================
 
 async def ensure_connection() -> asyncpg.Pool:
-
     global db_pool
+
+    # -----------------------------------------------------
+    # Reuse existing pool when possible.
+    # -----------------------------------------------------
 
     if db_pool is not None:
 
@@ -50,6 +53,10 @@ async def ensure_connection() -> asyncpg.Pool:
         except AttributeError:
             pass
 
+    # -----------------------------------------------------
+    # DATABASE URL
+    # -----------------------------------------------------
+
     dsn = os.getenv("DATABASE_URL")
 
     if not dsn:
@@ -57,8 +64,13 @@ async def ensure_connection() -> asyncpg.Pool:
             "DATABASE_URL environment variable is missing."
         )
 
+    # Railway / older PostgreSQL URL compatibility.
     if dsn.startswith("postgres://"):
         dsn = "postgresql://" + dsn[len("postgres://"):]
+
+    # -----------------------------------------------------
+    # CREATE POOL
+    # -----------------------------------------------------
 
     db_pool = await asyncpg.create_pool(
         dsn=dsn,
@@ -76,6 +88,10 @@ async def ensure_connection() -> asyncpg.Pool:
         max_inactive_connection_lifetime=300,
     )
 
+    # -----------------------------------------------------
+    # RUN MIGRATIONS
+    # -----------------------------------------------------
+
     async with db_pool.acquire() as conn:
         await migrate(conn)
 
@@ -91,7 +107,7 @@ async def migrate(
 ) -> None:
 
     # =====================================================
-    # TASKS
+    # TASKS TABLE
     # =====================================================
 
     await conn.execute("""
@@ -123,7 +139,7 @@ async def migrate(
     """)
 
     # =====================================================
-    # BOARD
+    # BOARD TABLE
     # =====================================================
 
     await conn.execute("""
@@ -139,7 +155,7 @@ async def migrate(
     """)
 
     # =====================================================
-    # MIGRATE EXISTING DATABASES
+    # EXISTING DATABASE MIGRATION
     # =====================================================
 
     task_columns = {
@@ -152,6 +168,10 @@ async def migrate(
         """)
     }
 
+    # -----------------------------------------------------
+    # Add deleted_at if missing.
+    # -----------------------------------------------------
+
     if "deleted_at" not in task_columns:
 
         await conn.execute("""
@@ -159,12 +179,20 @@ async def migrate(
             ADD COLUMN deleted_at TIMESTAMPTZ
         """)
 
+    # -----------------------------------------------------
+    # Add deleted_by if missing.
+    # -----------------------------------------------------
+
     if "deleted_by" not in task_columns:
 
         await conn.execute("""
             ALTER TABLE todo_tasks
             ADD COLUMN deleted_by TEXT
         """)
+
+    # -----------------------------------------------------
+    # Board migration.
+    # -----------------------------------------------------
 
     board_columns = {
         row["column_name"]
@@ -196,7 +224,7 @@ async def migrate(
     await conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_todo_tasks_open
         ON todo_tasks (guild_id, status)
-        WHERE status='open'
+        WHERE status = 'open'
     """)
 
     await conn.execute("""
@@ -214,7 +242,7 @@ async def migrate(
             guild_id,
             due_at
         )
-        WHERE status='open'
+        WHERE status = 'open'
     """)
 
     await conn.execute("""
@@ -225,14 +253,23 @@ async def migrate(
         )
     """)
 
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_todo_tasks_completed
+        ON todo_tasks (
+            guild_id,
+            completed_at
+        )
+        WHERE status = 'completed'
+    """)
+
 
 # =========================================================
 # SAFE CONNECTION
 # =========================================================
 
 @contextlib.asynccontextmanager
-async def safe_acquire()
-    -> AsyncIterator[asyncpg.Connection]:
+async def safe_acquire(
+) -> AsyncIterator[asyncpg.Connection]:
 
     pool = await ensure_connection()
 
@@ -245,14 +282,15 @@ async def safe_acquire()
 # =========================================================
 
 async def close_db() -> None:
-
     global db_pool
 
     if db_pool is not None:
 
-        await db_pool.close()
+        try:
+            await db_pool.close()
 
-        db_pool = None
+        finally:
+            db_pool = None
 
 
 # =========================================================
@@ -269,10 +307,21 @@ async def create_task(
     due_at,
 ):
 
-    priority = priority.lower().strip()
+    priority = (
+        priority.lower().strip()
+        if priority
+        else "medium"
+    )
 
     if priority not in VALID_PRIORITIES:
         priority = "medium"
+
+    title = title.strip()
+
+    if not title:
+        raise ValueError(
+            "Task title cannot be empty."
+        )
 
     async with safe_acquire() as conn:
 
@@ -298,8 +347,10 @@ async def create_task(
             RETURNING *
         """,
             str(guild_id),
-            title.strip(),
-            description,
+            title,
+            description.strip()
+            if description
+            else None,
             str(created_by),
             str(assigned_to)
             if assigned_to
@@ -323,8 +374,8 @@ async def get_task(
         return await conn.fetchrow("""
             SELECT *
             FROM todo_tasks
-            WHERE guild_id=$1
-              AND id=$2
+            WHERE guild_id = $1
+              AND id = $2
         """,
             str(guild_id),
             task_id,
@@ -344,10 +395,12 @@ async def get_open_tasks(
         return await conn.fetch("""
             SELECT *
             FROM todo_tasks
-            WHERE guild_id=$1
-              AND status='open'
+            WHERE guild_id = $1
+              AND status = 'open'
 
             ORDER BY
+
+                -- Priority first.
                 CASE priority
                     WHEN 'critical' THEN 1
                     WHEN 'high' THEN 2
@@ -356,6 +409,7 @@ async def get_open_tasks(
                     ELSE 5
                 END,
 
+                -- Overdue tasks before future tasks.
                 CASE
                     WHEN due_at IS NOT NULL
                      AND due_at < NOW()
@@ -367,7 +421,10 @@ async def get_open_tasks(
                     ELSE 2
                 END,
 
+                -- Soonest due date.
                 due_at NULLS LAST,
+
+                -- Oldest tasks first.
                 created_at ASC
         """,
             str(guild_id),
@@ -383,20 +440,56 @@ async def get_completed_tasks(
     limit: int = 50,
 ):
 
+    limit = max(
+        1,
+        min(limit, 100),
+    )
+
     async with safe_acquire() as conn:
 
         return await conn.fetch("""
             SELECT *
             FROM todo_tasks
-            WHERE guild_id=$1
-              AND status='completed'
+            WHERE guild_id = $1
+              AND status = 'completed'
 
             ORDER BY completed_at DESC
 
             LIMIT $2
         """,
             str(guild_id),
-            max(1, min(limit, 100)),
+            limit,
+        )
+
+
+# =========================================================
+# DELETED TASKS
+# =========================================================
+
+async def get_deleted_tasks(
+    guild_id: str,
+    limit: int = 50,
+):
+
+    limit = max(
+        1,
+        min(limit, 100),
+    )
+
+    async with safe_acquire() as conn:
+
+        return await conn.fetch("""
+            SELECT *
+            FROM todo_tasks
+            WHERE guild_id = $1
+              AND status = 'deleted'
+
+            ORDER BY deleted_at DESC
+
+            LIMIT $2
+        """,
+            str(guild_id),
+            limit,
         )
 
 
@@ -409,12 +502,18 @@ async def get_task_history(
     limit: int = 100,
 ):
 
+    limit = max(
+        1,
+        min(limit, 100),
+    )
+
     async with safe_acquire() as conn:
 
         return await conn.fetch("""
             SELECT *
             FROM todo_tasks
-            WHERE guild_id=$1
+
+            WHERE guild_id = $1
               AND status IN (
                   'completed',
                   'deleted'
@@ -430,7 +529,7 @@ async def get_task_history(
             LIMIT $2
         """,
             str(guild_id),
-            max(1, min(limit, 100)),
+            limit,
         )
 
 
@@ -448,13 +547,15 @@ async def complete_task(
 
         return await conn.fetchrow("""
             UPDATE todo_tasks
+
             SET
-                status='completed',
-                completed_at=NOW(),
-                completed_by=$3
-            WHERE guild_id=$1
-              AND id=$2
-              AND status='open'
+                status = 'completed',
+                completed_at = NOW(),
+                completed_by = $3
+
+            WHERE guild_id = $1
+              AND id = $2
+              AND status = 'open'
 
             RETURNING *
         """,
@@ -478,13 +579,15 @@ async def delete_task(
 
         return await conn.fetchrow("""
             UPDATE todo_tasks
+
             SET
-                status='deleted',
-                deleted_at=NOW(),
-                deleted_by=$3
-            WHERE guild_id=$1
-              AND id=$2
-              AND status='open'
+                status = 'deleted',
+                deleted_at = NOW(),
+                deleted_by = $3
+
+            WHERE guild_id = $1
+              AND id = $2
+              AND status = 'open'
 
             RETURNING *
         """,
@@ -508,31 +611,46 @@ async def update_task(
     due_at,
 ):
 
-    priority = priority.lower().strip()
+    priority = (
+        priority.lower().strip()
+        if priority
+        else "medium"
+    )
 
     if priority not in VALID_PRIORITIES:
         priority = "medium"
+
+    title = title.strip()
+
+    if not title:
+        raise ValueError(
+            "Task title cannot be empty."
+        )
 
     async with safe_acquire() as conn:
 
         return await conn.fetchrow("""
             UPDATE todo_tasks
+
             SET
-                title=$3,
-                description=$4,
-                assigned_to=$5,
-                priority=$6,
-                due_at=$7
-            WHERE guild_id=$1
-              AND id=$2
-              AND status='open'
+                title = $3,
+                description = $4,
+                assigned_to = $5,
+                priority = $6,
+                due_at = $7
+
+            WHERE guild_id = $1
+              AND id = $2
+              AND status = 'open'
 
             RETURNING *
         """,
             str(guild_id),
             task_id,
-            title.strip(),
-            description,
+            title,
+            description.strip()
+            if description
+            else None,
             str(assigned_to)
             if assigned_to
             else None,
@@ -554,48 +672,55 @@ async def get_task_stats(
         return await conn.fetchrow("""
             SELECT
 
+                -- Open.
                 COUNT(*) FILTER (
-                    WHERE status='open'
+                    WHERE status = 'open'
                 ) AS open_count,
 
+                -- Completed.
                 COUNT(*) FILTER (
-                    WHERE status='completed'
+                    WHERE status = 'completed'
                 ) AS completed_count,
 
+                -- Deleted.
                 COUNT(*) FILTER (
-                    WHERE status='deleted'
+                    WHERE status = 'deleted'
                 ) AS deleted_count,
 
+                -- Everything.
                 COUNT(*) AS total_count,
 
+                -- Open priorities.
                 COUNT(*) FILTER (
-                    WHERE status='open'
-                    AND priority='critical'
+                    WHERE status = 'open'
+                      AND priority = 'critical'
                 ) AS critical_count,
 
                 COUNT(*) FILTER (
-                    WHERE status='open'
-                    AND priority='high'
+                    WHERE status = 'open'
+                      AND priority = 'high'
                 ) AS high_count,
 
                 COUNT(*) FILTER (
-                    WHERE status='open'
-                    AND priority='medium'
+                    WHERE status = 'open'
+                      AND priority = 'medium'
                 ) AS medium_count,
 
                 COUNT(*) FILTER (
-                    WHERE status='open'
-                    AND priority='low'
+                    WHERE status = 'open'
+                      AND priority = 'low'
                 ) AS low_count,
 
+                -- Overdue.
                 COUNT(*) FILTER (
-                    WHERE status='open'
-                    AND due_at IS NOT NULL
-                    AND due_at < NOW()
+                    WHERE status = 'open'
+                      AND due_at IS NOT NULL
+                      AND due_at < NOW()
                 ) AS overdue_count
 
             FROM todo_tasks
-            WHERE guild_id=$1
+
+            WHERE guild_id = $1
         """,
             str(guild_id),
         )
@@ -620,6 +745,7 @@ async def save_board(
                 message_id,
                 updated_at
             )
+
             VALUES (
                 $1,
                 $2,
@@ -630,15 +756,19 @@ async def save_board(
             ON CONFLICT (guild_id)
 
             DO UPDATE SET
-                channel_id=EXCLUDED.channel_id,
-                message_id=EXCLUDED.message_id,
-                updated_at=NOW()
+                channel_id = EXCLUDED.channel_id,
+                message_id = EXCLUDED.message_id,
+                updated_at = NOW()
         """,
             str(guild_id),
             str(channel_id),
             str(message_id),
         )
 
+
+# =========================================================
+# GET BOARD
+# =========================================================
 
 async def get_board(
     guild_id: str,
@@ -653,12 +783,18 @@ async def get_board(
                 message_id,
                 created_at,
                 updated_at
+
             FROM todo_boards
-            WHERE guild_id=$1
+
+            WHERE guild_id = $1
         """,
             str(guild_id),
         )
 
+
+# =========================================================
+# DELETE BOARD
+# =========================================================
 
 async def delete_board(
     guild_id: str,
@@ -668,7 +804,8 @@ async def delete_board(
 
         result = await conn.execute("""
             DELETE FROM todo_boards
-            WHERE guild_id=$1
+
+            WHERE guild_id = $1
         """,
             str(guild_id),
         )
