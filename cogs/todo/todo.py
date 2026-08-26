@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import discord
+
 from discord import app_commands
 from discord.ext import commands
 
@@ -26,7 +27,9 @@ EMBED_COLOR = 0x3498DB
 # TODO COG
 # =========================================================
 
-class Todo(commands.Cog):
+class Todo(
+    commands.Cog
+):
 
     def __init__(
         self,
@@ -39,15 +42,14 @@ class Todo(commands.Cog):
     # STAFF CHECK
     # =====================================================
 
+    @staticmethod
     def is_staff(
-        self,
         member: discord.Member,
     ) -> bool:
 
         if member.guild_permissions.administrator:
             return True
 
-        # Staff = Manage Server or Manage Messages.
         return (
             member.guild_permissions.manage_guild
             or member.guild_permissions.manage_messages
@@ -71,24 +73,29 @@ class Todo(commands.Cog):
         )
 
         embed = discord.Embed(
-            title="📋  THE HIVE TO-DO LIST",
+            title="📋  THE HIVE STAFF TO-DO",
             description=(
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "Staff task management board. "
-                "Use the buttons below to manage tasks.\n"
+                "Staff task management board.\n"
+                "Use the buttons below to create, "
+                "manage, and track staff tasks.\n"
             ),
             color=EMBED_COLOR,
         )
 
         # =================================================
-        # NO TASKS
+        # TASKS
         # =================================================
 
         if not tasks:
 
-            embed.description += (
-                "\n📭 **No open tasks.**\n\n"
-                "Everything is currently up to date! 🎉"
+            embed.add_field(
+                name="📭  ALL CLEAR",
+                value=(
+                    "There are currently **no open tasks.**\n\n"
+                    "Everything is up to date! 🎉"
+                ),
+                inline=False,
             )
 
         else:
@@ -102,8 +109,10 @@ class Todo(commands.Cog):
 
             for task in tasks:
 
+                priority = task["priority"]
+
                 grouped.setdefault(
-                    task["priority"],
+                    priority,
                     [],
                 ).append(task)
 
@@ -133,23 +142,35 @@ class Todo(commands.Cog):
 
                     assigned = task["assigned_to"]
 
-                    if assigned:
-                        assignee = (
-                            f"<@{assigned}>"
-                        )
-                    else:
-                        assignee = (
-                            "*Unassigned*"
-                        )
-
-                    due = ""
+                    assignee = (
+                        f"<@{assigned}>"
+                        if assigned
+                        else "*Unassigned*"
+                    )
 
                     if task["due_at"]:
 
-                        due = (
-                            f" • 📅 "
-                            f"<t:{int(task['due_at'].timestamp())}:R>"
-                        )
+                        if (
+                            task["due_at"]
+                            < discord.utils.utcnow()
+                        ):
+
+                            due = (
+                                f" • 🚨 "
+                                f"**OVERDUE "
+                                f"{discord.utils.format_dt(task['due_at'], 'R')}**"
+                            )
+
+                        else:
+
+                            due = (
+                                f" • 📅 "
+                                f"{discord.utils.format_dt(task['due_at'], 'R')}"
+                            )
+
+                    else:
+
+                        due = ""
 
                     lines.append(
                         f"❌ **{task['title']}**\n"
@@ -162,6 +183,7 @@ class Todo(commands.Cog):
                 )
 
                 if len(value) > 1024:
+
                     value = (
                         value[:1000]
                         + "\n..."
@@ -180,27 +202,44 @@ class Todo(commands.Cog):
         # STATISTICS
         # =================================================
 
+        overdue = stats["overdue_count"]
+
+        overdue_line = ""
+
+        if overdue:
+
+            overdue_line = (
+                f"\n🚨 **{overdue}** Overdue"
+            )
+
         embed.add_field(
-            name="📊 TASK STATISTICS",
+            name="📊 TASK OVERVIEW",
             value=(
                 f"📝 **{stats['open_count']}** Open"
                 f"   •   "
                 f"✅ **{stats['completed_count']}** Completed"
                 f"   •   "
                 f"📋 **{stats['total_count']}** Total\n\n"
-                f"🔴 {stats['critical_count']} Critical"
+                f"🔴 **{stats['critical_count']}** Critical"
                 f"   •   "
-                f"🟠 {stats['high_count']} High"
+                f"🟠 **{stats['high_count']}** High\n"
+                f"🟡 **{stats['medium_count']}** Medium"
                 f"   •   "
-                f"🟡 {stats['medium_count']} Medium"
-                f"   •   "
-                f"🟢 {stats['low_count']} Low"
+                f"🟢 **{stats['low_count']}** Low"
+                f"{overdue_line}"
             ),
             inline=False,
         )
 
+        # =================================================
+        # FOOTER
+        # =================================================
+
         embed.set_footer(
-            text="DayZ Manager  •  Staff To-Do Management",
+            text=(
+                "DayZ Manager  •  "
+                "Staff To-Do Management"
+            ),
             icon_url=FOOTER_ICON,
         )
 
@@ -217,6 +256,9 @@ class Todo(commands.Cog):
         guild: discord.Guild,
     ) -> bool:
 
+        if not guild:
+            return False
+
         board = await database.get_board(
             str(guild.id)
         )
@@ -224,14 +266,24 @@ class Todo(commands.Cog):
         if not board:
             return False
 
-        channel = guild.get_channel(
-            int(board["channel_id"])
-        )
+        try:
+
+            channel = guild.get_channel(
+                int(board["channel_id"])
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            return False
 
         if not isinstance(
             channel,
             discord.TextChannel,
         ):
+
             return False
 
         try:
@@ -260,7 +312,7 @@ class Todo(commands.Cog):
             return False
 
     # =====================================================
-    # SETUP COMMAND
+    # SETUP
     # =====================================================
 
     @app_commands.command(
@@ -276,21 +328,59 @@ class Todo(commands.Cog):
     ):
 
         if not interaction.guild:
+
+            await interaction.response.send_message(
+                "❌ This command can only be used "
+                "inside a server.",
+                ephemeral=True,
+            )
+
+            return
+
+        if not isinstance(
+            interaction.user,
+            discord.Member,
+        ):
+
+            await interaction.response.send_message(
+                "❌ Unable to verify your permissions.",
+                ephemeral=True,
+            )
+
+            return
+
+        if not interaction.user.guild_permissions.administrator:
+
+            await interaction.response.send_message(
+                "❌ Only server administrators can "
+                "create the To-Do board.",
+                ephemeral=True,
+            )
+
+            return
+
+        if not isinstance(
+            interaction.channel,
+            discord.TextChannel,
+        ):
+
+            await interaction.response.send_message(
+                "❌ The To-Do board must be created "
+                "inside a text channel.",
+                ephemeral=True,
+            )
+
             return
 
         await interaction.response.defer(
             ephemeral=True
         )
 
-        # -------------------------------------------------
-        # Make sure the To-Do database is ready.
-        # -------------------------------------------------
-
         await database.ensure_connection()
 
-        # -------------------------------------------------
-        # Prevent accidental duplicate boards.
-        # -------------------------------------------------
+        # =================================================
+        # CHECK EXISTING BOARD
+        # =================================================
 
         existing = await database.get_board(
             str(interaction.guild.id)
@@ -298,9 +388,18 @@ class Todo(commands.Cog):
 
         if existing:
 
-            channel = interaction.guild.get_channel(
-                int(existing["channel_id"])
-            )
+            try:
+
+                channel = interaction.guild.get_channel(
+                    int(existing["channel_id"])
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                channel = None
 
             if isinstance(
                 channel,
@@ -314,9 +413,11 @@ class Todo(commands.Cog):
                     )
 
                     await interaction.followup.send(
-                        "⚠️ A To-Do board already exists "
-                        f"in {channel.mention}.\n"
-                        f"[Jump to board]({message.jump_url})",
+                        (
+                            "⚠️ A To-Do board already exists "
+                            f"in {channel.mention}.\n\n"
+                            f"[Jump to board]({message.jump_url})"
+                        ),
                         ephemeral=True,
                     )
 
@@ -325,34 +426,66 @@ class Todo(commands.Cog):
                 except (
                     discord.NotFound,
                     discord.Forbidden,
+                    discord.HTTPException,
                 ):
+
                     pass
 
-        # -------------------------------------------------
-        # Build board.
-        # -------------------------------------------------
+        # =================================================
+        # CREATE BOARD
+        # =================================================
 
         embed = await self.create_embed(
             interaction.guild
         )
 
-        message = await interaction.channel.send(
-            embed=embed,
-            view=TodoView(self),
-        )
+        try:
 
-        # -------------------------------------------------
-        # Save board location.
-        # -------------------------------------------------
+            message = await interaction.channel.send(
+                embed=embed,
+                view=TodoView(self),
+            )
+
+        except discord.Forbidden:
+
+            await interaction.followup.send(
+                "❌ I don't have permission to send "
+                "messages in this channel.",
+                ephemeral=True,
+            )
+
+            return
+
+        except discord.HTTPException:
+
+            await interaction.followup.send(
+                "❌ Discord rejected the board message.",
+                ephemeral=True,
+            )
+
+            return
+
+        # =================================================
+        # SAVE BOARD
+        # =================================================
 
         await database.save_board(
-            guild_id=str(interaction.guild.id),
-            channel_id=str(interaction.channel.id),
-            message_id=str(message.id),
+            guild_id=str(
+                interaction.guild.id
+            ),
+            channel_id=str(
+                interaction.channel.id
+            ),
+            message_id=str(
+                message.id
+            ),
         )
 
         await interaction.followup.send(
-            f"✅ To-Do board created: {message.jump_url}",
+            (
+                "✅ **To-Do board created!**\n\n"
+                f"{message.jump_url}"
+            ),
             ephemeral=True,
         )
 
@@ -372,13 +505,13 @@ async def setup(
     )
 
     # -----------------------------------------------------
-    # Initialize the To-Do database.
+    # Initialize this system's own PostgreSQL database.
     # -----------------------------------------------------
 
     await database.ensure_connection()
 
     # -----------------------------------------------------
-    # Register persistent To-Do buttons.
+    # Register persistent buttons.
     # -----------------------------------------------------
 
     bot.add_view(
