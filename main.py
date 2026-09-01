@@ -55,7 +55,7 @@ intents.members = False
 intents.message_content = False
 
 bot = commands.Bot(
-    command_prefix="!",
+    command_prefix=commands.when_mentioned,
     intents=intents,
 )
 
