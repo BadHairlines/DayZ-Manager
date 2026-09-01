@@ -54,7 +54,7 @@ def configure_logging() -> None:
 
 FLAG_COGS = (
     "cogs.setup",
-    "cogs.flag_management",
+    "cogs.management",
     "cogs.auto_refresh",
     "cogs.error_handler",
 )
