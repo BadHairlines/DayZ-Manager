@@ -13,33 +13,16 @@ from cogs import utils
 
 
 # =========================================================
-# PATHS / COG DISCOVERY
+# PATHS
 # =========================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-
-COG_DIRECTORIES = (
-    BASE_DIR / "cogs",
-    BASE_DIR / "misc",
-)
+COGS_DIRECTORY = BASE_DIR / "cogs"
 
 
 # =========================================================
 # FILES THAT ARE NOT COGS
 # =========================================================
-#
-# These files contain support code only.
-#
-# Examples:
-#
-#   cogs/utils.py
-#   cogs/database.py
-#   cogs/todo/database.py
-#   cogs/todo/views.py
-#
-# They must remain importable by their respective systems,
-# but they must NEVER be loaded as Discord extensions.
-#
 
 SKIP_FILES = {
     "__init__.py",
@@ -68,10 +51,6 @@ LOG = logging.getLogger("dayz-manager")
 
 
 def configure_logging() -> None:
-    """
-    Configure application-wide logging.
-    """
-
     logging.basicConfig(
         level=os.getenv(
             "LOG_LEVEL",
@@ -120,76 +99,75 @@ bot._shutdown_started = False
 
 def discover_cogs() -> list[str]:
     """
-    Discover actual Discord extension modules.
-
-    Support modules are intentionally ignored.
+    Discover Discord extension modules inside cogs/.
 
     Example:
 
-        cogs/todo/todo.py
-            -> cogs.todo.todo
+        cogs/flags/flags.py
+            -> cogs.flags.flags
 
-        cogs/todo/database.py
+        cogs/utils.py
             -> ignored
 
-        cogs/todo/views.py
+        cogs/database.py
             -> ignored
     """
 
     modules: set[str] = set()
 
-    for directory in COG_DIRECTORIES:
+    if not COGS_DIRECTORY.is_dir():
+        LOG.warning(
+            "Cogs directory does not exist: %s",
+            COGS_DIRECTORY,
+        )
 
-        if not directory.is_dir():
+        return []
+
+    for path in COGS_DIRECTORY.rglob("*.py"):
+
+        # -------------------------------------------------
+        # Skip support files.
+        # -------------------------------------------------
+
+        if path.name in SKIP_FILES:
             continue
 
-        for path in directory.rglob("*.py"):
+        if path.name.startswith("_"):
+            continue
 
-            # -------------------------------------------------
-            # Skip support files.
-            # -------------------------------------------------
+        # -------------------------------------------------
+        # Skip support directories.
+        # -------------------------------------------------
 
-            if path.name in SKIP_FILES:
-                continue
+        relative_parts = path.relative_to(
+            BASE_DIR
+        ).parts
 
-            if path.name.startswith("_"):
-                continue
+        if any(
+            part in SKIP_DIRECTORIES
+            for part in relative_parts
+        ):
+            continue
 
-            # -------------------------------------------------
-            # Skip support directories.
-            # -------------------------------------------------
+        # -------------------------------------------------
+        # Convert filesystem path to Python module.
+        #
+        # Example:
+        #
+        # cogs/flags/flags.py
+        #
+        # becomes:
+        #
+        # cogs.flags.flags
+        # -------------------------------------------------
 
-            relative_parts = path.relative_to(
-                BASE_DIR
-            ).parts
+        relative = path.relative_to(BASE_DIR)
 
-            if any(
-                part in SKIP_DIRECTORIES
-                for part in relative_parts
-            ):
-                continue
+        module = ".".join(
+            relative.with_suffix("").parts
+        )
 
-            # -------------------------------------------------
-            # Convert filesystem path to Python module.
-            #
-            # Example:
-            #
-            # cogs/flags/flags.py
-            #
-            # becomes:
-            #
-            # cogs.flags.flags
-            # -------------------------------------------------
-
-            relative = path.relative_to(
-                BASE_DIR
-            )
-
-            module = ".".join(
-                relative.with_suffix("").parts
-            )
-
-            modules.add(module)
+        modules.add(module)
 
     return sorted(modules)
 
@@ -202,14 +180,12 @@ async def load_cogs() -> None:
     """
     Load every discovered Discord Cog.
 
-    A single failed Cog prevents startup so that a broken
-    system cannot silently leave the bot partially loaded.
+    If any Cog fails to load, startup is aborted.
     """
 
     modules = discover_cogs()
 
     if not modules:
-
         LOG.warning(
             "No Cog files were discovered."
         )
@@ -255,10 +231,6 @@ async def load_cogs() -> None:
         failed,
     )
 
-    # -----------------------------------------------------
-    # Do not allow the bot to start partially broken.
-    # -----------------------------------------------------
-
     if failed:
 
         raise RuntimeError(
@@ -272,13 +244,7 @@ async def load_cogs() -> None:
 
 async def initialize_database() -> None:
     """
-    Initialize the MAIN bot database.
-
-    IMPORTANT:
-    The To-Do system has its own database module and
-    initializes itself when cogs.todo.todo is loaded.
-
-    This keeps the two systems separate.
+    Initialize the bot's main database connection.
     """
 
     database_url = os.getenv(
@@ -291,12 +257,6 @@ async def initialize_database() -> None:
             "DATABASE_URL environment variable is missing."
         )
 
-    # -----------------------------------------------------
-    # Main application database.
-    #
-    # This is NOT the To-Do database.
-    # -----------------------------------------------------
-
     for attempt in range(1, 6):
 
         try:
@@ -304,7 +264,7 @@ async def initialize_database() -> None:
             await utils.ensure_connection()
 
             LOG.info(
-                "Main database connected."
+                "Database connected."
             )
 
             return
@@ -312,7 +272,7 @@ async def initialize_database() -> None:
         except Exception:
 
             LOG.exception(
-                "Main database connection "
+                "Database connection "
                 "attempt %d/5 failed.",
                 attempt,
             )
@@ -339,11 +299,8 @@ async def initialize() -> None:
     Order:
 
         1. Validate environment
-        2. Connect main database
+        2. Connect database
         3. Load Cogs
-
-    Individual Cogs are responsible for initializing their
-    own separate databases/resources.
     """
 
     token = os.getenv(
@@ -357,19 +314,13 @@ async def initialize() -> None:
         )
 
     # -----------------------------------------------------
-    # Main database.
+    # Database
     # -----------------------------------------------------
 
     await initialize_database()
 
     # -----------------------------------------------------
-    # Load all Discord Cogs.
-    #
-    # The To-Do Cog will initialize:
-    #
-    #     cogs.todo.database
-    #
-    # independently during its setup().
+    # Cogs
     # -----------------------------------------------------
 
     await load_cogs()
@@ -388,7 +339,7 @@ async def on_ready() -> None:
     """
 
     # -----------------------------------------------------
-    # Reconnection.
+    # Reconnection
     # -----------------------------------------------------
 
     if bot._fully_ready:
@@ -408,7 +359,7 @@ async def on_ready() -> None:
     bot._fully_ready = True
 
     # -----------------------------------------------------
-    # Sync slash commands once.
+    # Sync slash commands once
     # -----------------------------------------------------
 
     if not bot.synced:
@@ -430,7 +381,7 @@ async def on_ready() -> None:
             )
 
     # -----------------------------------------------------
-    # Startup information.
+    # Startup information
     # -----------------------------------------------------
 
     LOG.info(
@@ -472,7 +423,7 @@ async def on_error(
 
 async def shutdown() -> None:
     """
-    Gracefully shut down the bot and main database.
+    Gracefully shut down the bot and database.
     """
 
     if bot._shutdown_started:
@@ -485,10 +436,7 @@ async def shutdown() -> None:
     )
 
     # -----------------------------------------------------
-    # Close MAIN database.
-    #
-    # The To-Do database is intentionally separate and
-    # should be closed by its own system.
+    # Close database
     # -----------------------------------------------------
 
     try:
@@ -498,11 +446,11 @@ async def shutdown() -> None:
     except Exception:
 
         LOG.exception(
-            "Main database cleanup failed."
+            "Database cleanup failed."
         )
 
     # -----------------------------------------------------
-    # Close Discord.
+    # Close Discord
     # -----------------------------------------------------
 
     try:
@@ -599,13 +547,13 @@ async def main() -> None:
     )
 
     # -----------------------------------------------------
-    # Initialize application.
+    # Initialize application
     # -----------------------------------------------------
 
     await initialize()
 
     # -----------------------------------------------------
-    # Install shutdown handlers after the event loop exists.
+    # Install shutdown handlers
     # -----------------------------------------------------
 
     loop = asyncio.get_running_loop()
@@ -615,7 +563,7 @@ async def main() -> None:
     )
 
     # -----------------------------------------------------
-    # Start Discord.
+    # Start Discord
     # -----------------------------------------------------
 
     try:
