@@ -15,78 +15,44 @@ from cogs import utils
 # LOGGING
 # =========================================================
 
-LOG = logging.getLogger("dayz-manager")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
-
-def configure_logging() -> None:
-    logging.basicConfig(
-        level=os.getenv(
-            "LOG_LEVEL",
-            "INFO",
-        ).upper(),
-        format=(
-            "%(asctime)s | "
-            "%(levelname)s | "
-            "%(name)s | "
-            "%(message)s"
-        ),
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+log = logging.getLogger("dayz-manager")
 
 
 # =========================================================
 # FLAG SYSTEM COGS
 # =========================================================
-#
-# IMPORTANT:
-# Only these extensions are allowed to load.
-#
-# This prevents old/unrelated Cogs such as:
-#
-#     cogs/challenges.py
-#     cogs/teleporter.py
-#     cogs/vehicle.py
-#     cogs/todo.py
-#
-# from accidentally becoming Discord commands.
-#
-# =========================================================
 
+# IMPORTANT:
+# Keep this list explicit.
+# Do NOT dynamically load every .py file in /cogs.
+#
+# The bot is ONLY the Flag System.
 FLAG_COGS = (
     "cogs.setup",
     "cogs.management",
-    "cogs.auto_refresh",
+    "cogs.autorefresh",
     "cogs.error_handler",
 )
 
 
 # =========================================================
-# DISCORD INTENTS
-# =========================================================
-#
-# The Flag System uses:
-#
-#     Guild information
-#     Roles
-#     Interactions / slash commands
-#     Buttons
-#     Select menus
-#
-# It does NOT need:
-#
-#     Members privileged intent
-#     Message Content privileged intent
-#
+# BOT
 # =========================================================
 
 intents = discord.Intents.default()
 
+# Required for guild/server functionality.
 intents.guilds = True
 
-# PRIVILEGED INTENTS ARE NOT REQUIRED
+# NOT required by the Flag System.
+# These are privileged intents and should remain disabled.
 intents.members = False
 intents.message_content = False
-
 
 bot = commands.Bot(
     command_prefix="!",
@@ -95,13 +61,12 @@ bot = commands.Bot(
 
 
 # =========================================================
-# INTERNAL BOT STATE
+# STATE
 # =========================================================
 
 bot.synced = False
 bot._fully_ready = False
 bot._shutdown_started = False
-bot._auto_refresh_done = False
 
 
 # =========================================================
@@ -109,40 +74,24 @@ bot._auto_refresh_done = False
 # =========================================================
 
 async def load_cogs() -> None:
-    """
-    Load ONLY the approved Flag System Cogs.
-    """
+    """Load only the explicitly approved Flag System cogs."""
 
-    LOG.info(
-        "Loading %d Flag System Cog(s)...",
-        len(FLAG_COGS),
-    )
+    log.info("Loading %d Flag System Cog(s)...", len(FLAG_COGS))
 
     loaded = 0
     failed = 0
 
-    for module in FLAG_COGS:
-
+    for extension in FLAG_COGS:
         try:
-            await bot.load_extension(module)
-
+            await bot.load_extension(extension)
             loaded += 1
-
-            LOG.info(
-                "Loaded Flag Cog: %s",
-                module,
-            )
+            log.info("Loaded Flag Cog: %s", extension)
 
         except Exception:
-
             failed += 1
+            log.exception("Failed to load Flag Cog: %s", extension)
 
-            LOG.exception(
-                "Failed to load Flag Cog: %s",
-                module,
-            )
-
-    LOG.info(
+    log.info(
         "Flag Cog loading complete | loaded=%d failed=%d",
         loaded,
         failed,
@@ -155,185 +104,90 @@ async def load_cogs() -> None:
 
 
 # =========================================================
-# DATABASE INITIALIZATION
+# DATABASE
 # =========================================================
 
 async def initialize_database() -> None:
-    """
-    Initialize the Flag System database connection.
-    """
+    """Initialize the database connection and schema."""
 
-    database_url = os.getenv(
-        "DATABASE_URL"
-    )
+    if not os.getenv("DATABASE_URL"):
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
 
-    if not database_url:
-        raise RuntimeError(
-            "DATABASE_URL environment variable is missing."
-        )
+    last_error: Exception | None = None
 
     for attempt in range(1, 6):
-
         try:
-
             await utils.ensure_connection()
-
-            LOG.info(
-                "Database connected."
-            )
-
+            log.info("Database connected.")
             return
 
-        except Exception:
+        except Exception as exc:
+            last_error = exc
 
-            LOG.exception(
-                "Database connection attempt %d/5 failed.",
+            log.warning(
+                "Database connection attempt %d/5 failed: %s",
                 attempt,
+                exc,
             )
 
-            if attempt == 5:
-                raise
+            if attempt < 5:
+                await asyncio.sleep(3)
 
-            await asyncio.sleep(
-                min(
-                    3 * attempt,
-                    15,
-                )
-            )
+    raise RuntimeError(
+        "Unable to connect to the database after 5 attempts."
+    ) from last_error
 
 
 # =========================================================
-# INITIALIZATION
-# =========================================================
-
-async def initialize() -> None:
-    """
-    Initialize everything required before Discord starts.
-
-    Order:
-
-        1. Validate environment
-        2. Connect database
-        3. Load approved Flag System Cogs
-    """
-
-    token = os.getenv(
-        "DISCORD_TOKEN"
-    )
-
-    if not token:
-        raise RuntimeError(
-            "DISCORD_TOKEN environment variable is missing."
-        )
-
-    # -----------------------------------------------------
-    # Database
-    # -----------------------------------------------------
-
-    await initialize_database()
-
-    # -----------------------------------------------------
-    # Flag System Cogs
-    # -----------------------------------------------------
-
-    await load_cogs()
-
-
-# =========================================================
-# DISCORD EVENTS
+# READY
 # =========================================================
 
 @bot.event
-async def on_ready() -> None:
-    """
-    Fired when Discord establishes a connection.
-
-    on_ready can fire multiple times after reconnects.
-    """
-
-    # -----------------------------------------------------
-    # Reconnection
-    # -----------------------------------------------------
+async def on_ready():
+    """Called when Discord connection is ready."""
 
     if bot._fully_ready:
-
-        LOG.info(
-            "Reconnected as %s (%s).",
-            bot.user,
-            (
-                bot.user.id
-                if bot.user
-                else "unknown"
-            ),
-        )
-
         return
 
-    bot._fully_ready = True
+    log.info(
+        "Connected to Discord as %s (%s)",
+        bot.user,
+        bot.user.id if bot.user else "unknown",
+    )
 
-    # -----------------------------------------------------
-    # Sync slash commands once
-    # -----------------------------------------------------
+    log.info("Connected to %d guild(s).", len(bot.guilds))
 
     if not bot.synced:
-
         try:
-
-            synced_commands = await bot.tree.sync()
+            commands_synced = await bot.tree.sync()
 
             bot.synced = True
 
-            LOG.info(
-                "Slash commands synced | count=%d",
-                len(synced_commands),
+            log.info(
+                "Slash commands synced successfully | count=%d",
+                len(commands_synced),
             )
 
-            for command in synced_commands:
-
-                LOG.info(
-                    "Registered command: /%s",
-                    command.qualified_name,
-                )
+            for command in commands_synced:
+                log.info("Registered command: /%s", command.name)
 
         except Exception:
+            log.exception("Failed to sync slash commands.")
+            raise
 
-            LOG.exception(
-                "Slash command sync failed."
-            )
+    bot._fully_ready = True
 
-    # -----------------------------------------------------
-    # Startup information
-    # -----------------------------------------------------
-
-    LOG.info(
-        "Logged in as %s (%s).",
-        bot.user,
-        (
-            bot.user.id
-            if bot.user
-            else "unknown"
-        ),
-    )
-
-    LOG.info(
-        "Connected to %d guild(s).",
-        len(bot.guilds),
-    )
+    log.info("DayZ Manager is fully ready.")
 
 
 # =========================================================
-# GLOBAL EVENT ERROR HANDLER
+# GLOBAL ERROR HANDLER
 # =========================================================
 
 @bot.event
-async def on_error(
-    event: str,
-    *args,
-    **kwargs,
-) -> None:
-
-    LOG.exception(
-        "Unhandled exception in event '%s'.",
+async def on_error(event, *args, **kwargs):
+    log.exception(
+        "Unhandled Discord event error: %s",
         event,
     )
 
@@ -343,157 +197,86 @@ async def on_error(
 # =========================================================
 
 async def shutdown() -> None:
-    """
-    Gracefully shut down the bot and database.
-    """
+    """Gracefully shut down the bot and database."""
 
     if bot._shutdown_started:
         return
 
     bot._shutdown_started = True
 
-    LOG.info(
-        "Shutdown started."
-    )
-
-    # -----------------------------------------------------
-    # Close database
-    # -----------------------------------------------------
+    log.info("Shutting down DayZ Manager...")
 
     try:
-
         await utils.close_db()
-
+        log.info("Database connection closed.")
     except Exception:
-
-        LOG.exception(
-            "Database cleanup failed."
-        )
-
-    # -----------------------------------------------------
-    # Close Discord
-    # -----------------------------------------------------
+        log.exception("Error while closing database.")
 
     try:
-
-        if not bot.is_closed():
-
-            await bot.close()
-
+        await bot.close()
+        log.info("Discord connection closed.")
     except Exception:
-
-        LOG.exception(
-            "Discord client cleanup failed."
-        )
-
-    LOG.info(
-        "Shutdown complete."
-    )
+        log.exception("Error while closing Discord connection.")
 
 
 # =========================================================
 # SIGNAL HANDLERS
 # =========================================================
 
-def install_signal_handlers(
-    loop: asyncio.AbstractEventLoop,
-) -> None:
-    """
-    Install graceful SIGINT/SIGTERM handlers.
-    """
+def install_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
+    """Install graceful shutdown handlers where supported."""
 
-    def request_shutdown() -> None:
-
-        if bot._shutdown_started:
-            return
-
-        LOG.info(
-            "Shutdown signal received."
-        )
-
-        asyncio.create_task(
-            shutdown()
-        )
-
-    for sig in (
-        signal.SIGINT,
-        signal.SIGTERM,
-    ):
-
+    for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-
             loop.add_signal_handler(
                 sig,
-                request_shutdown,
+                lambda sig=sig: asyncio.create_task(
+                    shutdown()
+                ),
             )
-
-        except (
-            NotImplementedError,
-            RuntimeError,
-        ):
-
-            # -------------------------------------------------
-            # Windows fallback.
-            # -------------------------------------------------
-
-            try:
-
-                signal.signal(
-                    sig,
-                    lambda *_: request_shutdown(),
-                )
-
-            except (
-                ValueError,
-                OSError,
-            ):
-
-                LOG.debug(
-                    "Could not install signal handler for %s.",
-                    sig,
-                )
+        except (NotImplementedError, RuntimeError):
+            # Windows may not support add_signal_handler.
+            pass
 
 
 # =========================================================
 # MAIN
 # =========================================================
 
-async def main() -> None:
+async def initialize() -> None:
+    """Initialize everything required before Discord login."""
 
-    configure_logging()
+    token = os.getenv("DISCORD_TOKEN")
 
-    LOG.info(
-        "Starting DayZ Manager..."
-    )
-
-    # -----------------------------------------------------
-    # Initialize application
-    # -----------------------------------------------------
-
-    await initialize()
-
-    # -----------------------------------------------------
-    # Install shutdown handlers
-    # -----------------------------------------------------
-
-    loop = asyncio.get_running_loop()
-
-    install_signal_handlers(
-        loop
-    )
-
-    # -----------------------------------------------------
-    # Start Discord
-    # -----------------------------------------------------
-
-    try:
-
-        await bot.start(
-            os.environ["DISCORD_TOKEN"]
+    if not token:
+        raise RuntimeError(
+            "DISCORD_TOKEN environment variable is not set."
         )
 
-    finally:
+    log.info("Starting DayZ Manager...")
 
+    await initialize_database()
+
+    await load_cogs()
+
+    await bot.start(token)
+
+
+async def main() -> None:
+    loop = asyncio.get_running_loop()
+
+    install_signal_handlers(loop)
+
+    try:
+        await initialize()
+
+    except KeyboardInterrupt:
+        log.info("Keyboard interrupt received.")
+
+    except Exception:
+        log.exception("Fatal startup error.")
+
+    finally:
         await shutdown()
 
 
@@ -502,13 +285,4 @@ async def main() -> None:
 # =========================================================
 
 if __name__ == "__main__":
-
-    try:
-
-        asyncio.run(
-            main()
-        )
-
-    except KeyboardInterrupt:
-
-        pass
+    asyncio.run(main())
