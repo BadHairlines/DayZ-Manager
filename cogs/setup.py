@@ -7,7 +7,7 @@ from discord import Embed, Interaction, app_commands
 from discord.ext import commands
 
 from cogs import utils
-from cogs.helpers.decorators import MAP_CHOICES, admin_only, normalize_map
+from cogs.decorators import MAP_CHOICES, admin_only, normalize_map
 from cogs.ui.flag_views import FlagManageView
 
 log = logging.getLogger("dayz-manager")
