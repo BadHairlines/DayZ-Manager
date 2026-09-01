@@ -35,7 +35,7 @@ log = logging.getLogger("dayz-manager")
 FLAG_COGS = (
     "cogs.setup",
     "cogs.management",
-    "cogs.autorefresh",
+    "cogs.auto_refresh",
     "cogs.error_handler",
 )
 
