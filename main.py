@@ -4,43 +4,11 @@ import asyncio
 import logging
 import os
 import signal
-from pathlib import Path
 
 import discord
 from discord.ext import commands
 
 from cogs import utils
-
-
-# =========================================================
-# PATHS
-# =========================================================
-
-BASE_DIR = Path(__file__).resolve().parent
-COGS_DIRECTORY = BASE_DIR / "cogs"
-
-
-# =========================================================
-# FILES THAT ARE NOT COGS
-# =========================================================
-
-SKIP_FILES = {
-    "__init__.py",
-    "utils.py",
-    "database.py",
-    "views.py",
-}
-
-
-# =========================================================
-# DIRECTORIES THAT ARE NOT COGS
-# =========================================================
-
-SKIP_DIRECTORIES = {
-    "__pycache__",
-    "helpers",
-    "ui",
-}
 
 
 # =========================================================
@@ -67,15 +35,57 @@ def configure_logging() -> None:
 
 
 # =========================================================
-# DISCORD BOT
+# FLAG SYSTEM COGS
+# =========================================================
+#
+# IMPORTANT:
+# Only these extensions are allowed to load.
+#
+# This prevents old/unrelated Cogs such as:
+#
+#     cogs/challenges.py
+#     cogs/teleporter.py
+#     cogs/vehicle.py
+#     cogs/todo.py
+#
+# from accidentally becoming Discord commands.
+#
+# =========================================================
+
+FLAG_COGS = (
+    "cogs.setup",
+    "cogs.flag_management",
+    "cogs.auto_refresh",
+    "cogs.error_handler",
+)
+
+
+# =========================================================
+# DISCORD INTENTS
+# =========================================================
+#
+# The Flag System uses:
+#
+#     Guild information
+#     Roles
+#     Interactions / slash commands
+#     Buttons
+#     Select menus
+#
+# It does NOT need:
+#
+#     Members privileged intent
+#     Message Content privileged intent
+#
 # =========================================================
 
 intents = discord.Intents.default()
 
 intents.guilds = True
-intents.members = True
-intents.messages = True
-intents.message_content = True
+
+# PRIVILEGED INTENTS ARE NOT REQUIRED
+intents.members = False
+intents.message_content = False
 
 
 bot = commands.Bot(
@@ -91,85 +101,7 @@ bot = commands.Bot(
 bot.synced = False
 bot._fully_ready = False
 bot._shutdown_started = False
-
-
-# =========================================================
-# COG DISCOVERY
-# =========================================================
-
-def discover_cogs() -> list[str]:
-    """
-    Discover Discord extension modules inside cogs/.
-
-    Example:
-
-        cogs/flags/flags.py
-            -> cogs.flags.flags
-
-        cogs/utils.py
-            -> ignored
-
-        cogs/database.py
-            -> ignored
-    """
-
-    modules: set[str] = set()
-
-    if not COGS_DIRECTORY.is_dir():
-        LOG.warning(
-            "Cogs directory does not exist: %s",
-            COGS_DIRECTORY,
-        )
-
-        return []
-
-    for path in COGS_DIRECTORY.rglob("*.py"):
-
-        # -------------------------------------------------
-        # Skip support files.
-        # -------------------------------------------------
-
-        if path.name in SKIP_FILES:
-            continue
-
-        if path.name.startswith("_"):
-            continue
-
-        # -------------------------------------------------
-        # Skip support directories.
-        # -------------------------------------------------
-
-        relative_parts = path.relative_to(
-            BASE_DIR
-        ).parts
-
-        if any(
-            part in SKIP_DIRECTORIES
-            for part in relative_parts
-        ):
-            continue
-
-        # -------------------------------------------------
-        # Convert filesystem path to Python module.
-        #
-        # Example:
-        #
-        # cogs/flags/flags.py
-        #
-        # becomes:
-        #
-        # cogs.flags.flags
-        # -------------------------------------------------
-
-        relative = path.relative_to(BASE_DIR)
-
-        module = ".".join(
-            relative.with_suffix("").parts
-        )
-
-        modules.add(module)
-
-    return sorted(modules)
+bot._auto_refresh_done = False
 
 
 # =========================================================
@@ -178,40 +110,26 @@ def discover_cogs() -> list[str]:
 
 async def load_cogs() -> None:
     """
-    Load every discovered Discord Cog.
-
-    If any Cog fails to load, startup is aborted.
+    Load ONLY the approved Flag System Cogs.
     """
 
-    modules = discover_cogs()
-
-    if not modules:
-        LOG.warning(
-            "No Cog files were discovered."
-        )
-
-        return
-
     LOG.info(
-        "Discovered %d Cog(s).",
-        len(modules),
+        "Loading %d Flag System Cog(s)...",
+        len(FLAG_COGS),
     )
 
     loaded = 0
     failed = 0
 
-    for module in modules:
+    for module in FLAG_COGS:
 
         try:
-
-            await bot.load_extension(
-                module
-            )
+            await bot.load_extension(module)
 
             loaded += 1
 
             LOG.info(
-                "Loaded Cog: %s",
+                "Loaded Flag Cog: %s",
                 module,
             )
 
@@ -220,21 +138,19 @@ async def load_cogs() -> None:
             failed += 1
 
             LOG.exception(
-                "Failed to load Cog: %s",
+                "Failed to load Flag Cog: %s",
                 module,
             )
 
     LOG.info(
-        "Cog loading complete | "
-        "loaded=%d failed=%d",
+        "Flag Cog loading complete | loaded=%d failed=%d",
         loaded,
         failed,
     )
 
     if failed:
-
         raise RuntimeError(
-            f"{failed} Cog(s) failed to load."
+            f"{failed} Flag System Cog(s) failed to load."
         )
 
 
@@ -244,7 +160,7 @@ async def load_cogs() -> None:
 
 async def initialize_database() -> None:
     """
-    Initialize the bot's main database connection.
+    Initialize the Flag System database connection.
     """
 
     database_url = os.getenv(
@@ -252,7 +168,6 @@ async def initialize_database() -> None:
     )
 
     if not database_url:
-
         raise RuntimeError(
             "DATABASE_URL environment variable is missing."
         )
@@ -272,8 +187,7 @@ async def initialize_database() -> None:
         except Exception:
 
             LOG.exception(
-                "Database connection "
-                "attempt %d/5 failed.",
+                "Database connection attempt %d/5 failed.",
                 attempt,
             )
 
@@ -300,7 +214,7 @@ async def initialize() -> None:
 
         1. Validate environment
         2. Connect database
-        3. Load Cogs
+        3. Load approved Flag System Cogs
     """
 
     token = os.getenv(
@@ -308,7 +222,6 @@ async def initialize() -> None:
     )
 
     if not token:
-
         raise RuntimeError(
             "DISCORD_TOKEN environment variable is missing."
         )
@@ -320,7 +233,7 @@ async def initialize() -> None:
     await initialize_database()
 
     # -----------------------------------------------------
-    # Cogs
+    # Flag System Cogs
     # -----------------------------------------------------
 
     await load_cogs()
@@ -366,13 +279,21 @@ async def on_ready() -> None:
 
         try:
 
-            await bot.tree.sync()
+            synced_commands = await bot.tree.sync()
 
             bot.synced = True
 
             LOG.info(
-                "Slash commands synced."
+                "Slash commands synced | count=%d",
+                len(synced_commands),
             )
+
+            for command in synced_commands:
+
+                LOG.info(
+                    "Registered command: /%s",
+                    command.qualified_name,
+                )
 
         except Exception:
 
@@ -528,8 +449,7 @@ def install_signal_handlers(
             ):
 
                 LOG.debug(
-                    "Could not install signal handler "
-                    "for %s.",
+                    "Could not install signal handler for %s.",
                     sig,
                 )
 
