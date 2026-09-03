@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import signal
+from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -24,14 +25,20 @@ log = logging.getLogger("dayz-manager")
 
 
 # =========================================================
+# PATHS
+# =========================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+MISC_DIRECTORY = BASE_DIR / "misc"
+
+
+# =========================================================
 # FLAG SYSTEM COGS
 # =========================================================
 
-# IMPORTANT:
-# Keep this list explicit.
-# Do NOT dynamically load every .py file in /cogs.
+# Keep the Flag System cogs explicit.
 #
-# The bot is ONLY the Flag System.
+# Do NOT dynamically load every Python file in cogs/.
 FLAG_COGS = (
     "cogs.setup",
     "cogs.management",
@@ -49,8 +56,7 @@ intents = discord.Intents.default()
 # Required for guild/server functionality.
 intents.guilds = True
 
-# NOT required by the Flag System.
-# These are privileged intents and should remain disabled.
+# Privileged intents remain disabled.
 intents.members = False
 intents.message_content = False
 
@@ -70,36 +76,136 @@ bot._shutdown_started = False
 
 
 # =========================================================
+# DISCOVER MISC COGS
+# =========================================================
+
+def discover_misc_cogs() -> tuple[str, ...]:
+    """
+    Discover Python files inside the separate top-level
+    misc/ directory.
+
+    Example:
+
+        misc/example.py
+
+    becomes:
+
+        misc.example
+    """
+
+    if not MISC_DIRECTORY.exists():
+        log.warning(
+            "Misc directory does not exist: %s",
+            MISC_DIRECTORY,
+        )
+        return ()
+
+    if not MISC_DIRECTORY.is_dir():
+        log.warning(
+            "Misc path exists but is not a directory: %s",
+            MISC_DIRECTORY,
+        )
+        return ()
+
+    misc_cogs: list[str] = []
+
+    for file in sorted(MISC_DIRECTORY.glob("*.py")):
+        # Ignore __init__.py and private/helper files.
+        if file.name.startswith("_"):
+            continue
+
+        extension = f"misc.{file.stem}"
+        misc_cogs.append(extension)
+
+    return tuple(misc_cogs)
+
+
+# =========================================================
 # LOAD COGS
 # =========================================================
 
 async def load_cogs() -> None:
-    """Load only the explicitly approved Flag System cogs."""
+    """
+    Load the Flag System cogs from cogs/
+    and all Python cogs from the separate misc/ folder.
+    """
 
-    log.info("Loading %d Flag System Cog(s)...", len(FLAG_COGS))
+    misc_cogs = discover_misc_cogs()
+
+    log.info(
+        "Preparing to load cogs | Flag System=%d | Misc=%d",
+        len(FLAG_COGS),
+        len(misc_cogs),
+    )
+
+    # -----------------------------------------------------
+    # LOG DISCOVERED MISC COGS
+    # -----------------------------------------------------
+
+    if misc_cogs:
+        for extension in misc_cogs:
+            log.info(
+                "Discovered Misc Cog: %s",
+                extension,
+            )
+    else:
+        log.info(
+            "No Misc Cogs discovered."
+        )
+
+    # -----------------------------------------------------
+    # BUILD LOAD LIST
+    # -----------------------------------------------------
+
+    extensions: list[tuple[str, str]] = []
+
+    for extension in FLAG_COGS:
+        extensions.append(("Flag", extension))
+
+    for extension in misc_cogs:
+        extensions.append(("Misc", extension))
+
+    # -----------------------------------------------------
+    # LOAD
+    # -----------------------------------------------------
 
     loaded = 0
     failed = 0
 
-    for extension in FLAG_COGS:
+    for cog_type, extension in extensions:
         try:
             await bot.load_extension(extension)
+
             loaded += 1
-            log.info("Loaded Flag Cog: %s", extension)
+
+            log.info(
+                "Loaded %s Cog: %s",
+                cog_type,
+                extension,
+            )
 
         except Exception:
             failed += 1
-            log.exception("Failed to load Flag Cog: %s", extension)
+
+            log.exception(
+                "Failed to load %s Cog: %s",
+                cog_type,
+                extension,
+            )
+
+    # -----------------------------------------------------
+    # SUMMARY
+    # -----------------------------------------------------
 
     log.info(
-        "Flag Cog loading complete | loaded=%d failed=%d",
+        "Cog loading complete | loaded=%d failed=%d",
         loaded,
         failed,
     )
 
     if failed:
         raise RuntimeError(
-            f"{failed} Flag System Cog(s) failed to load."
+            f"{failed} Cog(s) failed to load."
         )
 
 
@@ -111,14 +217,20 @@ async def initialize_database() -> None:
     """Initialize the database connection and schema."""
 
     if not os.getenv("DATABASE_URL"):
-        raise RuntimeError("DATABASE_URL environment variable is not set.")
+        raise RuntimeError(
+            "DATABASE_URL environment variable is not set."
+        )
 
     last_error: Exception | None = None
 
     for attempt in range(1, 6):
         try:
             await utils.ensure_connection()
-            log.info("Database connected.")
+
+            log.info(
+                "Database connected."
+            )
+
             return
 
         except Exception as exc:
@@ -155,7 +267,10 @@ async def on_ready():
         bot.user.id if bot.user else "unknown",
     )
 
-    log.info("Connected to %d guild(s).", len(bot.guilds))
+    log.info(
+        "Connected to %d guild(s).",
+        len(bot.guilds),
+    )
 
     if not bot.synced:
         try:
@@ -169,15 +284,22 @@ async def on_ready():
             )
 
             for command in commands_synced:
-                log.info("Registered command: /%s", command.name)
+                log.info(
+                    "Registered command: /%s",
+                    command.name,
+                )
 
         except Exception:
-            log.exception("Failed to sync slash commands.")
+            log.exception(
+                "Failed to sync slash commands."
+            )
             raise
 
     bot._fully_ready = True
 
-    log.info("DayZ Manager is fully ready.")
+    log.info(
+        "DayZ Manager is fully ready."
+    )
 
 
 # =========================================================
@@ -204,29 +326,48 @@ async def shutdown() -> None:
 
     bot._shutdown_started = True
 
-    log.info("Shutting down DayZ Manager...")
+    log.info(
+        "Shutting down DayZ Manager..."
+    )
 
     try:
         await utils.close_db()
-        log.info("Database connection closed.")
+
+        log.info(
+            "Database connection closed."
+        )
+
     except Exception:
-        log.exception("Error while closing database.")
+        log.exception(
+            "Error while closing database."
+        )
 
     try:
         await bot.close()
-        log.info("Discord connection closed.")
+
+        log.info(
+            "Discord connection closed."
+        )
+
     except Exception:
-        log.exception("Error while closing Discord connection.")
+        log.exception(
+            "Error while closing Discord connection."
+        )
 
 
 # =========================================================
 # SIGNAL HANDLERS
 # =========================================================
 
-def install_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
+def install_signal_handlers(
+    loop: asyncio.AbstractEventLoop,
+) -> None:
     """Install graceful shutdown handlers where supported."""
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    for sig in (
+        signal.SIGINT,
+        signal.SIGTERM,
+    ):
         try:
             loop.add_signal_handler(
                 sig,
@@ -234,13 +375,17 @@ def install_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
                     shutdown()
                 ),
             )
-        except (NotImplementedError, RuntimeError):
+
+        except (
+            NotImplementedError,
+            RuntimeError,
+        ):
             # Windows may not support add_signal_handler.
             pass
 
 
 # =========================================================
-# MAIN
+# MAIN INITIALIZATION
 # =========================================================
 
 async def initialize() -> None:
@@ -253,7 +398,9 @@ async def initialize() -> None:
             "DISCORD_TOKEN environment variable is not set."
         )
 
-    log.info("Starting DayZ Manager...")
+    log.info(
+        "Starting DayZ Manager..."
+    )
 
     await initialize_database()
 
@@ -261,6 +408,10 @@ async def initialize() -> None:
 
     await bot.start(token)
 
+
+# =========================================================
+# MAIN
+# =========================================================
 
 async def main() -> None:
     loop = asyncio.get_running_loop()
@@ -271,10 +422,14 @@ async def main() -> None:
         await initialize()
 
     except KeyboardInterrupt:
-        log.info("Keyboard interrupt received.")
+        log.info(
+            "Keyboard interrupt received."
+        )
 
     except Exception:
-        log.exception("Fatal startup error.")
+        log.exception(
+            "Fatal startup error."
+        )
 
     finally:
         await shutdown()
