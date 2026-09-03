@@ -1,10 +1,12 @@
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-import io
-import json
-import asyncio
-import re
 
 
 # =========================================================
@@ -17,14 +19,18 @@ ALLOWED_GUILD_IDS = [
 
 
 class Teleporter(commands.Cog):
-    """Generate teleporter JSON configuration files."""
+    """Generate 2-way teleporter JSON configuration files."""
 
     def __init__(self, bot):
         self.bot = bot
 
+    # =========================================================
+    # TELEPORTER COMMAND
+    # =========================================================
+
     @app_commands.command(
         name="teleporter",
-        description="Generate 1-way or 2-way teleporter JSON files for DayZ teleporters."
+        description="Generate 2-way teleporter JSON files for a faction."
     )
     @app_commands.check(
         lambda interaction: (
@@ -33,124 +39,234 @@ class Teleporter(commands.Cog):
         )
     )
     @app_commands.describe(
-        position_a="First position array (e.g. [1234,56,789]) or comma-separated (1234,56,789)",
-        position_b="Second position array (e.g. [9876,54,321]) or comma-separated (9876,54,321)",
-        name="Base teleporter name (e.g. Base2NWAF)"
+        faction_name="Faction name (e.g. Wolf)",
+        location_a_name="Name of Location A (e.g. NWAF)",
+        location_b_name="Name of Location B (e.g. Tisy)",
+        location_a="Coordinates for Location A: [x,y,z] or x,y,z",
+        location_b="Coordinates for Location B: [x,y,z] or x,y,z",
     )
     async def teleporter(
         self,
         interaction: discord.Interaction,
-        position_a: str,
-        position_b: str,
-        name: str
+        faction_name: str,
+        location_a_name: str,
+        location_b_name: str,
+        location_a: str,
+        location_b: str,
     ):
         """
-        Creates two teleporter JSON files using user-supplied coordinates.
-        Automatically reverses the name for the second file and includes file path examples.
+        Creates two teleporter JSON files:
+
+        Location A → Location B
+        Location B → Location A
         """
 
         await interaction.response.defer(ephemeral=True)
 
-        # Show progress message
+        # =====================================================
+        # PROGRESS MESSAGE
+        # =====================================================
+
         progress_msg = await interaction.followup.send(
             "⚙️ Generating teleporter JSON files, please wait...",
-            ephemeral=True
+            ephemeral=True,
         )
 
-        # --- Normalize position inputs ---
-        def normalize(pos: str):
-            pos = pos.strip().replace(" ", "")
-            if not pos.startswith("["):
-                pos = f"[{pos}]"
-            return json.loads(pos.replace(",,", ","))
+        # =====================================================
+        # NORMALIZE COORDINATES
+        # =====================================================
+
+        def normalize_position(position: str):
+            position = position.strip().replace(" ", "")
+
+            if not position.startswith("["):
+                position = f"[{position}]"
+
+            data = json.loads(position)
+
+            if not isinstance(data, list) or len(data) != 3:
+                raise ValueError("Position must contain exactly 3 coordinates.")
+
+            # Make sure all coordinates are numbers
+            for value in data:
+                if not isinstance(value, (int, float)):
+                    raise ValueError("Coordinates must be numbers.")
+
+            return data
 
         try:
-            pos_a = normalize(position_a)
-            pos_b = normalize(position_b)
+            pos_a = normalize_position(location_a)
+            pos_b = normalize_position(location_b)
+
         except Exception:
             await progress_msg.edit(
-                content="❌ Invalid position format. Use `[x, y, z]` or `x,y,z`."
+                content=(
+                    "❌ **Invalid coordinate format.**\n\n"
+                    "Use either:\n"
+                    "`[1234, 56, 789]`\n"
+                    "or\n"
+                    "`1234,56,789`"
+                )
             )
             return
 
-        # --- Swap file name ---
-        def swap_name(base_name: str) -> str:
-            match = re.split(
-                r'2|to',
-                base_name,
-                maxsplit=1,
-                flags=re.IGNORECASE
+        # =====================================================
+        # CLEAN NAMES
+        # =====================================================
+
+        def clean_name(value: str) -> str:
+            """
+            Converts names into safe filename-friendly names.
+            """
+
+            value = value.strip()
+
+            # Replace spaces with underscores
+            value = value.replace(" ", "_")
+
+            # Keep only letters, numbers, underscores and hyphens
+            value = "".join(
+                character
+                for character in value
+                if character.isalnum() or character in "_-"
             )
 
-            if len(match) == 2:
-                part1, part2 = match
-                return (
-                    f"{part2}2{part1}"
-                    if part2 and part1
-                    else f"{base_name}_Reversed"
-                )
+            return value or "Unknown"
 
-            return f"{base_name}_Reversed"
+        faction = clean_name(faction_name)
+        location_a_clean = clean_name(location_a_name)
+        location_b_clean = clean_name(location_b_name)
 
-        name_a_to_b = name.replace(" ", "_")
-        name_b_to_a = swap_name(name_a_to_b)
+        # =====================================================
+        # FILE NAMES
+        # =====================================================
 
-        # --- Build JSONs ---
+        file1_name = (
+            f"Teleporter_{faction}_"
+            f"{location_a_clean}_to_{location_b_clean}.json"
+        )
+
+        file2_name = (
+            f"Teleporter_{faction}_"
+            f"{location_b_clean}_to_{location_a_clean}.json"
+        )
+
+        # =====================================================
+        # TELEPORTER A → B
+        # =====================================================
+
         teleporter1 = {
             "areaName": "RestrictedAreaWarheadStorage",
-            "PRABoxes": [[[1, 1, 1], [90, 0, 0], pos_a]],
-            "safePositions3D": [pos_b],
-            "_comment": f"Teleporter from A→B ({name_a_to_b})"
+            "PRABoxes": [
+                [
+                    [1, 1, 1],
+                    [90, 0, 0],
+                    pos_a,
+                ]
+            ],
+            "safePositions3D": [
+                pos_b
+            ],
+            "_comment": (
+                f"{faction}: "
+                f"{location_a_name} → {location_b_name}"
+            ),
         }
+
+        # =====================================================
+        # TELEPORTER B → A
+        # =====================================================
 
         teleporter2 = {
             "areaName": "RestrictedAreaWarheadStorage",
-            "PRABoxes": [[[1, 1, 1], [90, 0, 0], pos_b]],
-            "safePositions3D": [pos_a],
-            "_comment": f"Teleporter from B→A ({name_b_to_a})"
+            "PRABoxes": [
+                [
+                    [1, 1, 1],
+                    [90, 0, 0],
+                    pos_b,
+                ]
+            ],
+            "safePositions3D": [
+                pos_a
+            ],
+            "_comment": (
+                f"{faction}: "
+                f"{location_b_name} → {location_a_name}"
+            ),
         }
 
-        # --- Convert to JSON text ---
-        json1 = json.dumps(teleporter1, indent=2)
-        json2 = json.dumps(teleporter2, indent=2)
+        # =====================================================
+        # CONVERT TO JSON
+        # =====================================================
 
-        # --- File names ---
-        file1_name = f"Teleporter_{name_a_to_b}.json"
-        file2_name = f"Teleporter_{name_b_to_a}.json"
+        json1 = json.dumps(
+            teleporter1,
+            indent=2
+        )
 
-        # --- Create files in memory ---
+        json2 = json.dumps(
+            teleporter2,
+            indent=2
+        )
+
+        # =====================================================
+        # CREATE FILES IN MEMORY
+        # =====================================================
+
         file1 = discord.File(
             io.BytesIO(json1.encode("utf-8")),
-            filename=file1_name
+            filename=file1_name,
         )
 
         file2 = discord.File(
             io.BytesIO(json2.encode("utf-8")),
-            filename=file2_name
+            filename=file2_name,
         )
 
-        # --- UX delay ---
+        # =====================================================
+        # UX DELAY
+        # =====================================================
+
         await asyncio.sleep(1.2)
 
-        # --- Copy-paste helper text ---
+        # =====================================================
+        # COPY / PASTE CONFIG PATHS
+        # =====================================================
+
         copy_lines = (
-            f"```c\n"
+            "```c\n"
             f'    "./custom/{file1_name}",\n'
             f'    "./custom/{file2_name}",\n'
-            f"```"
+            "```"
         )
 
-        # --- Edit final message ---
+        # =====================================================
+        # FINAL RESPONSE
+        # =====================================================
+
         await progress_msg.edit(
             content=(
-                f"✅ **Teleporter JSON files generated successfully!**\n"
+                "✅ **Teleporter JSON files generated successfully!**\n\n"
+                f"🏴 **Faction:** `{faction_name}`\n"
+                f"📍 **Location A:** `{location_a_name}`\n"
+                f"📍 **Location B:** `{location_b_name}`\n\n"
+                f"🔵 **A → B:** `{location_a_name} → {location_b_name}`\n"
+                f"🔴 **B → A:** `{location_b_name} → {location_a_name}`\n\n"
                 f"📄 `{file1_name}`\n"
                 f"📄 `{file2_name}`\n\n"
-                f"**Copy & Paste into your config:**\n{copy_lines}"
+                f"**Copy & Paste into your config:**\n"
+                f"{copy_lines}"
             ),
-            attachments=[file1, file2]
+            attachments=[
+                file1,
+                file2,
+            ],
         )
 
+
+# =========================================================
+# SETUP
+# =========================================================
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Teleporter(bot))
