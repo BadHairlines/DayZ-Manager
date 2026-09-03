@@ -15,6 +15,7 @@ from discord.ext import commands
 
 ALLOWED_GUILD_IDS = [
     1109306235808911360,  # The Hive
+    1369359891378208925,  # The Wire
 ]
 
 
