@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import secrets
 import time
@@ -390,6 +391,21 @@ SITE_CSS = r"""
 .portal-head{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:18px 0 24px}.portal-server{display:flex;align-items:center;gap:14px;min-width:0}.portal-server h1{font-size:clamp(30px,5vw,48px);letter-spacing:-1.5px;margin:0}.portal-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 24px}.portal-tab{padding:10px 13px;border:1px solid var(--line);border-radius:11px;color:#aebed0;background:#101720;font-size:13px;font-weight:800}.portal-tab:hover,.portal-tab.active{color:#fff;border-color:#4c6680;background:#172331}.portal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.portal-card{padding:24px;display:flex;flex-direction:column;min-height:220px}.portal-card .portal-icon{font-size:30px;margin-bottom:14px}.portal-card h3{font-size:21px;margin:0 0 8px}.portal-card p{color:var(--muted);line-height:1.6;margin:0 0 18px}.portal-card .portal-actions{margin-top:auto;display:flex;gap:9px;flex-wrap:wrap}.portal-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 24px}.portal-kpi{padding:16px;border:1px solid var(--line);border-radius:15px;background:#0e151d}.portal-kpi strong{display:block;font-size:25px}.portal-kpi span{font-size:12px;color:var(--muted)}.tool-page{display:grid;gap:14px;max-width:920px}.section-label{font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#83baff}.coming-soon{border-style:dashed;opacity:.78}.command-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.subnav-note{color:var(--muted);font-size:13px;line-height:1.55}.status-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.status-card{padding:22px}.status-card strong{display:block;font-size:28px;margin-top:8px}
 
 .task-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0}.task-kpi{padding:15px;border:1px solid var(--line);border-radius:14px;background:#0e151d}.task-kpi strong{font-size:24px;display:block}.task-kpi span{font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.05em}.task-toolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:16px 0}.task-toolbar .input,.task-toolbar .select{width:auto;min-width:155px}.kanban{display:grid;grid-template-columns:repeat(4,minmax(260px,1fr));gap:13px;align-items:start;overflow-x:auto;padding-bottom:8px}.kanban-col{background:#0a1017;border:1px solid var(--line);border-radius:15px;min-height:350px}.kanban-head{padding:13px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#0a1017;border-radius:15px 15px 0 0;z-index:1}.kanban-list{padding:10px;display:grid;gap:9px}.task-card{border:1px solid #233140;border-radius:13px;background:#101820;padding:14px;cursor:pointer;transition:.16s transform,.16s border-color}.task-card:hover{transform:translateY(-2px);border-color:#47637e}.task-card-title{font-size:15px;font-weight:900;margin-bottom:7px}.task-card-meta{display:flex;gap:6px;flex-wrap:wrap}.task-chip{font-size:10px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--line);border-radius:999px;padding:4px 7px;color:#aec0d2}.task-chip.urgent{color:#ff8fa3;border-color:#793244}.task-chip.high{color:#ffb276;border-color:#704729}.task-chip.low{color:#8bd2ff;border-color:#315c76}.task-due{font-size:11px;color:var(--muted);margin-top:9px}.task-progress{height:5px;background:#1a2632;border-radius:99px;overflow:hidden;margin-top:9px}.task-progress>span{display:block;height:100%;background:#56c58f}.task-modal-backdrop{position:fixed;inset:0;background:rgba(2,6,10,.78);z-index:1000;display:none;align-items:flex-start;justify-content:center;padding:5vh 18px;overflow:auto}.task-modal-backdrop.show{display:flex}.task-modal{width:min(900px,100%);background:#0e151d;border:1px solid #2a3a4a;border-radius:18px;box-shadow:0 30px 90px #000;padding:24px}.task-modal-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.task-modal-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;margin-top:18px}.task-detail-box{border:1px solid var(--line);border-radius:13px;padding:14px;background:#0a1118}.check-item{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #19232d}.check-item:last-child{border-bottom:0}.check-item.done .check-text{text-decoration:line-through;color:#6f8294}.comment{padding:10px 0;border-bottom:1px solid #19232d}.comment:last-child{border-bottom:0}.comment-head{font-size:11px;color:#8fa3b7;margin-bottom:4px}.activity-line{font-size:12px;color:#aebdca;padding:7px 0;border-bottom:1px solid #19232d}.task-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.task-empty{padding:18px;text-align:center;color:#65788a;font-size:13px}.modal-close{border:0;background:transparent;color:#9fb0c1;font-size:24px;cursor:pointer}.task-create-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}.task-create-grid .full{grid-column:1/-1}@media(max-width:1050px){.kanban{grid-template-columns:repeat(4,280px)}.task-kpis{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.task-modal-grid,.task-create-grid{grid-template-columns:1fr}.task-create-grid .full{grid-column:auto}.task-kpis{grid-template-columns:1fr 1fr}}
+
+.badlands-home{position:relative;overflow:hidden;border:1px solid #4b3c2b;border-radius:22px;min-height:350px;margin:28px 0 10px;background:#16110d;box-shadow:0 24px 70px rgba(0,0,0,.34)}
+.badlands-home-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center}
+.badlands-home::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,10,14,.96) 0%,rgba(7,10,14,.78) 40%,rgba(7,10,14,.28) 72%,rgba(7,10,14,.38) 100%);pointer-events:none}
+.badlands-home-content{position:relative;z-index:2;padding:36px;max-width:760px}
+.badlands-live-pill{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border:1px solid rgba(89,232,160,.3);border-radius:999px;background:rgba(19,45,34,.46);color:#7ff0b4;font-size:10px;font-weight:900;letter-spacing:.09em;text-transform:uppercase}
+.badlands-live-pill::before{content:"";width:7px;height:7px;border-radius:50%;background:#52e59a;box-shadow:0 0 13px #52e59a}
+.badlands-kicker{margin-top:15px;color:#f0bd67;font-size:12px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.badlands-heading{font-size:clamp(36px,6vw,64px);line-height:.96;margin:8px 0 10px;letter-spacing:-2px}.badlands-heading span{color:#efbd61}
+.badlands-copy{max-width:640px;color:#ddcbb4;line-height:1.6;margin:0 0 20px}
+.badlands-counter{display:grid;grid-template-columns:repeat(4,minmax(95px,1fr));gap:10px;max-width:630px}
+.badlands-box{padding:15px 10px;text-align:center;border:1px solid rgba(239,189,97,.3);border-radius:14px;background:rgba(8,11,15,.78);backdrop-filter:blur(4px)}
+.badlands-box strong{display:block;font-size:clamp(28px,4.4vw,44px);line-height:1;color:#fff}.badlands-box span{display:block;margin-top:6px;color:#dbbd8b;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.badlands-release-date{margin-top:14px;color:#f5cd8f;font-size:13px;font-weight:900}
+@media(max-width:700px){.badlands-home{min-height:455px}.badlands-home-content{padding:24px}.badlands-counter{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:900px){.portal-grid,.command-grid,.status-grid{grid-template-columns:1fr}.portal-kpis{grid-template-columns:1fr 1fr}.manage-shell{grid-template-columns:1fr}.manage-side{position:static}.form-grid{grid-template-columns:1fr}.field.full{grid-column:auto}}@media(max-width:900px){.hero-home{grid-template-columns:1fr;padding-top:45px}.mock{transform:none}.feature-grid{grid-template-columns:1fr 1fr}.stat-band{grid-template-columns:1fr 1fr}.server-grid{grid-template-columns:1fr}.docs{grid-template-columns:1fr}.toc{position:static}.flag-grid{grid-template-columns:1fr}}@media(max-width:620px){.nav{height:auto;padding:14px 0;align-items:flex-start}.navlinks a:not(.keep){display:none}.hero-home{padding-top:34px}.feature-grid{grid-template-columns:1fr}.flag-stats{grid-template-columns:1fr 1fr 1fr}.flag-stat{padding:11px}.flag-stat strong{font-size:21px}.wrap{width:min(100% - 22px,1180px)}h1{letter-spacing:-2px}.stat-band{grid-template-columns:1fr 1fr}}
 """
 
@@ -464,6 +480,22 @@ async def homepage(request: web.Request) -> web.Response:
     total_claimed = sum(x["claimed_count"] for x in setups)
     body = f"""
 <main class="wrap">
+  <section class="badlands-home">
+    <img class="badlands-home-bg" src="/static/badlands.png" alt="DayZ Badlands">
+    <div class="badlands-home-content">
+      <div class="badlands-live-pill">Live Countdown</div>
+      <div class="badlands-kicker">DayZ Badlands DLC</div>
+      <h2 class="badlands-heading">Badlands <span>Releases In</span></h2>
+      <p class="badlands-copy">The new DayZ Badlands DLC arrives October 15, 2026. Watch the release countdown live right here on DayZ Manager.</p>
+      <div class="badlands-counter">
+        <div class="badlands-box"><strong id="badlandsDays">--</strong><span>Days</span></div>
+        <div class="badlands-box"><strong id="badlandsHours">--</strong><span>Hours</span></div>
+        <div class="badlands-box"><strong id="badlandsMinutes">--</strong><span>Minutes</span></div>
+        <div class="badlands-box"><strong id="badlandsSeconds">--</strong><span>Seconds</span></div>
+      </div>
+      <div class="badlands-release-date">October 15, 2026</div>
+    </div>
+  </section>
   <section class="hero-home">
     <div>
       <span class="eyebrow"><span class="dot"></span> Live DayZ Discord management</span>
@@ -493,6 +525,35 @@ async def homepage(request: web.Request) -> web.Response:
     </div>
   </section>
   <section class="section"><div class="card" style="padding:30px;text-align:center"><h2 class="section-title">Ready to see it live?</h2><p class="section-sub" style="margin:0 auto 22px">Browse DayZ communities using DayZ Manager, then open that server to view its live Flag Systems.</p><a class="btn primary" href="/servers">Browse Managed Servers →</a></div></section>
+<script>
+(function(){{
+  const release = new Date("2026-10-15T00:00:00-04:00").getTime();
+
+  function updateBadlandsCountdown(){{
+    let remaining = release - Date.now();
+    if(remaining < 0) remaining = 0;
+
+    const days = Math.floor(remaining / 86400000);
+    const hours = Math.floor((remaining % 86400000) / 3600000);
+    const minutes = Math.floor((remaining % 3600000) / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    const pad = value => String(value).padStart(2, "0");
+
+    const d = document.getElementById("badlandsDays");
+    const h = document.getElementById("badlandsHours");
+    const m = document.getElementById("badlandsMinutes");
+    const s = document.getElementById("badlandsSeconds");
+
+    if(d) d.textContent = days;
+    if(h) h.textContent = pad(hours);
+    if(m) m.textContent = pad(minutes);
+    if(s) s.textContent = pad(seconds);
+  }}
+
+  updateBadlandsCountdown();
+  setInterval(updateBadlandsCountdown, 1000);
+}})();
+</script>
 </main>"""
     return web.Response(text=_page("DayZ Manager — DayZ Discord Management", body, _invite_url(bot), "DayZ Manager is a Discord management platform for DayZ communities with live faction flag tracking and public web dashboards."), content_type="text/html", headers={"Cache-Control": "no-store"})
 
@@ -2370,6 +2431,7 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app["bot"] = bot
 
     app.router.add_get("/", homepage)
+    app.router.add_static("/static/", path=str(Path(__file__).resolve().parent / "static"), name="static")
     app.router.add_get("/health", health)
     app.router.add_get("/status", status_page)
     app.router.add_get("/docs", docs_page)
