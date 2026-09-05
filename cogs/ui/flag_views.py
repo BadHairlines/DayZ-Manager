@@ -99,7 +99,7 @@ class FlagManageView(discord.ui.LayoutView):
         if available:
             available_lines = [f"🟢 **{row['flag']}**" for row in available]
             available_registry = discord.ui.TextDisplay(
-                "## Available Flags\n" + " • ".join(available_lines)
+                "## Available Flags\n" + "\n".join(available_lines)
             )
         else:
             available_registry = discord.ui.TextDisplay(
@@ -292,7 +292,7 @@ class FlagManageView(discord.ui.LayoutView):
         text = (
             f"# 📋 Flag Registry\n### {self.map_key.title()} • {self.server}\n\n"
             f"## 🔴 Claimed ({len(claimed)})\n" + ("\n".join(claimed) if claimed else "*None*") +
-            f"\n\n## 🟢 Available ({len(available)})\n" + (" • ".join(available) if available else "*None*")
+            f"\n\n## 🟢 Available ({len(available)})\n" + ("\n".join(available) if available else "*None*")
         )
         await interaction.response.send_message(text[:3900], ephemeral=True)
 
