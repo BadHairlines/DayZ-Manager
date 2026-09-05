@@ -664,6 +664,75 @@ async def flag_session_exists(
         return bool(value)
 
 
+async def rename_flag_session(
+    guild_id: str,
+    map_key: str,
+    old_server: str,
+    new_server: str,
+) -> dict[str, int]:
+    """Atomically rename one guild/map Flag System across all database tables."""
+    guild_id = str(guild_id)
+    map_key = normalize_map(map_key)
+    old_server = normalize_server(old_server)
+    new_server = normalize_server(new_server)
+
+    if not old_server or not new_server:
+        raise ValueError("Both the current and new setup names are required.")
+    if old_server == new_server:
+        raise ValueError("The new setup name is the same as the current name.")
+
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            source_exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT 1 FROM flags
+                    WHERE guild_id=$1 AND map=$2 AND server=$3
+                ) OR EXISTS (
+                    SELECT 1 FROM flag_messages
+                    WHERE guild_id=$1 AND map=$2 AND server=$3
+                )
+            """, guild_id, map_key, old_server)
+            if not source_exists:
+                raise LookupError("The Flag System you are trying to rename no longer exists.")
+
+            destination_exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT 1 FROM flags
+                    WHERE guild_id=$1 AND map=$2 AND server=$3
+                ) OR EXISTS (
+                    SELECT 1 FROM flag_messages
+                    WHERE guild_id=$1 AND map=$2 AND server=$3
+                )
+            """, guild_id, map_key, new_server)
+            if destination_exists:
+                raise FileExistsError("A Flag System with that name already exists for this map.")
+
+            flags_result = await conn.execute("""
+                UPDATE flags SET server=$4
+                WHERE guild_id=$1 AND map=$2 AND server=$3
+            """, guild_id, map_key, old_server, new_server)
+            messages_result = await conn.execute("""
+                UPDATE flag_messages SET server=$4
+                WHERE guild_id=$1 AND map=$2 AND server=$3
+            """, guild_id, map_key, old_server, new_server)
+            audit_result = await conn.execute("""
+                UPDATE flag_audit_log SET server=$4
+                WHERE guild_id=$1 AND map=$2 AND server=$3
+            """, guild_id, map_key, old_server, new_server)
+
+    def _count(result: str) -> int:
+        try:
+            return int(result.rsplit(" ", 1)[-1])
+        except (TypeError, ValueError):
+            return 0
+
+    return {
+        "flags": _count(flags_result),
+        "messages": _count(messages_result),
+        "audit": _count(audit_result),
+    }
+
+
 async def delete_flag_session(
     guild_id: str,
     map_key: str,
