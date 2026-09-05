@@ -4,14 +4,6 @@ from discord.ext import commands
 import asyncio
 
 
-# =========================================================
-# ALLOWED GUILDS
-# =========================================================
-
-ALLOWED_GUILD_IDS = [
-    1109306235808911360,  # The Hive
-]
-
 
 class Vehicle(commands.Cog):
     """Generate DayZ vehicle event and spawn position XML configurations."""
@@ -23,12 +15,7 @@ class Vehicle(commands.Cog):
         name="vehicle",
         description="Generate a DayZ vehicle event and spawn position XML."
     )
-    @app_commands.check(
-        lambda interaction: (
-            interaction.guild is not None
-            and interaction.guild.id in ALLOWED_GUILD_IDS
-        )
-    )
+    @app_commands.guild_only()
     @app_commands.describe(
         name="Vehicle name (e.g. Taco — Vehicle is added automatically)",
         vehicle="Vehicle classname",

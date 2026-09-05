@@ -9,15 +9,6 @@ from discord import app_commands
 from discord.ext import commands
 
 
-# =========================================================
-# ALLOWED GUILDS
-# =========================================================
-
-ALLOWED_GUILD_IDS = [
-    1109306235808911360,  # The Hive
-    1369359891378208925,  # The Wire
-]
-
 
 class Teleporter(commands.Cog):
     """Generate 2-way teleporter JSON configuration files."""
@@ -33,12 +24,7 @@ class Teleporter(commands.Cog):
         name="teleporter",
         description="Generate 2-way teleporter JSON files for a faction."
     )
-    @app_commands.check(
-        lambda interaction: (
-            interaction.guild is not None
-            and interaction.guild.id in ALLOWED_GUILD_IDS
-        )
-    )
+    @app_commands.guild_only()
     @app_commands.describe(
         faction_name="Faction name (e.g. Wolf)",
         location_a_name="Name of Location A (e.g. NWAF)",
