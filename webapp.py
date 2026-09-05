@@ -260,7 +260,7 @@ def _nav(invite_url: str | None = None) -> str:
 <nav class="nav wrap">
   <a class="brand" href="/"><span class="brandmark">🚩</span><span>DayZ Manager</span></a>
   <div class="navlinks">
-    <a href="/flags">Live Flags</a>
+    <a href="/servers">Managed Servers</a>
     <a href="/dashboard">My Dashboard</a>
     <a href="/docs">Docs</a>
     <a href="/status">Status</a>
@@ -326,7 +326,7 @@ async def homepage(request: web.Request) -> web.Response:
       <span class="eyebrow"><span class="dot"></span> Live DayZ Discord management</span>
       <h1><span class="gradient">DayZ Manager</span><br>built for server owners.</h1>
       <p class="lead">Run a cleaner DayZ community with live faction flag tracking, administrator-controlled claims and releases, setup management, audit history, server utilities, and public web dashboards that stay synced with Discord.</p>
-      <div class="hero-actions"><a class="btn primary" href="/dashboard">🔐 My Dashboard</a><a class="btn" href="/invite">➕ Add DayZ Manager</a><a class="btn" href="/flags">🚩 Browse Live Flags</a><a class="btn" href="/docs">📖 View Commands</a></div>
+      <div class="hero-actions"><a class="btn primary" href="/dashboard">🔐 My Dashboard</a><a class="btn" href="/invite">➕ Add DayZ Manager</a><a class="btn" href="/servers">🚩 Managed Servers</a><a class="btn" href="/docs">📖 View Commands</a></div>
     </div>
     <div class="mock">
       <div class="mock-head"><strong>🚩 Live Flag Dashboard</strong><span class="green">● LIVE</span></div>
@@ -349,7 +349,7 @@ async def homepage(request: web.Request) -> web.Response:
       <div class="feature"><div class="icon">🌐</div><h3>Public Live Pages</h3><p>Give players a clean link to check flag availability without needing to dig through Discord interactions.</p></div>
     </div>
   </section>
-  <section class="section"><div class="card" style="padding:30px;text-align:center"><h2 class="section-title">Ready to see it live?</h2><p class="section-sub" style="margin:0 auto 22px">Browse DayZ communities using DayZ Manager, then open that server to view its live Flag Systems.</p><a class="btn primary" href="/flags">Browse Servers Using DayZ Manager →</a></div></section>
+  <section class="section"><div class="card" style="padding:30px;text-align:center"><h2 class="section-title">Ready to see it live?</h2><p class="section-sub" style="margin:0 auto 22px">Browse DayZ communities using DayZ Manager, then open that server to view its live Flag Systems.</p><a class="btn primary" href="/servers">Browse Managed Servers →</a></div></section>
 </main>"""
     return web.Response(text=_page("DayZ Manager — DayZ Discord Management", body, _invite_url(bot), "DayZ Manager is a Discord management platform for DayZ communities with live faction flag tracking and public web dashboards."), content_type="text/html", headers={"Cache-Control": "no-store"})
 
@@ -558,10 +558,8 @@ async def setups_api(request: web.Request) -> web.Response:
     return response
 
 
-async def flags_directory(request: web.Request) -> web.Response:
-    bot: commands.Bot = request.app["bot"]
-
-    # Backward compatibility for v2.3 links that used /flags?guild=...&map=...&server=...
+async def flags_root_redirect(request: web.Request) -> web.StreamResponse:
+    """Keep old /flags links working while /servers is the public server directory."""
     legacy_guild = request.query.get("guild", "").strip()
     legacy_map = request.query.get("map", "").strip()
     legacy_server = request.query.get("server", "").strip()
@@ -570,8 +568,13 @@ async def flags_directory(request: web.Request) -> web.Response:
         if clean:
             clean_path = clean.split("/flags/", 1)[-1]
             raise web.HTTPFound(f"/flags/{clean_path}")
+    raise web.HTTPFound("/servers")
 
-    # Public /flags is a directory of Discord servers using DayZ Manager.
+
+async def flags_directory(request: web.Request) -> web.Response:
+    bot: commands.Bot = request.app["bot"]
+
+    # Public /servers is the directory of Discord servers using DayZ Manager.
     # Individual flag setups are grouped under each server page.
     setups = await _public_setups(bot)
     grouped: dict[str, dict] = {}
@@ -633,7 +636,7 @@ async def server_flag_systems_page(request: web.Request) -> web.Response:
         return web.Response(
             text=_page(
                 "Server Not Found — DayZ Manager",
-                '<main class="wrap"><section class="section"><div class="card empty"><h2>🚩 Server not found</h2><p>This server has no public Flag Systems or DayZ Manager is no longer connected to it.</p><a class="btn" href="/flags">← Servers Using DayZ Manager</a></div></section></main>',
+                '<main class="wrap"><section class="section"><div class="card empty"><h2>🚩 Server not found</h2><p>This server has no public Flag Systems or DayZ Manager is no longer connected to it.</p><a class="btn" href="/servers">← Servers Using DayZ Manager</a></div></section></main>',
                 _invite_url(bot),
             ),
             content_type="text/html",
@@ -664,7 +667,7 @@ async def server_flag_systems_page(request: web.Request) -> web.Response:
 
     body = f'''
 <main class="wrap"><section class="section" style="padding-top:40px">
-<a href="/flags" class="meta">← Servers Using DayZ Manager</a>
+<a href="/servers" class="meta">← Servers Using DayZ Manager</a>
 <div class="dashboard-head" style="margin-top:18px">
   <div>
     <span class="eyebrow"><span class="dot"></span> Live Flag Systems</span>
@@ -738,7 +741,7 @@ async def flag_detail_page(request: web.Request) -> web.Response:
     server_slug = request.match_info["server_slug"]
     server = await _resolve_server_slug(guild_id, map_key, server_slug)
     if not server:
-        return web.Response(text=_page("Flag System Not Found", '<main class="wrap"><section class="section"><div class="card empty"><h2>🚩 Flag System not found</h2><p>This setup may have been removed or the link is invalid.</p><a class="btn" href="/flags">Browse live Flag Systems</a></div></section></main>', _invite_url(bot)), content_type="text/html", status=404)
+        return web.Response(text=_page("Flag System Not Found", '<main class="wrap"><section class="section"><div class="card empty"><h2>🚩 Flag System not found</h2><p>This setup may have been removed or the link is invalid.</p><a class="btn" href="/servers">Browse Managed Servers</a></div></section></main>', _invite_url(bot)), content_type="text/html", status=404)
     payload = await _get_payload(bot, guild_id, map_key, server)
     if not payload:
         return web.Response(text=_page("Flag System Not Found", '<main class="wrap"><section class="section"><div class="card empty"><h2>🚩 Flag System not found</h2></div></section></main>', _invite_url(bot)), content_type="text/html", status=404)
@@ -806,8 +809,9 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_get("/api/flags", flags_api)  # legacy API
     app.router.add_get("/api/flags/{guild_id}/{map_key}/{server_slug}", clean_flags_api)
 
-    app.router.add_get("/flags", flags_directory)
+    app.router.add_get("/servers", flags_directory)
     app.router.add_get("/servers/{guild_id}", server_flag_systems_page)
+    app.router.add_get("/flags", flags_root_redirect)
     app.router.add_get("/flags/{guild_id}/{map_key}/{server_slug}", flag_detail_page)
     app.router.add_get("/flags-legacy", legacy_flags_page)
 
