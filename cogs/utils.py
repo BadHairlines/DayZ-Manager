@@ -615,6 +615,80 @@ async def get_flag_sessions(
         )
 
 
+async def flag_session_exists(
+    guild_id: str,
+    map_key: str,
+    server: str,
+) -> bool:
+    async with safe_acquire() as conn:
+        value = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM flags
+                WHERE guild_id=$1
+                  AND map=$2
+                  AND server=$3
+            ) OR EXISTS (
+                SELECT 1
+                FROM flag_messages
+                WHERE guild_id=$1
+                  AND map=$2
+                  AND server=$3
+            )
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+        )
+        return bool(value)
+
+
+async def delete_flag_session(
+    guild_id: str,
+    map_key: str,
+    server: str,
+) -> dict[str, int]:
+    """Permanently delete one guild-scoped flag setup from the database."""
+    guild_id = str(guild_id)
+    map_key = normalize_map(map_key)
+    server = normalize_server(server)
+
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            flags_result = await conn.execute("""
+                DELETE FROM flags
+                WHERE guild_id=$1
+                  AND map=$2
+                  AND server=$3
+            """, guild_id, map_key, server)
+
+            messages_result = await conn.execute("""
+                DELETE FROM flag_messages
+                WHERE guild_id=$1
+                  AND map=$2
+                  AND server=$3
+            """, guild_id, map_key, server)
+
+            audit_result = await conn.execute("""
+                DELETE FROM flag_audit_log
+                WHERE guild_id=$1
+                  AND map=$2
+                  AND server=$3
+            """, guild_id, map_key, server)
+
+    def _count(command_result: str) -> int:
+        try:
+            return int(command_result.rsplit(" ", 1)[-1])
+        except (TypeError, ValueError):
+            return 0
+
+    return {
+        "flags": _count(flags_result),
+        "messages": _count(messages_result),
+        "audit": _count(audit_result),
+    }
+
+
 # =========================================================
 # FLAG EMOJIS
 # =========================================================
