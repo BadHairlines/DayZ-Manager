@@ -18,7 +18,6 @@ import discord
 from discord.ext import commands
 
 from cogs import utils
-from cogs.ui.flag_views import FlagManageView
 from misc.teleporter import ALLOWED_GUILD_IDS
 
 log = logging.getLogger("dayz-manager")
@@ -163,6 +162,7 @@ def _setup_key(map_key: str, server: str) -> str:
 
 
 async def _refresh_flag_dashboard(bot: commands.Bot, guild: discord.Guild, map_key: str, server: str) -> tuple[bool, str]:
+    from cogs.ui.flag_views import FlagManageView
     stored = await utils.get_flag_message(str(guild.id), map_key, server)
     if not stored:
         return False, "No stored public flag message was found for that setup."
@@ -792,6 +792,7 @@ async def manage_flags_api(request: web.Request) -> web.Response:
 
 
 async def manage_setup_api(request: web.Request) -> web.Response:
+    from cogs.ui.flag_views import FlagManageView
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = _authorized_web_guild(request, guild_id)
@@ -851,6 +852,7 @@ async def manage_setup_api(request: web.Request) -> web.Response:
 
 
 async def manage_assign_api(request: web.Request) -> web.Response:
+    from cogs.ui.flag_views import FlagManageView
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = _authorized_web_guild(request, guild_id)
@@ -882,6 +884,7 @@ async def manage_assign_api(request: web.Request) -> web.Response:
 
 
 async def manage_release_api(request: web.Request) -> web.Response:
+    from cogs.ui.flag_views import FlagManageView
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = _authorized_web_guild(request, guild_id)
