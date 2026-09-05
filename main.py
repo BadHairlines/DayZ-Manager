@@ -10,6 +10,7 @@ import discord
 from discord.ext import commands
 
 from cogs import utils
+from webapp import public_base_url, start_web_server
 
 
 # =========================================================
@@ -72,11 +73,18 @@ class DayZManager(commands.Bot):
         )
         self.started_at = discord.utils.utcnow()
         self._shutdown_started = False
+        self.web_runner = None
 
     async def setup_hook(self) -> None:
         """Initialize dependencies and commands before READY is dispatched."""
         await initialize_database()
         await load_cogs(self)
+        self.web_runner = await start_web_server(self)
+        web_url = public_base_url()
+        if web_url:
+            log.info("Flag web portal public URL: %s", web_url)
+        else:
+            log.warning("Flag web portal has no public URL yet. Generate a Railway domain or set FLAG_WEB_BASE_URL.")
 
         synced = await self.tree.sync()
         log.info("Slash commands synced | count=%d", len(synced))
@@ -89,6 +97,14 @@ class DayZManager(commands.Bot):
 
         self._shutdown_started = True
         log.info("Shutting down DayZ Manager...")
+
+        if self.web_runner is not None:
+            try:
+                await self.web_runner.cleanup()
+                log.info("Flag web portal stopped.")
+            except Exception:
+                log.exception("Error while stopping flag web portal.")
+            self.web_runner = None
 
         try:
             await utils.close_db()

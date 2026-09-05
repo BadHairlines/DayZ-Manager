@@ -59,3 +59,18 @@ Setup deletion is always restricted to the guild where the command is run. It re
 ## Components V2 Flag Dashboard
 
 The public Flag System now uses Discord Components V2 (`discord.py` 2.6+) instead of a traditional embed. Each setup has a persistent live dashboard with Claim Flag, Release Flag, View Flags, Find Flag, History, and Admin Panel controls. Existing classic flag messages are automatically replaced with the Components V2 dashboard during restoration. The official fixed flag registry remains unchanged; custom user-created flags are not supported.
+
+## Live Flag Website
+
+DayZ Manager now serves a read-only live flag portal from the same Railway service as the Discord bot.
+
+Routes:
+- `/flags?guild=<guild_id>&map=<map>&server=<server>` - live public flag page
+- `/api/flags?guild=<guild_id>&map=<map>&server=<server>` - read-only JSON data
+- `/health` - web health check
+
+The Discord Components V2 flag dashboard automatically displays a **Live Website** link when a public base URL is available.
+
+On Railway, generate a public domain for the DayZ Manager service. Railway supplies `RAILWAY_PUBLIC_DOMAIN` automatically. You may optionally override the generated link by setting `FLAG_WEB_BASE_URL` to a custom domain such as `https://flags.example.com`.
+
+The web portal is read-only. Flag claims/releases still happen through Administrator-only Discord controls.
