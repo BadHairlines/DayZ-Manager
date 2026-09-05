@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 from cogs import utils
+from webapp import flag_page_url
 
 log = logging.getLogger("dayz-manager")
 
@@ -125,14 +126,26 @@ class FlagManageView(discord.ui.LayoutView):
             DashboardButton("View Flags", "📋", discord.ButtonStyle.primary, f"flag_view:{self.identifier}", "view"),
         )
 
-        secondary_row = discord.ui.ActionRow(
+        secondary_items = [
             DashboardButton("Find Flag", "🔎", discord.ButtonStyle.secondary, f"flag_find:{self.identifier}", "find"),
             DashboardButton("History", "🕘", discord.ButtonStyle.secondary, f"flag_history:{self.identifier}", "history"),
             DashboardButton("Admin Panel", "⚙️", discord.ButtonStyle.secondary, f"flag_admin:{self.identifier}", "admin"),
-        )
+        ]
+        if self.guild:
+            website_url = flag_page_url(self.guild.id, self.map_key, self.server)
+            if website_url:
+                secondary_items.append(
+                    discord.ui.Button(
+                        label="Live Website",
+                        emoji="🌐",
+                        style=discord.ButtonStyle.link,
+                        url=website_url,
+                    )
+                )
+        secondary_row = discord.ui.ActionRow(*secondary_items)
 
         footer = discord.ui.TextDisplay(
-            "-# DayZ Manager • Live Flag Management • Updates automatically after every claim/release"
+            "-# DayZ Manager • Discord + Live Web Flag Management • Updates automatically after every claim/release"
         )
 
         container = discord.ui.Container(
