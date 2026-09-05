@@ -368,11 +368,37 @@ async def get_web_session(session_id: str) -> dict | None:
         if not row:
             await conn.execute("DELETE FROM web_sessions WHERE session_id=$1", session_id)
             return None
+        raw_guild_ids = row["guild_ids"] or []
+
+        # asyncpg may return JSON/JSONB using its default text codec.
+        # Decode it before iterating, otherwise a JSON string such as
+        # '["123", "456"]' would be treated character-by-character.
+        if isinstance(raw_guild_ids, str):
+            try:
+                raw_guild_ids = json.loads(raw_guild_ids)
+            except json.JSONDecodeError:
+                raw_guild_ids = []
+
+        if not isinstance(raw_guild_ids, (list, tuple)):
+            raw_guild_ids = []
+
+        guild_ids = [str(value) for value in raw_guild_ids if str(value).strip()]
+
+        user = {
+            "id": row["user_id"],
+            "username": row["username"],
+            "avatar_url": row["avatar_url"],
+        }
+
         return {
-            "session_id": row["session_id"], "user_id": row["user_id"],
-            "username": row["username"], "avatar_url": row["avatar_url"],
-            "guild_ids": [str(x) for x in (row["guild_ids"] or [])],
-            "csrf_token": row["csrf_token"], "expires_at": row["expires_at"].timestamp(),
+            "session_id": row["session_id"],
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "avatar_url": row["avatar_url"],
+            "user": user,
+            "guild_ids": guild_ids,
+            "csrf_token": row["csrf_token"],
+            "expires_at": row["expires_at"].timestamp(),
         }
 
 
