@@ -11,10 +11,10 @@ from cogs import utils
 
 log = logging.getLogger("dayz-manager")
 
-MAX_SELECT_OPTIONS = 25
 
+class FlagManageView(discord.ui.LayoutView):
+    """Persistent Components V2 dashboard for one flag session."""
 
-class FlagManageView(discord.ui.View):
     _locks: dict[str, asyncio.Lock] = {}
 
     def __init__(
@@ -23,530 +23,395 @@ class FlagManageView(discord.ui.View):
         map_key: str,
         server: str,
         bot: commands.Bot,
+        rows,
     ):
         super().__init__(timeout=None)
-
         self.guild = guild
         self.bot = bot
         self.map_key = utils.normalize_map(map_key)
         self.server = utils.normalize_server(server)
+        self.rows = list(rows)
 
         guild_key = str(guild.id) if guild else "global"
-
         raw = f"{guild_key}:{self.map_key}:{self.server}"
+        self.identifier = hashlib.sha1(raw.encode()).hexdigest()[:16]
 
-        identifier = hashlib.sha1(
-            raw.encode()
-        ).hexdigest()[:16]
+        self._build_dashboard()
 
-        self.add_item(
-            AssignFlagButton(
-                f"flag_assign:{identifier}"
-            )
-        )
-
-        self.add_item(
-            ReleaseFlagButton(
-                f"flag_release:{identifier}"
-            )
-        )
+    @classmethod
+    async def create(
+        cls,
+        guild: discord.Guild | None,
+        map_key: str,
+        server: str,
+        bot: commands.Bot,
+    ) -> "FlagManageView":
+        rows = []
+        if guild is not None:
+            rows = await utils.get_all_flags(str(guild.id), map_key, server)
+        return cls(guild, map_key, server, bot, rows)
 
     @property
     def session_key(self) -> str:
-        return (
-            f"{self.guild.id if self.guild else 'global'}:"
-            f"{self.map_key}:"
-            f"{self.server}"
-        )
+        return f"{self.guild.id if self.guild else 'global'}:{self.map_key}:{self.server}"
 
     def get_lock(self) -> asyncio.Lock:
-        lock = self._locks.get(
-            self.session_key
+        lock = self._locks.get(self.session_key)
+        if lock is None:
+            lock = self._locks[self.session_key] = asyncio.Lock()
+        return lock
+
+    def _build_dashboard(self) -> None:
+        map_info = utils.MAP_DATA.get(
+            self.map_key,
+            {"name": self.map_key.title(), "image": None},
+        )
+        rows = sorted(self.rows, key=lambda row: str(row["flag"]).casefold())
+        claimed = [row for row in rows if row["role_id"] or row["status"] == "❌"]
+        available = [row for row in rows if not (row["role_id"] or row["status"] == "❌")]
+        total = len(rows)
+        pct = round((len(claimed) / total) * 100) if total else 0
+
+        header = discord.ui.TextDisplay(
+            f"# 🚩 DayZ Manager — Flag System\n"
+            f"### {map_info['name']} • {self.server}\n"
+            "Claim, release, search, and review faction flags from one live control panel."
         )
 
-        if lock is None:
-            lock = self._locks[
-                self.session_key
-            ] = asyncio.Lock()
+        stats_text = discord.ui.TextDisplay(
+            f"## Live Status\n"
+            f"🟢 **{len(available)} Available**   •   🔴 **{len(claimed)} Claimed**   •   "
+            f"🏴 **{total} Total**\n"
+            f"`{'■' * min(10, round(pct / 10))}{'□' * max(0, 10 - round(pct / 10))}` **{pct}% claimed**"
+        )
 
-        return lock
+        image = map_info.get("image")
+        if image:
+            stats_component = discord.ui.Section(
+                stats_text,
+                accessory=discord.ui.Thumbnail(image, description=f"{map_info['name']} map"),
+            )
+        else:
+            stats_component = stats_text
+
+        claimed_preview = []
+        for row in claimed[:8]:
+            owner = f"<@&{row['role_id']}>" if row["role_id"] else "Assigned"
+            claimed_preview.append(f"🔴 **{row['flag']}** → {owner}")
+
+        if claimed_preview:
+            registry = discord.ui.TextDisplay(
+                "## Claimed Preview\n" + "\n".join(claimed_preview)
+                + (f"\n*+{len(claimed) - 8} more claimed flags — use **View Flags***" if len(claimed) > 8 else "")
+            )
+        else:
+            registry = discord.ui.TextDisplay(
+                "## Claimed Preview\n🟢 No flags are currently claimed."
+            )
+
+        primary_row = discord.ui.ActionRow(
+            DashboardButton("Claim Flag", "🟢", discord.ButtonStyle.success, f"flag_claim:{self.identifier}", "claim"),
+            DashboardButton("Release Flag", "🔴", discord.ButtonStyle.danger, f"flag_release:{self.identifier}", "release"),
+            DashboardButton("View Flags", "📋", discord.ButtonStyle.primary, f"flag_view:{self.identifier}", "view"),
+        )
+
+        secondary_row = discord.ui.ActionRow(
+            DashboardButton("Find Flag", "🔎", discord.ButtonStyle.secondary, f"flag_find:{self.identifier}", "find"),
+            DashboardButton("History", "🕘", discord.ButtonStyle.secondary, f"flag_history:{self.identifier}", "history"),
+            DashboardButton("Admin Panel", "⚙️", discord.ButtonStyle.secondary, f"flag_admin:{self.identifier}", "admin"),
+        )
+
+        footer = discord.ui.TextDisplay(
+            "-# DayZ Manager • Live Flag Management • Updates automatically after every claim/release"
+        )
+
+        container = discord.ui.Container(
+            header,
+            discord.ui.Separator(spacing=discord.SeparatorSpacing.large),
+            stats_component,
+            discord.ui.Separator(),
+            registry,
+            discord.ui.Separator(),
+            primary_row,
+            secondary_row,
+            discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
+            footer,
+            accent_colour=utils.EMBED_COLOR,
+        )
+        self.add_item(container)
 
     async def refresh_message(self) -> None:
         if not self.guild:
             return
-
-        row = await utils.get_flag_message(
-            str(self.guild.id),
-            self.map_key,
-            self.server,
-        )
-
+        row = await utils.get_flag_message(str(self.guild.id), self.map_key, self.server)
         if not row:
             return
-
-        channel = self.guild.get_channel(
-            int(row["channel_id"])
-        )
-
-        if not isinstance(
-            channel,
-            discord.TextChannel,
-        ):
+        channel = self.guild.get_channel(int(row["channel_id"]))
+        if not isinstance(channel, discord.TextChannel):
             return
-
         try:
-            message = await channel.fetch_message(
-                int(row["message_id"])
-            )
+            message = await channel.fetch_message(int(row["message_id"]))
+            new_view = await FlagManageView.create(self.guild, self.map_key, self.server, self.bot)
+            if getattr(message.flags, "components_v2", False):
+                await message.edit(view=new_view)
+                try:
+                    self.bot.add_view(new_view, message_id=message.id)
+                except ValueError:
+                    pass
+            else:
+                await migrate_message_to_v2(message, channel, new_view, self.guild, self.map_key, self.server, self.bot)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            log.exception("Failed refreshing Components V2 flag dashboard.")
 
-            embed = await utils.create_flag_embed(
-                str(self.guild.id),
-                self.map_key,
-                self.server,
-                self.guild,
-            )
-
-            await message.edit(
-                embed=embed,
-                view=self,
-            )
-
-        except (
-            discord.NotFound,
-            discord.Forbidden,
-            discord.HTTPException,
-        ):
-            return
-
-    # =====================================================
-    # FACTION ROLE CHECK
-    # =====================================================
-
-    def has_faction_role(
-        self,
-        member: discord.Member,
-    ) -> bool:
-
+    def has_faction_role(self, member: discord.Member) -> bool:
         return any(
             role.name.casefold().startswith("faction-")
             for role in member.roles
             if not role.is_default()
         )
 
-    # =====================================================
-    # ASSIGN FLAG
-    # =====================================================
-
-    async def assign_flag(
-        self,
-        interaction: discord.Interaction,
-    ) -> None:
-
-        if not self.guild:
-            return
-
-        if not isinstance(
-            interaction.user,
-            discord.Member,
-        ):
+    async def assign_flag(self, interaction: discord.Interaction) -> None:
+        if not self.guild or not isinstance(interaction.user, discord.Member):
+            return await interaction.response.send_message("🚫 Server only.", ephemeral=True)
+        if not self.has_faction_role(interaction.user):
             return await interaction.response.send_message(
-                "🚫 This button can only be used inside a server.",
-                ephemeral=True,
+                "🚫 You must have a `Faction-` role to claim a flag.", ephemeral=True
             )
-
-        # -------------------------------------------------
-        # ONLY THE ASSIGN BUTTON REQUIRES Faction-
-        # -------------------------------------------------
-
-        if not self.has_faction_role(
-            interaction.user
-        ):
-
-            return await interaction.response.send_message(
-                "🚫 You must have a `Faction-` role to use **Assign Flag**.",
-                ephemeral=True,
-            )
-
         lock = self.get_lock()
-
         if lock.locked():
-            return await interaction.response.send_message(
-                "⚠️ Another flag action is currently in progress.",
-                ephemeral=True,
-            )
+            return await interaction.response.send_message("⚠️ Another flag action is in progress.", ephemeral=True)
 
         async with lock:
-
-            await interaction.response.defer(
-                ephemeral=True
-            )
-
-            flags = await utils.get_all_flags(
-                str(self.guild.id),
-                self.map_key,
-                self.server,
-            )
-
-            available = [
-                row
-                for row in flags
-                if row["status"] == "✅"
-                and row["role_id"] is None
-            ]
-
+            await interaction.response.defer(ephemeral=True)
+            flags = await utils.get_all_flags(str(self.guild.id), self.map_key, self.server)
+            available = [row for row in flags if row["status"] == "✅" and row["role_id"] is None]
             if not available:
+                return await interaction.followup.send("⚠️ No unclaimed flags are available.", ephemeral=True)
 
-                return await interaction.followup.send(
-                    "⚠️ No unclaimed flags are available.",
-                    ephemeral=True,
-                )
+            options = [discord.SelectOption(label=f"🟢 {row['flag']}", value=row["flag"]) for row in available[:25]]
+            select = discord.ui.Select(placeholder="Choose an available flag", options=options)
+            view = discord.ui.View(timeout=90)
+            view.add_item(select)
 
-            # -------------------------------------------------
-            # FLAG SELECT
-            # -------------------------------------------------
+            async def flag_cb(inter: discord.Interaction):
+                flag = select.values[0]
+                role_select = discord.ui.RoleSelect(placeholder=f"Choose the faction role for {flag}")
+                role_view = discord.ui.View(timeout=90)
+                role_view.add_item(role_select)
 
-            def make_flag_options(rows, offset: int = 0):
-                page = rows[offset:offset + 24]
-                options = [
-                    discord.SelectOption(label=f"🟩 {row['flag']}", value=row["flag"])
-                    for row in page
-                ]
-                if offset + 24 < len(rows):
-                    options.append(discord.SelectOption(label="➡️ More flags…", value=f"__more__:{offset + 24}"))
-                return options
-
-            flag_options = make_flag_options(available)
-
-            flag_select = discord.ui.Select(
-                placeholder="Select a flag",
-                options=flag_options,
-                min_values=1,
-                max_values=1,
-            )
-
-            view = discord.ui.View(
-                timeout=60
-            )
-
-            view.add_item(
-                flag_select
-            )
-
-            cancel = discord.ui.Button(
-                label="Cancel",
-                style=discord.ButtonStyle.secondary,
-            )
-
-            async def cancel_cb(
-                inter: discord.Interaction,
-            ):
-                await inter.response.edit_message(
-                    content="❌ Cancelled.",
-                    view=None,
-                )
-
-            cancel.callback = cancel_cb
-
-            view.add_item(cancel)
-
-            # -------------------------------------------------
-            # FLAG SELECT CALLBACK
-            # -------------------------------------------------
-
-            async def flag_cb(
-                inter: discord.Interaction,
-            ):
-
-                flag = flag_select.values[0]
-
-                if flag.startswith("__more__:"):
-                    offset = int(flag.split(":", 1)[1])
-                    flag_select.options = make_flag_options(available, offset)
-                    return await inter.response.edit_message(
-                        content="Choose a flag (continued).",
-                        view=view,
-                    )
-
-                # Native RoleSelect is not limited to 25 pre-built role options.
-                role_select = discord.ui.RoleSelect(
-                    placeholder=f"Select a role for {flag}",
-                    min_values=1,
-                    max_values=1,
-                )
-
-                role_view = discord.ui.View(
-                    timeout=60
-                )
-
-                role_view.add_item(
-                    role_select
-                )
-
-                # -------------------------------------------------
-                # ROLE SELECT CALLBACK
-                # -------------------------------------------------
-
-                async def role_cb(
-                    inter2: discord.Interaction,
-                ):
-
+                async def role_cb(inter2: discord.Interaction):
                     selected = role_select.values[0]
                     role = self.guild.get_role(selected.id)
-
                     if not role or role.is_default() or role.managed:
-                        return await inter2.response.edit_message(
-                            content="⚠️ That role cannot be assigned to a flag.",
-                            view=None,
-                        )
-
+                        return await inter2.response.edit_message(content="⚠️ That role cannot own a flag.", view=None)
                     result = await utils.claim_flag(
-                        str(self.guild.id),
-                        self.map_key,
-                        self.server,
-                        flag,
-                        str(role.id),
-                        actor_id=str(inter2.user.id),
-                        source="button:assign",
+                        str(self.guild.id), self.map_key, self.server, flag, str(role.id),
+                        actor_id=str(inter2.user.id), source="dashboard:claim",
                     )
-
                     if not result:
-
-                        return await inter2.response.edit_message(
-                            content=(
-                                "⚠️ That flag was already claimed "
-                                "or is no longer available."
-                            ),
-                            view=None,
-                        )
-
+                        return await inter2.response.edit_message(content="⚠️ That flag is no longer available.", view=None)
                     await self.refresh_message()
-
                     await inter2.response.edit_message(
-                        content=(
-                            f"🏴 **{flag} → {role.mention}** assigned.\n"
-                            f"🗺️ Map: **{self.map_key.title()}**\n"
-                            f"🖥️ Server: **{self.server}**"
-                        ),
-                        view=None,
+                        content=f"✅ **{flag}** is now assigned to {role.mention}.", view=None
                     )
 
                 role_select.callback = role_cb
+                await inter.response.edit_message(content=f"### 🏴 {flag}\nChoose the role that will own this flag.", view=role_view)
 
-                await inter.response.edit_message(
-                    content=(
-                        f"Choose a role for **{flag}**.\n"
-                        f"🗺️ Map: **{self.map_key.title()}**\n"
-                        f"🖥️ Server: **{self.server}**"
-                    ),
-                    view=role_view,
-                )
-
-            flag_select.callback = flag_cb
-
+            select.callback = flag_cb
             await interaction.followup.send(
-                (
-                    "Choose a flag.\n"
-                    f"🗺️ Map: **{self.map_key.title()}**\n"
-                    f"🖥️ Server: **{self.server}**"
-                ),
-                view=view,
-                ephemeral=True,
+                f"### 🟢 Claim a Flag\n**{self.map_key.title()} • {self.server}**\nChoose an available flag below.",
+                view=view, ephemeral=True,
             )
 
-    # =====================================================
-    # RELEASE FLAG
-    # =====================================================
-
-    async def release_flag(
-        self,
-        interaction: discord.Interaction,
-    ) -> None:
-
+    async def release_flag(self, interaction: discord.Interaction) -> None:
         if not interaction.user.guild_permissions.administrator:
-
-            return await interaction.response.send_message(
-                "🚫 Administrator permissions required.",
-                ephemeral=True,
-            )
-
-        lock = self.get_lock()
-
-        if lock.locked():
-
-            return await interaction.response.send_message(
-                "⚠️ Another flag action is currently in progress.",
-                ephemeral=True,
-            )
-
+            return await interaction.response.send_message("🚫 Administrator permission required.", ephemeral=True)
         if not self.guild:
             return
-
+        lock = self.get_lock()
+        if lock.locked():
+            return await interaction.response.send_message("⚠️ Another flag action is in progress.", ephemeral=True)
         async with lock:
-
-            await interaction.response.defer(
-                ephemeral=True
-            )
-
-            flags = await utils.get_all_flags(
-                str(self.guild.id),
-                self.map_key,
-                self.server,
-            )
-
-            claimed = [
-                row
-                for row in flags
-                if row["status"] == "❌"
-                and row["role_id"]
-            ]
-
+            await interaction.response.defer(ephemeral=True)
+            flags = await utils.get_all_flags(str(self.guild.id), self.map_key, self.server)
+            claimed = [row for row in flags if row["status"] == "❌" and row["role_id"]]
             if not claimed:
-
-                return await interaction.followup.send(
-                    "⚠️ No claimed flags.",
-                    ephemeral=True,
-                )
-
-            def make_release_options(rows, offset: int = 0):
-                page = rows[offset:offset + 24]
-                options = [
-                    discord.SelectOption(label=f"🟥 {row['flag']}", value=row["flag"])
-                    for row in page
-                ]
-                if offset + 24 < len(rows):
-                    options.append(discord.SelectOption(label="➡️ More flags…", value=f"__more__:{offset + 24}"))
-                return options
-
-            options = make_release_options(claimed)
-
-            select = discord.ui.Select(
-                placeholder="Select a claimed flag",
-                options=options,
-            )
-
-            view = discord.ui.View(
-                timeout=60
-            )
-
+                return await interaction.followup.send("⚠️ No flags are currently claimed.", ephemeral=True)
+            options = [discord.SelectOption(label=f"🔴 {row['flag']}", value=row["flag"]) for row in claimed[:25]]
+            select = discord.ui.Select(placeholder="Choose a claimed flag to release", options=options)
+            view = discord.ui.View(timeout=90)
             view.add_item(select)
 
-            async def callback(
-                inter: discord.Interaction,
-            ):
-
+            async def callback(inter: discord.Interaction):
                 flag = select.values[0]
-
-                if flag.startswith("__more__:"):
-                    offset = int(flag.split(":", 1)[1])
-                    select.options = make_release_options(claimed, offset)
-                    return await inter.response.edit_message(
-                        content="Choose a claimed flag (continued).",
-                        view=view,
-                    )
-
                 result = await utils.release_flag(
-                    str(self.guild.id),
-                    self.map_key,
-                    self.server,
-                    flag,
-                    actor_id=str(inter.user.id),
-                    source="button:release",
+                    str(self.guild.id), self.map_key, self.server, flag,
+                    actor_id=str(inter.user.id), source="dashboard:release",
                 )
-
                 if not result:
-
-                    return await inter.response.edit_message(
-                        content="⚠️ That flag is already unclaimed.",
-                        view=None,
-                    )
-
+                    return await inter.response.edit_message(content="⚠️ That flag is already available.", view=None)
                 await self.refresh_message()
-
-                await inter.response.edit_message(
-                    content=(
-                        f"🏳️ **{flag} released.**\n"
-                        f"🗺️ Map: **{self.map_key.title()}**\n"
-                        f"🖥️ Server: **{self.server}**"
-                    ),
-                    view=None,
-                )
+                await inter.response.edit_message(content=f"✅ **{flag}** has been released.", view=None)
 
             select.callback = callback
-
             await interaction.followup.send(
-                (
-                    "Choose a flag to release.\n"
-                    f"🗺️ Map: **{self.map_key.title()}**\n"
-                    f"🖥️ Server: **{self.server}**"
-                ),
-                view=view,
-                ephemeral=True,
+                f"### 🔴 Release a Flag\n**{self.map_key.title()} • {self.server}**\nChoose a claimed flag below.",
+                view=view, ephemeral=True,
             )
 
+    async def view_flags(self, interaction: discord.Interaction) -> None:
+        if not self.guild:
+            return
+        rows = await utils.get_all_flags(str(self.guild.id), self.map_key, self.server)
+        claimed = []
+        available = []
+        for row in sorted(rows, key=lambda r: str(r["flag"]).casefold()):
+            if row["role_id"] or row["status"] == "❌":
+                owner = f"<@&{row['role_id']}>" if row["role_id"] else "Assigned"
+                claimed.append(f"🔴 **{row['flag']}** — {owner}")
+            else:
+                available.append(f"🟢 **{row['flag']}**")
+        text = (
+            f"# 📋 Flag Registry\n### {self.map_key.title()} • {self.server}\n\n"
+            f"## 🔴 Claimed ({len(claimed)})\n" + ("\n".join(claimed) if claimed else "*None*") +
+            f"\n\n## 🟢 Available ({len(available)})\n" + (" • ".join(available) if available else "*None*")
+        )
+        await interaction.response.send_message(text[:3900], ephemeral=True)
 
-# =========================================================
-# ASSIGN FLAG BUTTON
-# =========================================================
-
-class AssignFlagButton(
-    discord.ui.Button
-):
-
-    def __init__(
-        self,
-        custom_id: str,
-    ):
-        super().__init__(
-            label="Assign Flag",
-            emoji="🟩",
-            style=discord.ButtonStyle.success,
-            custom_id=custom_id,
+    async def show_history(self, interaction: discord.Interaction) -> None:
+        if not self.guild:
+            return
+        rows = await utils.get_flag_history(str(self.guild.id), self.map_key, self.server, 10)
+        if not rows:
+            return await interaction.response.send_message("🕘 No flag activity has been recorded yet.", ephemeral=True)
+        lines = []
+        for row in rows:
+            action = "claimed" if row["action"] == "claim" else "released"
+            actor = f"<@{row['actor_id']}>" if row["actor_id"] else "Unknown"
+            role = f" <@&{row['role_id']}>" if row["role_id"] else ""
+            ts = int(row["created_at"].timestamp())
+            lines.append(f"• **{row['flag']}** {action}{role} by {actor} • <t:{ts}:R>")
+        await interaction.response.send_message(
+            f"# 🕘 Recent Flag Activity\n### {self.map_key.title()} • {self.server}\n\n" + "\n".join(lines),
+            ephemeral=True,
         )
 
-    async def callback(
-        self,
-        interaction: discord.Interaction,
-    ):
+    async def find_flag(self, interaction: discord.Interaction) -> None:
+        if not self.guild:
+            return
+        modal = FlagSearchModal(self)
+        await interaction.response.send_modal(modal)
 
-        if isinstance(
-            self.view,
-            FlagManageView,
-        ):
-
-            await self.view.assign_flag(
-                interaction
-            )
-
-
-# =========================================================
-# RELEASE FLAG BUTTON
-# =========================================================
-
-class ReleaseFlagButton(
-    discord.ui.Button
-):
-
-    def __init__(
-        self,
-        custom_id: str,
-    ):
-        super().__init__(
-            label="Release Flag",
-            emoji="🟥",
-            style=discord.ButtonStyle.danger,
-            custom_id=custom_id,
+    async def admin_panel(self, interaction: discord.Interaction) -> None:
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("🚫 Administrator permission required.", ephemeral=True)
+        if not self.guild:
+            return
+        rows = await utils.get_all_flags(str(self.guild.id), self.map_key, self.server)
+        claimed = sum(1 for row in rows if row["role_id"] or row["status"] == "❌")
+        stored = await utils.get_flag_message(str(self.guild.id), self.map_key, self.server)
+        status = "✅ Stored" if stored else "⚠️ Missing storage record"
+        view = AdminQuickView(self)
+        await interaction.response.send_message(
+            f"# ⚙️ Flag Admin Panel\n### {self.map_key.title()} • {self.server}\n\n"
+            f"🏴 **Flags:** {len(rows)} total • {claimed} claimed • {len(rows)-claimed} available\n"
+            f"💾 **Dashboard:** {status}\n\n"
+            "Use the buttons below for quick actions. Full setup deletion remains available through `/deletesetup`.",
+            view=view, ephemeral=True,
         )
 
-    async def callback(
-        self,
-        interaction: discord.Interaction,
-    ):
 
-        if isinstance(
-            self.view,
-            FlagManageView,
-        ):
+class DashboardButton(discord.ui.Button):
+    def __init__(self, label: str, emoji: str, style: discord.ButtonStyle, custom_id: str, action: str):
+        super().__init__(label=label, emoji=emoji, style=style, custom_id=custom_id)
+        self.action = action
 
-            await self.view.release_flag(
-                interaction
-            )
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        if not isinstance(view, FlagManageView):
+            return
+        actions = {
+            "claim": view.assign_flag,
+            "release": view.release_flag,
+            "view": view.view_flags,
+            "find": view.find_flag,
+            "history": view.show_history,
+            "admin": view.admin_panel,
+        }
+        callback = actions.get(self.action)
+        if callback:
+            await callback(interaction)
+
+
+class FlagSearchModal(discord.ui.Modal, title="Find a Flag"):
+    query = discord.ui.TextInput(
+        label="Flag name",
+        placeholder="Example: Wolf, NAPA, Bear...",
+        min_length=1,
+        max_length=30,
+    )
+
+    def __init__(self, dashboard: FlagManageView):
+        super().__init__(timeout=120)
+        self.dashboard = dashboard
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        guild = self.dashboard.guild
+        if not guild:
+            return await interaction.response.send_message("🚫 Server only.", ephemeral=True)
+        value = str(self.query.value).strip().casefold()
+        rows = await utils.get_all_flags(str(guild.id), self.dashboard.map_key, self.dashboard.server)
+        matches = [row for row in rows if value in str(row["flag"]).casefold()]
+        if not matches:
+            return await interaction.response.send_message(f"🔎 No flag matched **{self.query.value}**.", ephemeral=True)
+        lines = []
+        for row in matches[:10]:
+            if row["role_id"] or row["status"] == "❌":
+                owner = f"<@&{row['role_id']}>" if row["role_id"] else "Assigned"
+                lines.append(f"🔴 **{row['flag']}** — Claimed by {owner}")
+            else:
+                lines.append(f"🟢 **{row['flag']}** — Available")
+        await interaction.response.send_message("# 🔎 Flag Search\n" + "\n".join(lines), ephemeral=True)
+
+
+class AdminQuickView(discord.ui.View):
+    def __init__(self, dashboard: FlagManageView):
+        super().__init__(timeout=120)
+        self.dashboard = dashboard
+
+    @discord.ui.button(label="Refresh Dashboard", emoji="🔄", style=discord.ButtonStyle.primary)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        await self.dashboard.refresh_message()
+        await interaction.followup.send("✅ Dashboard refreshed.", ephemeral=True)
+
+    @discord.ui.button(label="Recent History", emoji="🕘", style=discord.ButtonStyle.secondary)
+    async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.dashboard.show_history(interaction)
+
+
+async def migrate_message_to_v2(
+    message: discord.Message,
+    channel: discord.TextChannel,
+    view: FlagManageView,
+    guild: discord.Guild,
+    map_key: str,
+    server: str,
+    bot: commands.Bot,
+) -> discord.Message:
+    """Replace an old classic embed board with a Components V2 dashboard."""
+    try:
+        await message.delete()
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        pass
+
+    new_message = await channel.send(view=view)
+    await utils.save_flag_message(
+        str(guild.id), map_key, server, str(channel.id), str(new_message.id)
+    )
+    try:
+        bot.add_view(view, message_id=new_message.id)
+    except ValueError:
+        pass
+    return new_message
