@@ -45,3 +45,13 @@ Optional:
 Install with `pip install -r requirements.txt` and start with `python main.py`.
 
 Privileged Discord gateway intents remain disabled: Server Members and Message Content are not required by the current bot.
+
+
+## Setup management
+
+Server administrators can manage their own guild-scoped flag setups:
+
+- `/setups` — lists all saved flag setups in the current Discord server.
+- `/deletesetup` — permanently deletes one setup after an administrator-only confirmation. It can also delete the setup channel and will only remove the category when that channel was the category's only channel.
+
+Setup deletion is always restricted to the guild where the command is run. It removes the matching flags, stored message record, and that setup's audit history from PostgreSQL.
