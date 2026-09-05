@@ -2378,6 +2378,7 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_get("/dashboard/{guild_id}", guild_dashboard_page)
     app.router.add_get("/dashboard/{guild_id}/flags", guild_flag_tools_page)
     app.router.add_get("/dashboard/{guild_id}/tools", guild_server_tools_page)
+    app.router.add_get("/dashboard/{guild_id}/tasks", guild_tasks_page)
     app.router.add_get("/dashboard/{guild_id}/status", guild_status_page)
     app.router.add_get("/auth/discord", discord_login)
     app.router.add_get("/auth/discord/callback", discord_callback)
