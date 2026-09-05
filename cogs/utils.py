@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 from typing import Any, AsyncIterator, Optional
 
@@ -305,6 +306,23 @@ async def migrate(
         ON flag_audit_log (guild_id, map, server, created_at DESC)
     """)
 
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS web_sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            username TEXT NOT NULL,
+            avatar_url TEXT,
+            guild_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+            csrf_token TEXT NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL
+        )
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_web_sessions_expires
+        ON web_sessions (expires_at)
+    """)
+
 
 @contextlib.asynccontextmanager
 async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
@@ -313,6 +331,55 @@ async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
 
     async with pool.acquire() as conn:
         yield conn
+
+
+async def database_ready() -> bool:
+    try:
+        async with safe_acquire() as conn:
+            return bool(await conn.fetchval("SELECT 1"))
+    except Exception:
+        return False
+
+
+async def save_web_session(session_id: str, user_id: str, username: str,
+                           avatar_url: str | None, guild_ids: list[str],
+                           csrf_token: str, ttl_seconds: int) -> None:
+    async with safe_acquire() as conn:
+        await conn.execute("""
+            INSERT INTO web_sessions
+                (session_id, user_id, username, avatar_url, guild_ids, csrf_token, expires_at)
+            VALUES ($1,$2,$3,$4,$5::jsonb,$6,NOW()+($7*INTERVAL '1 second'))
+            ON CONFLICT (session_id) DO UPDATE SET
+                user_id=EXCLUDED.user_id, username=EXCLUDED.username,
+                avatar_url=EXCLUDED.avatar_url, guild_ids=EXCLUDED.guild_ids,
+                csrf_token=EXCLUDED.csrf_token, expires_at=EXCLUDED.expires_at
+        """, session_id, user_id, username, avatar_url,
+             json.dumps([str(x) for x in guild_ids]), csrf_token, int(ttl_seconds))
+
+
+async def get_web_session(session_id: str) -> dict | None:
+    if not session_id:
+        return None
+    async with safe_acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT session_id,user_id,username,avatar_url,guild_ids,csrf_token,expires_at
+            FROM web_sessions WHERE session_id=$1 AND expires_at>NOW()
+        """, session_id)
+        if not row:
+            await conn.execute("DELETE FROM web_sessions WHERE session_id=$1", session_id)
+            return None
+        return {
+            "session_id": row["session_id"], "user_id": row["user_id"],
+            "username": row["username"], "avatar_url": row["avatar_url"],
+            "guild_ids": [str(x) for x in (row["guild_ids"] or [])],
+            "csrf_token": row["csrf_token"], "expires_at": row["expires_at"].timestamp(),
+        }
+
+
+async def delete_web_session(session_id: str) -> None:
+    if session_id:
+        async with safe_acquire() as conn:
+            await conn.execute("DELETE FROM web_sessions WHERE session_id=$1", session_id)
 
 
 async def close_db() -> None:
