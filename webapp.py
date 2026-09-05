@@ -137,7 +137,7 @@ async def flags_page(request: web.Request) -> web.Response:
     server_name = html.escape(payload["server"])
     guild_icon = html.escape(payload["guild_icon"] or "")
     map_image = html.escape(payload["map_image"] or "")
-    query = html.escape(urlencode({"guild": guild_id, "map": map_key, "server": server}), quote=True)
+    query = urlencode({"guild": guild_id, "map": map_key, "server": server})
 
     page = f"""<!doctype html>
 <html lang=\"en\">
