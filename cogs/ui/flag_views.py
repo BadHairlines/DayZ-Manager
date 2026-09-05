@@ -163,19 +163,12 @@ class FlagManageView(discord.ui.LayoutView):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             log.exception("Failed refreshing Components V2 flag dashboard.")
 
-    def has_faction_role(self, member: discord.Member) -> bool:
-        return any(
-            role.name.casefold().startswith("faction-")
-            for role in member.roles
-            if not role.is_default()
-        )
-
     async def assign_flag(self, interaction: discord.Interaction) -> None:
         if not self.guild or not isinstance(interaction.user, discord.Member):
             return await interaction.response.send_message("🚫 Server only.", ephemeral=True)
-        if not self.has_faction_role(interaction.user):
+        if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message(
-                "🚫 You must have a `Faction-` role to claim a flag.", ephemeral=True
+                "🚫 Administrator permission required.", ephemeral=True
             )
         lock = self.get_lock()
         if lock.locked():
@@ -194,12 +187,20 @@ class FlagManageView(discord.ui.LayoutView):
             view.add_item(select)
 
             async def flag_cb(inter: discord.Interaction):
+                if not isinstance(inter.user, discord.Member) or not inter.user.guild_permissions.administrator:
+                    return await inter.response.send_message(
+                        "🚫 Administrator permission required.", ephemeral=True
+                    )
                 flag = select.values[0]
                 role_select = discord.ui.RoleSelect(placeholder=f"Choose the faction role for {flag}")
                 role_view = discord.ui.View(timeout=90)
                 role_view.add_item(role_select)
 
                 async def role_cb(inter2: discord.Interaction):
+                    if not isinstance(inter2.user, discord.Member) or not inter2.user.guild_permissions.administrator:
+                        return await inter2.response.send_message(
+                            "🚫 Administrator permission required.", ephemeral=True
+                        )
                     selected = role_select.values[0]
                     role = self.guild.get_role(selected.id)
                     if not role or role.is_default() or role.managed:
@@ -244,6 +245,10 @@ class FlagManageView(discord.ui.LayoutView):
             view.add_item(select)
 
             async def callback(inter: discord.Interaction):
+                if not isinstance(inter.user, discord.Member) or not inter.user.guild_permissions.administrator:
+                    return await inter.response.send_message(
+                        "🚫 Administrator permission required.", ephemeral=True
+                    )
                 flag = select.values[0]
                 result = await utils.release_flag(
                     str(self.guild.id), self.map_key, self.server, flag,
