@@ -77,3 +77,20 @@ DISCORD_OAUTH_REDIRECT_URI=https://dayzmanager.xyz/auth/discord/callback
 The website requests only the Discord OAuth2 `identify` and `guilds` scopes. After login it filters the user's guild list to guilds where the user is the owner or has the Administrator permission, then intersects those guilds with active DayZ Manager Flag Systems.
 
 The browser receives only an opaque, HTTP-only, Secure session cookie. Discord access tokens are not stored in browser cookies. Web sessions expire after 8 hours and users can sign out at `/auth/logout`.
+
+## v2.6 Web Control Panel
+
+The authenticated website dashboard now mirrors all current Discord commands for authorized server owners/admins:
+
+- `/setup`
+- `/setups`
+- `/deletesetup`
+- `/assign`
+- `/release`
+- `/flagstatus`
+- `/flagrefresh`
+- `/flaghistory`
+- `/botstatus`
+- `/teleporter` (only for guilds where the Discord command is enabled)
+
+Every mutating web request is guild-scoped, requires a valid Discord OAuth administrator session, and uses a CSRF token stored server-side.
