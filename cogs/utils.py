@@ -324,6 +324,94 @@ async def migrate(
     """)
 
 
+    # =====================================================
+    # WEBSITE TASK MANAGER
+    # =====================================================
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS server_tasks (
+            id BIGSERIAL PRIMARY KEY,
+            guild_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            priority TEXT NOT NULL DEFAULT 'normal',
+            status TEXT NOT NULL DEFAULT 'todo',
+            category TEXT NOT NULL DEFAULT 'other',
+            map TEXT,
+            assignee_type TEXT,
+            assignee_id TEXT,
+            assignee_name TEXT,
+            created_by TEXT NOT NULL,
+            created_by_name TEXT NOT NULL DEFAULT 'Unknown',
+            due_at TIMESTAMPTZ,
+            recurrence TEXT NOT NULL DEFAULT 'none',
+            completed_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_server_tasks_guild_status
+        ON server_tasks (guild_id, status, created_at DESC)
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_server_tasks_due
+        ON server_tasks (guild_id, due_at)
+    """)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_checklist_items (
+            id BIGSERIAL PRIMARY KEY,
+            task_id BIGINT NOT NULL REFERENCES server_tasks(id) ON DELETE CASCADE,
+            text TEXT NOT NULL,
+            is_done BOOLEAN NOT NULL DEFAULT FALSE,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_task_checklist_task
+        ON task_checklist_items (task_id, position, id)
+    """)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_comments (
+            id BIGSERIAL PRIMARY KEY,
+            task_id BIGINT NOT NULL REFERENCES server_tasks(id) ON DELETE CASCADE,
+            author_id TEXT NOT NULL,
+            author_name TEXT NOT NULL DEFAULT 'Unknown',
+            body TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_task_comments_task
+        ON task_comments (task_id, created_at)
+    """)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_activity (
+            id BIGSERIAL PRIMARY KEY,
+            task_id BIGINT REFERENCES server_tasks(id) ON DELETE CASCADE,
+            guild_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            actor_name TEXT NOT NULL DEFAULT 'Unknown',
+            action TEXT NOT NULL,
+            details TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_task_activity_lookup
+        ON task_activity (guild_id, task_id, created_at DESC)
+    """)
+
+
 @contextlib.asynccontextmanager
 async def safe_acquire() -> AsyncIterator[asyncpg.Connection]:
 
@@ -1257,3 +1345,548 @@ async def refresh_flag_embed(
         discord.HTTPException,
     ):
         return False
+
+
+# =========================================================
+# WEBSITE TASK MANAGER
+# =========================================================
+
+TASK_STATUSES = {"todo", "in_progress", "review", "completed"}
+TASK_PRIORITIES = {"low", "normal", "high", "urgent"}
+TASK_RECURRENCES = {"none", "daily", "weekly", "monthly"}
+TASK_CATEGORIES = {
+    "server", "custom_base", "trader", "event", "flag_system",
+    "xml_config", "bug", "website", "discord", "other",
+}
+
+
+def _task_row(row) -> dict:
+    if not row:
+        return {}
+    return {
+        "id": int(row["id"]),
+        "guild_id": str(row["guild_id"]),
+        "title": str(row["title"]),
+        "description": str(row["description"] or ""),
+        "priority": str(row["priority"]),
+        "status": str(row["status"]),
+        "category": str(row["category"]),
+        "map": row["map"],
+        "assignee_type": row["assignee_type"],
+        "assignee_id": row["assignee_id"],
+        "assignee_name": row["assignee_name"],
+        "created_by": str(row["created_by"]),
+        "created_by_name": str(row["created_by_name"] or "Unknown"),
+        "due_at": row["due_at"].isoformat() if row["due_at"] else None,
+        "recurrence": str(row["recurrence"] or "none"),
+        "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+async def _task_activity(
+    conn: asyncpg.Connection,
+    guild_id: str,
+    task_id: int | None,
+    actor_id: str,
+    actor_name: str,
+    action: str,
+    details: str = "",
+) -> None:
+    await conn.execute("""
+        INSERT INTO task_activity
+            (task_id, guild_id, actor_id, actor_name, action, details)
+        VALUES ($1,$2,$3,$4,$5,$6)
+    """, task_id, str(guild_id), str(actor_id), str(actor_name), action, details[:1500])
+
+
+async def get_tasks(guild_id: str, include_completed: bool = True) -> list[dict]:
+    async with safe_acquire() as conn:
+        if include_completed:
+            rows = await conn.fetch("""
+                SELECT * FROM server_tasks
+                WHERE guild_id=$1
+                ORDER BY
+                    CASE priority
+                        WHEN 'urgent' THEN 1
+                        WHEN 'high' THEN 2
+                        WHEN 'normal' THEN 3
+                        ELSE 4
+                    END,
+                    due_at NULLS LAST,
+                    created_at DESC
+            """, str(guild_id))
+        else:
+            rows = await conn.fetch("""
+                SELECT * FROM server_tasks
+                WHERE guild_id=$1 AND status <> 'completed'
+                ORDER BY
+                    CASE priority
+                        WHEN 'urgent' THEN 1
+                        WHEN 'high' THEN 2
+                        WHEN 'normal' THEN 3
+                        ELSE 4
+                    END,
+                    due_at NULLS LAST,
+                    created_at DESC
+            """, str(guild_id))
+        return [_task_row(row) for row in rows]
+
+
+async def get_task(guild_id: str, task_id: int) -> dict | None:
+    async with safe_acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM server_tasks WHERE guild_id=$1 AND id=$2",
+            str(guild_id), int(task_id),
+        )
+        return _task_row(row) if row else None
+
+
+async def create_task(
+    guild_id: str,
+    title: str,
+    description: str,
+    priority: str,
+    status: str,
+    category: str,
+    map_key: str | None,
+    assignee_type: str | None,
+    assignee_id: str | None,
+    assignee_name: str | None,
+    due_at,
+    recurrence: str,
+    actor_id: str,
+    actor_name: str,
+) -> dict:
+    priority = priority if priority in TASK_PRIORITIES else "normal"
+    status = status if status in TASK_STATUSES else "todo"
+    category = category if category in TASK_CATEGORIES else "other"
+    recurrence = recurrence if recurrence in TASK_RECURRENCES else "none"
+
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow("""
+                INSERT INTO server_tasks (
+                    guild_id,title,description,priority,status,category,map,
+                    assignee_type,assignee_id,assignee_name,
+                    created_by,created_by_name,due_at,recurrence,
+                    completed_at
+                )
+                VALUES (
+                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                    CASE WHEN $5='completed' THEN NOW() ELSE NULL END
+                )
+                RETURNING *
+            """,
+                str(guild_id), title[:160], description[:5000], priority, status,
+                category, normalize_map(map_key) if map_key else None,
+                assignee_type, assignee_id, assignee_name,
+                str(actor_id), actor_name[:120], due_at, recurrence,
+            )
+            task = _task_row(row)
+            await _task_activity(
+                conn, guild_id, task["id"], actor_id, actor_name,
+                "created", f"Created task: {task['title']}",
+            )
+            return task
+
+
+async def update_task(
+    guild_id: str,
+    task_id: int,
+    *,
+    title: str,
+    description: str,
+    priority: str,
+    status: str,
+    category: str,
+    map_key: str | None,
+    assignee_type: str | None,
+    assignee_id: str | None,
+    assignee_name: str | None,
+    due_at,
+    recurrence: str,
+    actor_id: str,
+    actor_name: str,
+) -> dict | None:
+    priority = priority if priority in TASK_PRIORITIES else "normal"
+    status = status if status in TASK_STATUSES else "todo"
+    category = category if category in TASK_CATEGORIES else "other"
+    recurrence = recurrence if recurrence in TASK_RECURRENCES else "none"
+
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            previous = await conn.fetchrow(
+                "SELECT * FROM server_tasks WHERE guild_id=$1 AND id=$2 FOR UPDATE",
+                str(guild_id), int(task_id),
+            )
+            if not previous:
+                return None
+
+            row = await conn.fetchrow("""
+                UPDATE server_tasks SET
+                    title=$3, description=$4, priority=$5, status=$6,
+                    category=$7, map=$8, assignee_type=$9, assignee_id=$10,
+                    assignee_name=$11, due_at=$12, recurrence=$13,
+                    completed_at=CASE
+                        WHEN $6='completed' AND completed_at IS NULL THEN NOW()
+                        WHEN $6<>'completed' THEN NULL
+                        ELSE completed_at
+                    END,
+                    updated_at=NOW()
+                WHERE guild_id=$1 AND id=$2
+                RETURNING *
+            """,
+                str(guild_id), int(task_id), title[:160], description[:5000],
+                priority, status, category,
+                normalize_map(map_key) if map_key else None,
+                assignee_type, assignee_id, assignee_name,
+                due_at, recurrence,
+            )
+            task = _task_row(row)
+            changes = []
+            for field in ("title","priority","status","category","map","assignee_name","recurrence"):
+                old = previous[field]
+                new = row[field]
+                if old != new:
+                    changes.append(f"{field}: {old or 'none'} → {new or 'none'}")
+            await _task_activity(
+                conn, guild_id, int(task_id), actor_id, actor_name,
+                "updated", "; ".join(changes) or "Task details updated",
+            )
+            return task
+
+
+async def set_task_status(
+    guild_id: str,
+    task_id: int,
+    status: str,
+    actor_id: str,
+    actor_name: str,
+) -> dict | None:
+    if status not in TASK_STATUSES:
+        raise ValueError("Invalid task status.")
+
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            previous = await conn.fetchrow(
+                "SELECT * FROM server_tasks WHERE guild_id=$1 AND id=$2 FOR UPDATE",
+                str(guild_id), int(task_id),
+            )
+            if not previous:
+                return None
+
+            row = await conn.fetchrow("""
+                UPDATE server_tasks SET
+                    status=$3,
+                    completed_at=CASE
+                        WHEN $3='completed' THEN COALESCE(completed_at,NOW())
+                        ELSE NULL
+                    END,
+                    updated_at=NOW()
+                WHERE guild_id=$1 AND id=$2
+                RETURNING *
+            """, str(guild_id), int(task_id), status)
+
+            await _task_activity(
+                conn, guild_id, int(task_id), actor_id, actor_name,
+                "status_changed", f"{previous['status']} → {status}",
+            )
+
+            # Recurring tasks produce the next instance on first completion.
+            if (
+                status == "completed"
+                and previous["status"] != "completed"
+                and row["recurrence"] in {"daily","weekly","monthly"}
+            ):
+                if row["due_at"]:
+                    if row["recurrence"] == "daily":
+                        next_due = row["due_at"] + __import__("datetime").timedelta(days=1)
+                    elif row["recurrence"] == "weekly":
+                        next_due = row["due_at"] + __import__("datetime").timedelta(days=7)
+                    else:
+                        dt = row["due_at"]
+                        year = dt.year + (1 if dt.month == 12 else 0)
+                        month = 1 if dt.month == 12 else dt.month + 1
+                        import calendar
+                        day = min(dt.day, calendar.monthrange(year, month)[1])
+                        next_due = dt.replace(year=year, month=month, day=day)
+                else:
+                    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                    if row["recurrence"] == "daily":
+                        next_due = now + __import__("datetime").timedelta(days=1)
+                    elif row["recurrence"] == "weekly":
+                        next_due = now + __import__("datetime").timedelta(days=7)
+                    else:
+                        year = now.year + (1 if now.month == 12 else 0)
+                        month = 1 if now.month == 12 else now.month + 1
+                        import calendar
+                        day = min(now.day, calendar.monthrange(year, month)[1])
+                        next_due = now.replace(year=year, month=month, day=day)
+
+                next_row = await conn.fetchrow("""
+                    INSERT INTO server_tasks (
+                        guild_id,title,description,priority,status,category,map,
+                        assignee_type,assignee_id,assignee_name,
+                        created_by,created_by_name,due_at,recurrence
+                    )
+                    VALUES ($1,$2,$3,$4,'todo',$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                    RETURNING id
+                """,
+                    row["guild_id"], row["title"], row["description"], row["priority"],
+                    row["category"], row["map"], row["assignee_type"], row["assignee_id"],
+                    row["assignee_name"], str(actor_id), actor_name[:120],
+                    next_due, row["recurrence"],
+                )
+                # Carry checklist structure forward as a fresh template.
+                await conn.execute("""
+                    INSERT INTO task_checklist_items (task_id, text, is_done, position)
+                    SELECT $1, text, FALSE, position
+                    FROM task_checklist_items
+                    WHERE task_id=$2
+                    ORDER BY position, id
+                """, int(next_row["id"]), int(task_id))
+
+                await _task_activity(
+                    conn, guild_id, int(next_row["id"]), actor_id, actor_name,
+                    "recurring_created", f"Created from recurring task #{task_id}",
+                )
+
+            return _task_row(row)
+
+
+async def claim_task(
+    guild_id: str,
+    task_id: int,
+    actor_id: str,
+    actor_name: str,
+) -> dict | None:
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow("""
+                UPDATE server_tasks SET
+                    assignee_type='user',
+                    assignee_id=$3,
+                    assignee_name=$4,
+                    status=CASE WHEN status='todo' THEN 'in_progress' ELSE status END,
+                    updated_at=NOW()
+                WHERE guild_id=$1 AND id=$2
+                RETURNING *
+            """, str(guild_id), int(task_id), str(actor_id), actor_name[:120])
+            if not row:
+                return None
+            await _task_activity(
+                conn, guild_id, int(task_id), actor_id, actor_name,
+                "claimed", f"Claimed by {actor_name}",
+            )
+            return _task_row(row)
+
+
+async def delete_task(
+    guild_id: str,
+    task_id: int,
+    actor_id: str,
+    actor_name: str,
+) -> bool:
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT title FROM server_tasks WHERE guild_id=$1 AND id=$2 FOR UPDATE",
+                str(guild_id), int(task_id),
+            )
+            if not row:
+                return False
+            await _task_activity(
+                conn, guild_id, None, actor_id, actor_name,
+                "deleted", f"Deleted task #{task_id}: {row['title']}",
+            )
+            await conn.execute(
+                "DELETE FROM server_tasks WHERE guild_id=$1 AND id=$2",
+                str(guild_id), int(task_id),
+            )
+            return True
+
+
+async def get_task_checklist(guild_id: str, task_id: int) -> list[dict]:
+    async with safe_acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT c.id,c.text,c.is_done,c.position,c.created_at
+            FROM task_checklist_items c
+            JOIN server_tasks t ON t.id=c.task_id
+            WHERE t.guild_id=$1 AND c.task_id=$2
+            ORDER BY c.position,c.id
+        """, str(guild_id), int(task_id))
+        return [
+            {
+                "id": int(row["id"]), "text": str(row["text"]),
+                "is_done": bool(row["is_done"]), "position": int(row["position"]),
+                "created_at": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+
+async def add_task_checklist_item(
+    guild_id: str, task_id: int, text: str,
+    actor_id: str, actor_name: str,
+) -> dict | None:
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM server_tasks WHERE guild_id=$1 AND id=$2)",
+                str(guild_id), int(task_id),
+            )
+            if not exists:
+                return None
+            position = await conn.fetchval(
+                "SELECT COALESCE(MAX(position),-1)+1 FROM task_checklist_items WHERE task_id=$1",
+                int(task_id),
+            )
+            row = await conn.fetchrow("""
+                INSERT INTO task_checklist_items (task_id,text,position)
+                VALUES ($1,$2,$3)
+                RETURNING id,text,is_done,position,created_at
+            """, int(task_id), text[:500], int(position))
+            await _task_activity(
+                conn, guild_id, int(task_id), actor_id, actor_name,
+                "checklist_added", text[:500],
+            )
+            return {
+                "id": int(row["id"]), "text": str(row["text"]),
+                "is_done": bool(row["is_done"]), "position": int(row["position"]),
+                "created_at": row["created_at"].isoformat(),
+            }
+
+
+async def toggle_task_checklist_item(
+    guild_id: str, task_id: int, item_id: int,
+    actor_id: str, actor_name: str,
+) -> dict | None:
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow("""
+                UPDATE task_checklist_items c
+                SET is_done=NOT c.is_done
+                FROM server_tasks t
+                WHERE c.id=$1 AND c.task_id=$2 AND t.id=c.task_id AND t.guild_id=$3
+                RETURNING c.id,c.text,c.is_done,c.position,c.created_at
+            """, int(item_id), int(task_id), str(guild_id))
+            if not row:
+                return None
+            await _task_activity(
+                conn, guild_id, int(task_id), actor_id, actor_name,
+                "checklist_toggled",
+                f"{'Completed' if row['is_done'] else 'Reopened'}: {row['text']}",
+            )
+            return {
+                "id": int(row["id"]), "text": str(row["text"]),
+                "is_done": bool(row["is_done"]), "position": int(row["position"]),
+                "created_at": row["created_at"].isoformat(),
+            }
+
+
+async def delete_task_checklist_item(
+    guild_id: str, task_id: int, item_id: int,
+    actor_id: str, actor_name: str,
+) -> bool:
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow("""
+                SELECT c.text FROM task_checklist_items c
+                JOIN server_tasks t ON t.id=c.task_id
+                WHERE c.id=$1 AND c.task_id=$2 AND t.guild_id=$3
+            """, int(item_id), int(task_id), str(guild_id))
+            if not row:
+                return False
+            await conn.execute("DELETE FROM task_checklist_items WHERE id=$1", int(item_id))
+            await _task_activity(
+                conn, guild_id, int(task_id), actor_id, actor_name,
+                "checklist_deleted", str(row["text"]),
+            )
+            return True
+
+
+async def get_task_comments(guild_id: str, task_id: int) -> list[dict]:
+    async with safe_acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT c.id,c.author_id,c.author_name,c.body,c.created_at
+            FROM task_comments c
+            JOIN server_tasks t ON t.id=c.task_id
+            WHERE t.guild_id=$1 AND c.task_id=$2
+            ORDER BY c.created_at ASC
+        """, str(guild_id), int(task_id))
+        return [
+            {
+                "id": int(row["id"]), "author_id": str(row["author_id"]),
+                "author_name": str(row["author_name"]), "body": str(row["body"]),
+                "created_at": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+
+async def add_task_comment(
+    guild_id: str, task_id: int, body: str,
+    actor_id: str, actor_name: str,
+) -> dict | None:
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM server_tasks WHERE guild_id=$1 AND id=$2)",
+                str(guild_id), int(task_id),
+            )
+            if not exists:
+                return None
+            row = await conn.fetchrow("""
+                INSERT INTO task_comments (task_id,author_id,author_name,body)
+                VALUES ($1,$2,$3,$4)
+                RETURNING id,author_id,author_name,body,created_at
+            """, int(task_id), str(actor_id), actor_name[:120], body[:3000])
+            await _task_activity(
+                conn, guild_id, int(task_id), actor_id, actor_name,
+                "commented", body[:500],
+            )
+            return {
+                "id": int(row["id"]), "author_id": str(row["author_id"]),
+                "author_name": str(row["author_name"]), "body": str(row["body"]),
+                "created_at": row["created_at"].isoformat(),
+            }
+
+
+async def get_task_activity(guild_id: str, task_id: int, limit: int = 50) -> list[dict]:
+    async with safe_acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id,actor_id,actor_name,action,details,created_at
+            FROM task_activity
+            WHERE guild_id=$1 AND task_id=$2
+            ORDER BY created_at DESC
+            LIMIT $3
+        """, str(guild_id), int(task_id), max(1, min(int(limit), 100)))
+        return [
+            {
+                "id": int(row["id"]), "actor_id": str(row["actor_id"]),
+                "actor_name": str(row["actor_name"]), "action": str(row["action"]),
+                "details": str(row["details"] or ""),
+                "created_at": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+
+async def get_task_summary(guild_id: str) -> dict:
+    async with safe_acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE status='todo') AS todo,
+                COUNT(*) FILTER (WHERE status='in_progress') AS in_progress,
+                COUNT(*) FILTER (WHERE status='review') AS review,
+                COUNT(*) FILTER (WHERE status='completed') AS completed,
+                COUNT(*) FILTER (
+                    WHERE status<>'completed' AND due_at IS NOT NULL AND due_at<NOW()
+                ) AS overdue
+            FROM server_tasks
+            WHERE guild_id=$1
+        """, str(guild_id))
+        return {key: int(row[key] or 0) for key in ("todo","in_progress","review","completed","overdue")}
+
