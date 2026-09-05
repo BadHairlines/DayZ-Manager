@@ -349,7 +349,7 @@ async def homepage(request: web.Request) -> web.Response:
       <div class="feature"><div class="icon">🌐</div><h3>Public Live Pages</h3><p>Give players a clean link to check flag availability without needing to dig through Discord interactions.</p></div>
     </div>
   </section>
-  <section class="section"><div class="card" style="padding:30px;text-align:center"><h2 class="section-title">Ready to see it live?</h2><p class="section-sub" style="margin:0 auto 22px">Browse every active public Flag System currently connected to DayZ Manager.</p><a class="btn primary" href="/flags">Browse Live Flag Systems →</a></div></section>
+  <section class="section"><div class="card" style="padding:30px;text-align:center"><h2 class="section-title">Ready to see it live?</h2><p class="section-sub" style="margin:0 auto 22px">Browse DayZ communities using DayZ Manager, then open that server to view its live Flag Systems.</p><a class="btn primary" href="/flags">Browse Servers Using DayZ Manager →</a></div></section>
 </main>"""
     return web.Response(text=_page("DayZ Manager — DayZ Discord Management", body, _invite_url(bot), "DayZ Manager is a Discord management platform for DayZ communities with live faction flag tracking and public web dashboards."), content_type="text/html", headers={"Cache-Control": "no-store"})
 
@@ -571,17 +571,120 @@ async def flags_directory(request: web.Request) -> web.Response:
             clean_path = clean.split("/flags/", 1)[-1]
             raise web.HTTPFound(f"/flags/{clean_path}")
 
+    # Public /flags is a directory of Discord servers using DayZ Manager.
+    # Individual flag setups are grouped under each server page.
     setups = await _public_setups(bot)
-    cards = []
+    grouped: dict[str, dict] = {}
     for item in setups:
-        icon = f'<img alt="" src="{html.escape(item["guild_icon"])}">' if item["guild_icon"] else "🚩"
+        guild_id = item["guild_id"]
+        group = grouped.setdefault(guild_id, {
+            "guild_id": guild_id,
+            "guild_name": item["guild_name"],
+            "guild_icon": item["guild_icon"],
+            "setups": [],
+            "maps": set(),
+        })
+        group["setups"].append(item)
+        group["maps"].add(item["map_name"])
+
+    cards = []
+    for group in sorted(grouped.values(), key=lambda g: g["guild_name"].casefold()):
+        icon = f'<img alt="" src="{html.escape(group["guild_icon"])}">' if group["guild_icon"] else "🚩"
+        setup_count = len(group["setups"])
+        maps = " • ".join(sorted(group["maps"], key=str.casefold)) or "Flag System"
+        search_text = f'{group["guild_name"]} {maps}'.casefold()
+        plural = "s" if setup_count != 1 else ""
+        cards.append(
+            f'''<a class="card server-card server-entry" href="/servers/{quote(group['guild_id'], safe='')}" data-search="{html.escape(search_text)}">
+<div class="server-icon">{icon}</div>
+<div class="server-main">
+  <div class="server-name">{html.escape(group['guild_name'])}</div>
+  <div class="meta">{html.escape(maps)}</div>
+  <div class="counts"><span class="pill">🚩 {setup_count} Flag System{plural}</span></div>
+</div>
+<span style="color:#7f93a9">→</span>
+</a>'''
+        )
+
+    entries = "".join(cards) if cards else '<div class="card empty" style="grid-column:1/-1">No DayZ Manager Flag System servers are currently available.</div>'
+    body = f'''
+<main class="wrap"><section class="section" style="padding-top:45px">
+<span class="eyebrow"><span class="dot"></span> DayZ Manager Community</span>
+<h1 style="font-size:clamp(38px,6vw,64px)">Servers Using <span class="gradient">DayZ Manager</span></h1>
+<p class="lead">Choose a DayZ community to view only that server's live Flag Systems. Individual map/server setups stay grouped under their Discord server.</p>
+<div class="directory-tools"><input id="search" class="search" placeholder="Search Discord server or map..." autocomplete="off"></div>
+<div id="serverGrid" class="server-grid">{entries}</div>
+<div id="noResults" class="card empty hidden" style="margin-top:14px">No servers match your search.</div>
+</section></main>
+<script>const q=document.getElementById('search');const cards=[...document.querySelectorAll('.server-entry')];const none=document.getElementById('noResults');q.addEventListener('input',()=>{{const v=q.value.trim().toLowerCase();let shown=0;cards.forEach(c=>{{const ok=!v||c.dataset.search.includes(v);c.classList.toggle('hidden',!ok);if(ok)shown++}});none.classList.toggle('hidden',shown!==0)}});</script>'''
+    return web.Response(
+        text=_page("Servers Using DayZ Manager", body, _invite_url(bot), "Browse DayZ communities using DayZ Manager and open each server's live Flag Systems."),
+        content_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def server_flag_systems_page(request: web.Request) -> web.Response:
+    bot: commands.Bot = request.app["bot"]
+    guild_id = request.match_info["guild_id"].strip()
+
+    setups = [item for item in await _public_setups(bot) if item["guild_id"] == guild_id]
+    if not setups:
+        return web.Response(
+            text=_page(
+                "Server Not Found — DayZ Manager",
+                '<main class="wrap"><section class="section"><div class="card empty"><h2>🚩 Server not found</h2><p>This server has no public Flag Systems or DayZ Manager is no longer connected to it.</p><a class="btn" href="/flags">← Servers Using DayZ Manager</a></div></section></main>',
+                _invite_url(bot),
+            ),
+            content_type="text/html",
+            status=404,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    first = setups[0]
+    icon = f'<img alt="" src="{html.escape(first["guild_icon"])}">' if first["guild_icon"] else "🚩"
+    cards = []
+    for item in sorted(setups, key=lambda x: (x["map_name"].casefold(), x["server"].casefold())):
         url = item["url"] or "#"
-        cards.append(f"""<a class="card server-card server-entry" href="{html.escape(url)}" data-search="{html.escape((item['guild_name']+' '+item['map_name']+' '+item['server']).casefold())}"><div class="server-icon">{icon}</div><div class="server-main"><div class="server-name">{html.escape(item['guild_name'])}</div><div class="meta">{html.escape(item['map_name'])} • {html.escape(item['server'])}</div><div class="counts"><span class="pill green">🟢 {item['available_count']} Available</span><span class="pill red">🔴 {item['claimed_count']} Claimed</span><span class="pill">🏴 {item['total']} Total</span></div></div><span style="color:#7f93a9">→</span></a>""")
-    entries = "".join(cards) if cards else '<div class="card empty" style="grid-column:1/-1">No public Flag Systems are currently available.</div>'
-    body = f"""
-<main class="wrap"><section class="section" style="padding-top:45px"><span class="eyebrow"><span class="dot"></span> Public live data</span><h1 style="font-size:clamp(38px,6vw,64px)">Live <span class="gradient">Flag Systems</span></h1><p class="lead">Find a DayZ server and see which faction flags are available or already claimed. Data updates from DayZ Manager's live Flag System.</p><div class="directory-tools"><input id="search" class="search" placeholder="Search server, map, or server name..." autocomplete="off"></div><div id="serverGrid" class="server-grid">{entries}</div><div id="noResults" class="card empty hidden" style="margin-top:14px">No Flag Systems match your search.</div></section></main>
-<script>const q=document.getElementById('search');const cards=[...document.querySelectorAll('.server-entry')];const none=document.getElementById('noResults');q.addEventListener('input',()=>{{const v=q.value.trim().toLowerCase();let shown=0;cards.forEach(c=>{{const ok=!v||c.dataset.search.includes(v);c.classList.toggle('hidden',!ok);if(ok)shown++}});none.classList.toggle('hidden',shown!==0)}});</script>"""
-    return web.Response(text=_page("Live Flag Systems — DayZ Manager", body, _invite_url(bot), "Browse live available and claimed DayZ faction flags."), content_type="text/html", headers={"Cache-Control": "no-store"})
+        cards.append(
+            f'''<a class="card server-card" href="{html.escape(url)}">
+<div class="server-icon">🚩</div>
+<div class="server-main">
+  <div class="server-name">{html.escape(item['map_name'])} • {html.escape(item['server'])}</div>
+  <div class="meta">Live Flag System</div>
+  <div class="counts">
+    <span class="pill green">🟢 {item['available_count']} Available</span>
+    <span class="pill red">🔴 {item['claimed_count']} Claimed</span>
+    <span class="pill">🏴 {item['total']} Total</span>
+  </div>
+</div>
+<span style="color:#7f93a9">→</span>
+</a>'''
+        )
+
+    body = f'''
+<main class="wrap"><section class="section" style="padding-top:40px">
+<a href="/flags" class="meta">← Servers Using DayZ Manager</a>
+<div class="dashboard-head" style="margin-top:18px">
+  <div>
+    <span class="eyebrow"><span class="dot"></span> Live Flag Systems</span>
+    <h1 style="font-size:clamp(36px,6vw,62px);margin-bottom:10px">{html.escape(first['guild_name'])}</h1>
+    <p class="section-sub">All public Flag Systems belonging to this Discord server are shown below.</p>
+  </div>
+  <div class="server-icon" style="width:72px;height:72px;font-size:34px">{icon}</div>
+</div>
+<div class="stat-band" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+  <div class="big-stat"><strong>{len(setups)}</strong><span>Flag Systems</span></div>
+  <div class="big-stat"><strong class="green">{sum(x['available_count'] for x in setups)}</strong><span>Available Flags</span></div>
+  <div class="big-stat"><strong class="red">{sum(x['claimed_count'] for x in setups)}</strong><span>Claimed Flags</span></div>
+</div>
+<div class="server-grid">{"".join(cards)}</div>
+</section></main>'''
+    return web.Response(
+        text=_page(f"{first['guild_name']} — Flag Systems", body, _invite_url(bot), f"Live DayZ Manager Flag Systems for {first['guild_name']}."),
+        content_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def flags_api(request: web.Request) -> web.Response:
@@ -645,7 +748,7 @@ async def flag_detail_page(request: web.Request) -> web.Response:
     api_path = f"/api/flags/{quote(guild_id, safe='')}/{quote(utils.normalize_map(map_key), safe='')}/{quote(_slug(server), safe='')}"
     initial_json = json.dumps(payload).replace("<", "\\u003c")
     body = f"""
-<main class="wrap"><section class="section" style="padding-top:36px"><a href="/flags" class="meta">← All Flag Systems</a><section class="card flag-hero" style="margin-top:15px"><div class="flag-hero-bg" id="heroBg" style="background-image:url('{map_bg}')"></div><div class="flag-head"><div class="flag-logo" id="guildLogo">{guild_icon}</div><div><span class="eyebrow"><span class="dot"></span> Live from DayZ Manager</span><h2 id="guildName" style="font-size:clamp(25px,4vw,38px);margin:9px 0 3px">{html.escape(payload['guild_name'])}</h2><div class="meta"><span id="mapName">{html.escape(payload['map_name'])}</span> • <span id="serverName">{html.escape(payload['server'])}</span></div></div></div><div class="flag-stats"><div class="flag-stat"><strong class="green" id="availableCount">{payload['available_count']}</strong><div class="meta">Available</div></div><div class="flag-stat"><strong class="red" id="claimedCount">{payload['claimed_count']}</strong><div class="meta">Claimed</div></div><div class="flag-stat"><strong class="gold" id="totalCount">{payload['total']}</strong><div class="meta">Total Flags</div></div></div><div class="progress"><span id="progressBar" style="width:{payload['claimed_pct']}%"></span></div></section><div class="flag-grid"><section class="card"><div class="list-head"><strong class="green">🟢 Available Flags</strong><span class="pill" id="availableBadge">{payload['available_count']}</span></div><div class="list" id="availableList"></div></section><section class="card"><div class="list-head"><strong class="red">🔴 Claimed Flags</strong><span class="pill" id="claimedBadge">{payload['claimed_count']}</span></div><div class="list" id="claimedList"></div></section></div><div class="meta" style="display:flex;justify-content:space-between;gap:15px;margin:14px 3px"><span>Read-only public view • Management stays in Discord</span><span id="updatedAt">Connecting…</span></div></section></main>
+<main class="wrap"><section class="section" style="padding-top:36px"><a href="/servers/{quote(guild_id, safe='')}" class="meta">← Server Flag Systems</a><section class="card flag-hero" style="margin-top:15px"><div class="flag-hero-bg" id="heroBg" style="background-image:url('{map_bg}')"></div><div class="flag-head"><div class="flag-logo" id="guildLogo">{guild_icon}</div><div><span class="eyebrow"><span class="dot"></span> Live from DayZ Manager</span><h2 id="guildName" style="font-size:clamp(25px,4vw,38px);margin:9px 0 3px">{html.escape(payload['guild_name'])}</h2><div class="meta"><span id="mapName">{html.escape(payload['map_name'])}</span> • <span id="serverName">{html.escape(payload['server'])}</span></div></div></div><div class="flag-stats"><div class="flag-stat"><strong class="green" id="availableCount">{payload['available_count']}</strong><div class="meta">Available</div></div><div class="flag-stat"><strong class="red" id="claimedCount">{payload['claimed_count']}</strong><div class="meta">Claimed</div></div><div class="flag-stat"><strong class="gold" id="totalCount">{payload['total']}</strong><div class="meta">Total Flags</div></div></div><div class="progress"><span id="progressBar" style="width:{payload['claimed_pct']}%"></span></div></section><div class="flag-grid"><section class="card"><div class="list-head"><strong class="green">🟢 Available Flags</strong><span class="pill" id="availableBadge">{payload['available_count']}</span></div><div class="list" id="availableList"></div></section><section class="card"><div class="list-head"><strong class="red">🔴 Claimed Flags</strong><span class="pill" id="claimedBadge">{payload['claimed_count']}</span></div><div class="list" id="claimedList"></div></section></div><div class="meta" style="display:flex;justify-content:space-between;gap:15px;margin:14px 3px"><span>Read-only public view • Management stays in Discord</span><span id="updatedAt">Connecting…</span></div></section></main>
 <script>const API={json.dumps(api_path)};const INITIAL={initial_json};const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));function render(d){{document.getElementById('guildName').textContent=d.guild_name;document.getElementById('mapName').textContent=d.map_name;document.getElementById('serverName').textContent=d.server;document.getElementById('availableCount').textContent=d.available_count;document.getElementById('claimedCount').textContent=d.claimed_count;document.getElementById('totalCount').textContent=d.total;document.getElementById('availableBadge').textContent=d.available_count;document.getElementById('claimedBadge').textContent=d.claimed_count;document.getElementById('progressBar').style.width=d.claimed_pct+'%';document.getElementById('availableList').innerHTML=d.available.length?d.available.map(x=>'<div class="flag-row"><span>🟢 <strong>'+esc(x.flag)+'</strong></span><span class="green">AVAILABLE</span></div>').join(''):'<div class="empty">No flags are currently available.</div>';document.getElementById('claimedList').innerHTML=d.claimed.length?d.claimed.map(x=>'<div class="flag-row"><span>🔴 <strong>'+esc(x.flag)+'</strong></span><span class="owner">'+esc(x.role_name)+'</span></div>').join(''):'<div class="empty">No flags are currently claimed.</div>';document.getElementById('updatedAt').textContent='Updated '+new Date().toLocaleTimeString()}}async function refresh(){{try{{const r=await fetch(API,{{cache:'no-store'}});if(!r.ok)throw new Error('HTTP '+r.status);render(await r.json())}}catch(e){{document.getElementById('updatedAt').textContent='Connection interrupted — retrying'}}}}render(INITIAL);setInterval(refresh,10000);</script>"""
     return web.Response(text=_page(f"{payload['guild_name']} — Live Flags", body, _invite_url(bot), f"Live available and claimed flags for {payload['guild_name']} — {payload['map_name']} {payload['server']}."), content_type="text/html", headers={"Cache-Control": "no-store"})
 
@@ -704,6 +807,7 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_get("/api/flags/{guild_id}/{map_key}/{server_slug}", clean_flags_api)
 
     app.router.add_get("/flags", flags_directory)
+    app.router.add_get("/servers/{guild_id}", server_flag_systems_page)
     app.router.add_get("/flags/{guild_id}/{map_key}/{server_slug}", flag_detail_page)
     app.router.add_get("/flags-legacy", legacy_flags_page)
 
