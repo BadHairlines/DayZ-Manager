@@ -388,6 +388,8 @@ async def _resolve_server_slug(guild_id: str, map_key: str, server_slug: str) ->
 SITE_CSS = r"""
 :root{--bg:#090d12;--panel:#111821;--panel2:#0d141c;--line:#283545;--text:#f5f7fb;--muted:#92a5bb;--blue:#57a8ff;--green:#43e99c;--red:#ff5775;--gold:#f2d85e;--shadow:0 22px 70px #0008}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 20% -10%,#1a2839 0,transparent 38%),radial-gradient(circle at 90% 10%,#171f2b 0,transparent 30%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}a{color:inherit;text-decoration:none}.wrap{width:min(1180px,calc(100% - 34px));margin:auto}.nav{height:78px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{display:flex;align-items:center;gap:12px;font-weight:900;font-size:20px}.brandmark{width:39px;height:39px;border:1px solid var(--line);background:linear-gradient(145deg,#1e2a39,#111821);border-radius:12px;display:grid;place-items:center;box-shadow:0 10px 30px #0005}.navlinks{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.navlinks a{padding:9px 12px;border-radius:10px;color:#b9c7d6;font-size:14px}.navlinks a:hover{background:#16202b;color:#fff}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:#151f2a;font-weight:750;transition:.18s transform,.18s border-color,.18s background}.btn:hover{transform:translateY(-1px);border-color:#49617b;background:#1a2735}.btn.primary{background:linear-gradient(135deg,#4b9cff,#7667ff);border-color:transparent;color:#fff;box-shadow:0 12px 35px #4d75ff33}.hero-home{padding:72px 0 55px;display:grid;grid-template-columns:1.15fr .85fr;gap:45px;align-items:center}.eyebrow{display:inline-flex;gap:9px;align-items:center;color:#afc3d8;border:1px solid var(--line);border-radius:999px;padding:7px 11px;background:#111923aa;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 14px var(--green)}h1{font-size:clamp(42px,7vw,78px);line-height:.98;letter-spacing:-3px;margin:18px 0 20px}.gradient{background:linear-gradient(100deg,#fff 5%,#82bfff 48%,#9d8cff 88%);-webkit-background-clip:text;background-clip:text;color:transparent}.lead{font-size:18px;line-height:1.7;color:#a7b7c9;max-width:720px}.hero-actions{display:flex;gap:11px;flex-wrap:wrap;margin-top:28px}.mock{background:linear-gradient(145deg,#121b25,#0c1118);border:1px solid var(--line);border-radius:25px;padding:19px;box-shadow:var(--shadow);transform:rotate(1.1deg)}.mock-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.mini-stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.mini-stat{background:#0b1118;border:1px solid #233041;border-radius:14px;padding:13px}.mini-stat strong{display:block;font-size:22px}.mini-list{margin-top:10px;border:1px solid #243141;border-radius:14px;overflow:hidden}.mini-row{padding:11px 13px;border-bottom:1px solid #1f2b39;display:flex;justify-content:space-between;font-size:13px}.mini-row:last-child{border:0}.section{padding:58px 0}.section-title{font-size:clamp(29px,4vw,42px);letter-spacing:-1.5px;margin:0 0 10px}.section-sub{color:var(--muted);max-width:740px;line-height:1.6}.feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:28px}.feature{background:linear-gradient(180deg,#111923,#0d131a);border:1px solid var(--line);border-radius:18px;padding:22px}.feature .icon{font-size:26px}.feature h3{margin:14px 0 7px}.feature p{color:var(--muted);line-height:1.55;font-size:14px;margin:0}.stat-band{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:25px}.big-stat{border:1px solid var(--line);background:#101720;border-radius:17px;padding:20px}.big-stat strong{font-size:30px;display:block}.big-stat span{color:var(--muted);font-size:13px}.card{background:linear-gradient(180deg,#111821,#0d131a);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 40px #0004}.directory-tools{display:flex;gap:10px;margin:22px 0}.search{width:100%;padding:14px 16px;border-radius:13px;border:1px solid var(--line);background:#0c1219;color:#fff;outline:none;font-size:15px}.search:focus{border-color:#567596}.server-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.server-card{padding:19px;display:flex;gap:15px;align-items:flex-start}.server-icon{width:48px;height:48px;border-radius:14px;background:#182331;border:1px solid var(--line);display:grid;place-items:center;overflow:hidden;flex:0 0 auto}.server-icon img{width:100%;height:100%;object-fit:cover}.server-main{min-width:0;flex:1}.server-name{font-size:17px;font-weight:850;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta{color:var(--muted);font-size:13px;margin-top:4px}.counts{display:flex;gap:10px;flex-wrap:wrap;margin-top:13px;font-size:12px}.pill{border:1px solid var(--line);border-radius:999px;padding:5px 9px;background:#0b1118}.green{color:var(--green)}.red{color:var(--red)}.gold{color:var(--gold)}.flag-hero{position:relative;overflow:hidden;padding:24px}.flag-hero-bg{position:absolute;inset:0 0 0 48%;opacity:.13;background-size:cover;background-position:center}.flag-hero>*{position:relative;z-index:1}.flag-head{display:flex;align-items:center;gap:14px}.flag-logo{width:58px;height:58px;border-radius:16px;background:#172231;border:1px solid var(--line);display:grid;place-items:center;overflow:hidden;font-size:28px}.flag-logo img{width:100%;height:100%;object-fit:cover}.flag-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:21px}.flag-stat{border:1px solid var(--line);background:#0a1118cc;border-radius:15px;padding:15px}.flag-stat strong{font-size:26px}.progress{height:7px;background:#263240;border-radius:999px;overflow:hidden;margin-top:15px}.progress span{height:100%;display:block;background:linear-gradient(90deg,var(--green),var(--gold),var(--red))}.flag-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.list-head{padding:17px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}.list{padding:8px}.flag-row{padding:10px;border-radius:13px;display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:66px;border:1px solid transparent;transition:.18s background,.18s border-color,.18s transform}.flag-row:hover{background:#17212c;border-color:#26384b;transform:translateY(-1px)}.flag-ident{display:flex;align-items:center;gap:12px;min-width:0}.flag-thumb{width:46px;height:46px;border-radius:10px;object-fit:contain;background:#080d13;border:1px solid #2a3949;padding:3px;flex:0 0 46px}.flag-fallback{width:46px;height:46px;border-radius:10px;background:linear-gradient(145deg,#172536,#0b121a);border:1px solid #2a3949;display:grid;place-items:center;font-size:21px;flex:0 0 46px}.flag-name{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.flag-state{font-size:11px;font-weight:900;letter-spacing:.05em}.owner{color:#b0c0d0;max-width:45%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}.empty{padding:28px;color:var(--muted);text-align:center}.docs{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}.toc{position:sticky;top:18px;padding:15px}.toc a{display:block;padding:9px 10px;color:#a8b9cb;border-radius:9px;font-size:14px}.toc a:hover{background:#17212c;color:#fff}.doc-body{padding:26px}.doc-body h2{margin-top:34px}.command{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#c7dbef;background:#091019;border:1px solid #243244;padding:3px 7px;border-radius:7px}.status-box{padding:23px}.status-line{display:flex;justify-content:space-between;gap:15px;padding:12px 0;border-bottom:1px solid #202c39}.status-line:last-child{border:0}.footer{border-top:1px solid #1e2936;margin-top:60px;padding:28px 0 40px;color:#72859a;font-size:13px;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}.user-card{display:flex;align-items:center;gap:12px}.user-avatar{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);object-fit:cover}.dashboard-head{display:flex;justify-content:space-between;gap:20px;align-items:center;flex-wrap:wrap}.notice{padding:16px 18px;border:1px solid var(--line);background:#101822;border-radius:14px;color:#b8c7d8}.private-badge{display:inline-flex;align-items:center;gap:7px;color:#b9c9db;font-size:12px;font-weight:800;border:1px solid var(--line);padding:6px 10px;border-radius:999px;background:#0b121a}.hidden{display:none!important}.manage-shell{display:grid;grid-template-columns:280px 1fr;gap:18px;align-items:start}.manage-side{position:sticky;top:18px;padding:16px}.manage-side a{display:block;padding:10px 11px;border-radius:10px;color:#b8c8d9;font-size:14px}.manage-side a:hover{background:#17212c;color:#fff}.tool-stack{display:grid;gap:14px}.tool-card{padding:22px}.tool-card h3{margin:0 0 7px}.tool-card p{margin:0 0 16px;color:var(--muted);line-height:1.5}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:12px;color:#aebed0;font-weight:800;letter-spacing:.04em;text-transform:uppercase}.input,.select{width:100%;padding:12px 13px;border-radius:11px;border:1px solid var(--line);background:#0b1219;color:#fff;outline:none;font-size:14px}.input:focus,.select:focus{border-color:#5c7fa5}.danger-btn{background:#35131b;border-color:#6d2637;color:#ff9caf}.danger-btn:hover{background:#431821;border-color:#974055}.result{margin-top:13px;padding:13px;border:1px solid var(--line);border-radius:12px;background:#0b1219;color:#c8d5e2;white-space:pre-wrap;word-break:break-word;display:none}.result.show{display:block}.setup-table{display:grid;gap:8px}.setup-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px;border:1px solid #22303f;border-radius:12px;background:#0b1118}.setup-row strong{display:block}.tiny{font-size:12px;color:var(--muted)}.toolbar{display:flex;gap:9px;flex-wrap:wrap}.role-note{font-size:12px;color:var(--muted);margin-top:6px}.spinner{opacity:.65;pointer-events:none}.web-command{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#89bfff;font-size:12px}.guild-control-card{padding:20px;display:flex;gap:15px;align-items:center}.guild-control-card .server-main{flex:1}
 .portal-head{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:18px 0 24px}.portal-server{display:flex;align-items:center;gap:14px;min-width:0}.portal-server h1{font-size:clamp(30px,5vw,48px);letter-spacing:-1.5px;margin:0}.portal-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 24px}.portal-tab{padding:10px 13px;border:1px solid var(--line);border-radius:11px;color:#aebed0;background:#101720;font-size:13px;font-weight:800}.portal-tab:hover,.portal-tab.active{color:#fff;border-color:#4c6680;background:#172331}.portal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.portal-card{padding:24px;display:flex;flex-direction:column;min-height:220px}.portal-card .portal-icon{font-size:30px;margin-bottom:14px}.portal-card h3{font-size:21px;margin:0 0 8px}.portal-card p{color:var(--muted);line-height:1.6;margin:0 0 18px}.portal-card .portal-actions{margin-top:auto;display:flex;gap:9px;flex-wrap:wrap}.portal-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 24px}.portal-kpi{padding:16px;border:1px solid var(--line);border-radius:15px;background:#0e151d}.portal-kpi strong{display:block;font-size:25px}.portal-kpi span{font-size:12px;color:var(--muted)}.tool-page{display:grid;gap:14px;max-width:920px}.section-label{font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#83baff}.coming-soon{border-style:dashed;opacity:.78}.command-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.subnav-note{color:var(--muted);font-size:13px;line-height:1.55}.status-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.status-card{padding:22px}.status-card strong{display:block;font-size:28px;margin-top:8px}
+
+.task-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0}.task-kpi{padding:15px;border:1px solid var(--line);border-radius:14px;background:#0e151d}.task-kpi strong{font-size:24px;display:block}.task-kpi span{font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.05em}.task-toolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:16px 0}.task-toolbar .input,.task-toolbar .select{width:auto;min-width:155px}.kanban{display:grid;grid-template-columns:repeat(4,minmax(260px,1fr));gap:13px;align-items:start;overflow-x:auto;padding-bottom:8px}.kanban-col{background:#0a1017;border:1px solid var(--line);border-radius:15px;min-height:350px}.kanban-head{padding:13px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#0a1017;border-radius:15px 15px 0 0;z-index:1}.kanban-list{padding:10px;display:grid;gap:9px}.task-card{border:1px solid #233140;border-radius:13px;background:#101820;padding:14px;cursor:pointer;transition:.16s transform,.16s border-color}.task-card:hover{transform:translateY(-2px);border-color:#47637e}.task-card-title{font-size:15px;font-weight:900;margin-bottom:7px}.task-card-meta{display:flex;gap:6px;flex-wrap:wrap}.task-chip{font-size:10px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--line);border-radius:999px;padding:4px 7px;color:#aec0d2}.task-chip.urgent{color:#ff8fa3;border-color:#793244}.task-chip.high{color:#ffb276;border-color:#704729}.task-chip.low{color:#8bd2ff;border-color:#315c76}.task-due{font-size:11px;color:var(--muted);margin-top:9px}.task-progress{height:5px;background:#1a2632;border-radius:99px;overflow:hidden;margin-top:9px}.task-progress>span{display:block;height:100%;background:#56c58f}.task-modal-backdrop{position:fixed;inset:0;background:rgba(2,6,10,.78);z-index:1000;display:none;align-items:flex-start;justify-content:center;padding:5vh 18px;overflow:auto}.task-modal-backdrop.show{display:flex}.task-modal{width:min(900px,100%);background:#0e151d;border:1px solid #2a3a4a;border-radius:18px;box-shadow:0 30px 90px #000;padding:24px}.task-modal-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.task-modal-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;margin-top:18px}.task-detail-box{border:1px solid var(--line);border-radius:13px;padding:14px;background:#0a1118}.check-item{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #19232d}.check-item:last-child{border-bottom:0}.check-item.done .check-text{text-decoration:line-through;color:#6f8294}.comment{padding:10px 0;border-bottom:1px solid #19232d}.comment:last-child{border-bottom:0}.comment-head{font-size:11px;color:#8fa3b7;margin-bottom:4px}.activity-line{font-size:12px;color:#aebdca;padding:7px 0;border-bottom:1px solid #19232d}.task-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.task-empty{padding:18px;text-align:center;color:#65788a;font-size:13px}.modal-close{border:0;background:transparent;color:#9fb0c1;font-size:24px;cursor:pointer}.task-create-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}.task-create-grid .full{grid-column:1/-1}@media(max-width:1050px){.kanban{grid-template-columns:repeat(4,280px)}.task-kpis{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.task-modal-grid,.task-create-grid{grid-template-columns:1fr}.task-create-grid .full{grid-column:auto}.task-kpis{grid-template-columns:1fr 1fr}}
 @media(max-width:900px){.portal-grid,.command-grid,.status-grid{grid-template-columns:1fr}.portal-kpis{grid-template-columns:1fr 1fr}.manage-shell{grid-template-columns:1fr}.manage-side{position:static}.form-grid{grid-template-columns:1fr}.field.full{grid-column:auto}}@media(max-width:900px){.hero-home{grid-template-columns:1fr;padding-top:45px}.mock{transform:none}.feature-grid{grid-template-columns:1fr 1fr}.stat-band{grid-template-columns:1fr 1fr}.server-grid{grid-template-columns:1fr}.docs{grid-template-columns:1fr}.toc{position:static}.flag-grid{grid-template-columns:1fr}}@media(max-width:620px){.nav{height:auto;padding:14px 0;align-items:flex-start}.navlinks a:not(.keep){display:none}.hero-home{padding-top:34px}.feature-grid{grid-template-columns:1fr}.flag-stats{grid-template-columns:1fr 1fr 1fr}.flag-stat{padding:11px}.flag-stat strong{font-size:21px}.wrap{width:min(100% - 22px,1180px)}h1{letter-spacing:-2px}.stat-band{grid-template-columns:1fr 1fr}}
 """
 
@@ -677,6 +679,7 @@ def _guild_portal_tabs(guild_id: int, active: str) -> str:
         ("overview", f"/dashboard/{guild_id}", "🏠 Overview"),
         ("flags", f"/dashboard/{guild_id}/flags", "🚩 Flag System"),
         ("tools", f"/dashboard/{guild_id}/tools", "🛠️ Server Tools"),
+        ("tasks", f"/dashboard/{guild_id}/tasks", "📋 Task Manager"),
         ("status", f"/dashboard/{guild_id}/status", "🤖 Bot Status"),
         ("live", f"/servers/{guild_id}", "🌐 Live Pages"),
     ]
@@ -724,6 +727,65 @@ def _guild_portal_header(guild: discord.Guild, active: str, subtitle: str) -> st
 """
 
 
+
+
+TASK_STATUS_LABELS = {
+    "todo": "📥 To Do",
+    "in_progress": "🔨 In Progress",
+    "review": "👀 Review",
+    "completed": "✅ Complete",
+}
+
+TASK_CATEGORY_LABELS = {
+    "server": "Server",
+    "custom_base": "Custom Base",
+    "trader": "Trader",
+    "event": "Event",
+    "flag_system": "Flag System",
+    "xml_config": "XML / Config",
+    "bug": "Bug",
+    "website": "Website",
+    "discord": "Discord",
+    "other": "Other",
+}
+
+
+def _web_actor(session: dict) -> tuple[str, str]:
+    user = session.get("user") or {}
+    user_id = str(user.get("id") or session.get("user_id") or "unknown")
+    name = str(
+        user.get("global_name")
+        or user.get("username")
+        or session.get("username")
+        or "Discord User"
+    )
+    return user_id, name
+
+
+def _parse_due_at(value: str | None):
+    value = str(value or "").strip()
+    if not value:
+        return None
+    import datetime
+    try:
+        dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Invalid due date/time.") from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc)
+
+
+async def _task_with_extras(guild_id: str, task_id: int) -> dict | None:
+    task = await utils.get_task(guild_id, task_id)
+    if not task:
+        return None
+    task["checklist"] = await utils.get_task_checklist(guild_id, task_id)
+    task["comments"] = await utils.get_task_comments(guild_id, task_id)
+    task["activity"] = await utils.get_task_activity(guild_id, task_id, 50)
+    return task
+
+
 async def guild_dashboard_page(request: web.Request) -> web.Response:
     bot, session, guild, setups = await _guild_portal_context(request)
     claimed = 0
@@ -736,6 +798,8 @@ async def guild_dashboard_page(request: web.Request) -> web.Response:
 
     teleporter_enabled = True
     vehicle_enabled = True
+    task_summary = await utils.get_task_summary(str(guild.id))
+    open_tasks = task_summary["todo"] + task_summary["in_progress"] + task_summary["review"]
     body = f"""
 <main class="wrap"><section class="section" style="padding-top:32px">
 {_guild_portal_header(guild, "overview", "Choose a section below. Tools are separated into focused pages so the portal stays clean as DayZ Manager grows.")}
@@ -743,11 +807,13 @@ async def guild_dashboard_page(request: web.Request) -> web.Response:
   <div class="portal-kpi"><strong>{len(setups)}</strong><span>Flag System setups</span></div>
   <div class="portal-kpi"><strong class="green">{available}</strong><span>Available flags</span></div>
   <div class="portal-kpi"><strong class="red">{claimed}</strong><span>Claimed flags</span></div>
+  <div class="portal-kpi"><strong>{open_tasks}</strong><span>Open staff tasks</span></div>
   <div class="portal-kpi"><strong>{"Enabled" if (teleporter_enabled or vehicle_enabled) else "Restricted"}</strong><span>Server tools access</span></div>
 </div>
 <div class="portal-grid">
   <div class="card portal-card"><div class="portal-icon">🚩</div><h3>Flag System Tools</h3><p>Create and delete setups, assign and release flags, inspect status, refresh Discord dashboards, and review audit history.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/flags">Open Flag System →</a><a class="btn" href="/servers/{guild.id}">Public Flag Pages</a></div></div>
   <div class="card portal-card"><div class="portal-icon">🛠️</div><h3>Server Tools</h3><p>DayZ utilities live here separately from the Flag System. Your Teleporter Generator is here now, with room for more server tools later.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/tools">Open Server Tools →</a></div></div>
+  <div class="card portal-card"><div class="portal-icon">📋</div><h3>Advanced Task Manager</h3><p>Run your server staff workflow with priorities, Kanban statuses, due dates, assignments, checklists, comments, activity history, and recurring tasks.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/tasks">Open Task Manager →</a></div></div>
   <div class="card portal-card"><div class="portal-icon">🤖</div><h3>Bot & Connection Status</h3><p>Check DayZ Manager's Discord connection, PostgreSQL health, latency, uptime, connected guild count, and registered commands.</p><div class="portal-actions"><a class="btn" href="/dashboard/{guild.id}/status">View Bot Status →</a></div></div>
   <div class="card portal-card"><div class="portal-icon">🌐</div><h3>Live Public Pages</h3><p>Open the public-facing pages players use to see available and claimed flags for this Discord community.</p><div class="portal-actions"><a class="btn" href="/servers/{guild.id}">View Live Pages →</a></div></div>
 </div>
@@ -987,6 +1053,275 @@ document.querySelectorAll('[data-copy]').forEach(btn=>{{
             body,
             _invite_url(bot),
             f"DayZ server tools for {guild.name}.",
+        ),
+        content_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+
+
+async def guild_tasks_page(request: web.Request) -> web.Response:
+    bot, session, guild, setups = await _guild_portal_context(request)
+    csrf = json.dumps(str(session.get("csrf_token") or ""))
+
+    maps_json = json.dumps(
+        [{"key": key, "name": value["name"]} for key, value in utils.MAP_DATA.items()]
+    ).replace("<", "\\u003c")
+
+    # Role assignments can be selected directly without member-list privileged intent.
+    try:
+        roles = await guild.fetch_roles()
+    except (discord.Forbidden, discord.HTTPException):
+        roles = list(guild.roles)
+    roles = [
+        {"id": str(role.id), "name": role.name}
+        for role in sorted(roles, key=lambda r: r.position, reverse=True)
+        if not role.is_default() and not role.managed
+    ]
+    roles_json = json.dumps(roles).replace("<", "\\u003c")
+
+    body = f"""
+<main class="wrap"><section class="section" style="padding-top:32px">
+{_guild_portal_header(guild, "tasks", "Website-first staff task management for this DayZ community.")}
+
+<div class="task-kpis">
+  <div class="task-kpi"><strong id="kTodo">0</strong><span>To Do</span></div>
+  <div class="task-kpi"><strong id="kProgress">0</strong><span>In Progress</span></div>
+  <div class="task-kpi"><strong id="kReview">0</strong><span>Review</span></div>
+  <div class="task-kpi"><strong id="kComplete">0</strong><span>Complete</span></div>
+  <div class="task-kpi"><strong class="red" id="kOverdue">0</strong><span>Overdue</span></div>
+</div>
+
+<div class="task-toolbar">
+  <button class="btn primary" id="newTaskBtn">＋ New Task</button>
+  <input class="input" id="taskSearch" placeholder="Search tasks…" style="min-width:220px">
+  <select class="select" id="priorityFilter">
+    <option value="">All priorities</option><option value="urgent">Urgent</option>
+    <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
+  </select>
+  <select class="select" id="categoryFilter">
+    <option value="">All categories</option>
+    <option value="server">Server</option><option value="custom_base">Custom Base</option>
+    <option value="trader">Trader</option><option value="event">Event</option>
+    <option value="flag_system">Flag System</option><option value="xml_config">XML / Config</option>
+    <option value="bug">Bug</option><option value="website">Website</option>
+    <option value="discord">Discord</option><option value="other">Other</option>
+  </select>
+  <label class="meta"><input type="checkbox" id="showComplete" checked> Show completed</label>
+</div>
+
+<div class="kanban">
+  <div class="kanban-col"><div class="kanban-head"><strong>📥 To Do</strong><span class="pill" id="cTodo">0</span></div><div class="kanban-list" id="colTodo"></div></div>
+  <div class="kanban-col"><div class="kanban-head"><strong>🔨 In Progress</strong><span class="pill" id="cProgress">0</span></div><div class="kanban-list" id="colProgress"></div></div>
+  <div class="kanban-col"><div class="kanban-head"><strong>👀 Review</strong><span class="pill" id="cReview">0</span></div><div class="kanban-list" id="colReview"></div></div>
+  <div class="kanban-col"><div class="kanban-head"><strong>✅ Complete</strong><span class="pill" id="cComplete">0</span></div><div class="kanban-list" id="colComplete"></div></div>
+</div>
+</section></main>
+
+<div class="task-modal-backdrop" id="createTaskModal">
+  <div class="task-modal">
+    <div class="task-modal-head"><div><span class="section-label">New Task</span><h2 style="margin:5px 0">Create Server Task</h2></div><button class="modal-close" data-close="createTaskModal">×</button></div>
+    <form id="createTaskForm" class="task-create-grid" style="margin-top:18px">
+      <div class="field full"><label>Title</label><input class="input" name="title" maxlength="160" required></div>
+      <div class="field full"><label>Description</label><textarea class="input" name="description" rows="4" maxlength="5000"></textarea></div>
+      <div class="field"><label>Priority</label><select class="select" name="priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></div>
+      <div class="field"><label>Category</label><select class="select" name="category"><option value="server">Server</option><option value="custom_base">Custom Base</option><option value="trader">Trader</option><option value="event">Event</option><option value="flag_system">Flag System</option><option value="xml_config">XML / Config</option><option value="bug">Bug</option><option value="website">Website</option><option value="discord">Discord</option><option value="other" selected>Other</option></select></div>
+      <div class="field"><label>Map</label><select class="select" name="map" id="newMap"><option value="">Any / Not Applicable</option></select></div>
+      <div class="field"><label>Due Date</label><input class="input" name="due_at" type="datetime-local"></div>
+      <div class="field"><label>Assign To</label><select class="select" name="assignee" id="newAssignee"><option value="">Unassigned</option></select></div>
+      <div class="field"><label>Recurrence</label><select class="select" name="recurrence"><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+      <div class="field full"><button class="btn primary" type="submit">Create Task</button></div>
+    </form><div class="result" id="createTaskResult"></div>
+  </div>
+</div>
+
+<div class="task-modal-backdrop" id="taskDetailModal">
+  <div class="task-modal">
+    <div class="task-modal-head"><div><span class="section-label" id="detailNumber">Task</span><h2 id="detailTitle" style="margin:5px 0"></h2></div><button class="modal-close" data-close="taskDetailModal">×</button></div>
+    <div id="taskDetailBody"></div>
+  </div>
+</div>
+
+<script>
+const GUILD={json.dumps(str(guild.id))},CSRF={csrf},MAPS={maps_json},ROLES={roles_json};
+let TASKS=[],ACTIVE=null;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+const labels={{todo:'To Do',in_progress:'In Progress',review:'Review',completed:'Complete'}};
+const categoryLabels={{server:'Server',custom_base:'Custom Base',trader:'Trader',event:'Event',flag_system:'Flag System',xml_config:'XML / Config',bug:'Bug',website:'Website',discord:'Discord',other:'Other'}};
+
+async function api(path,opt={{}}){{
+  opt.headers=Object.assign({{'X-CSRF-Token':CSRF}},opt.headers||{{}});
+  const r=await fetch('/api/manage/'+encodeURIComponent(GUILD)+'/tasks'+path,opt);
+  let d;try{{d=await r.json()}}catch{{d={{error:await r.text()}}}}
+  if(!r.ok)throw new Error(d.error||('HTTP '+r.status));
+  return d;
+}}
+function openModal(id){{document.getElementById(id).classList.add('show')}}
+function closeModal(id){{document.getElementById(id).classList.remove('show')}}
+document.querySelectorAll('[data-close]').forEach(x=>x.onclick=()=>closeModal(x.dataset.close));
+document.querySelectorAll('.task-modal-backdrop').forEach(x=>x.addEventListener('click',e=>{{if(e.target===x)closeModal(x.id)}}));
+
+function fmtDate(v){{
+  if(!v)return '';
+  const d=new Date(v);return isNaN(d)?'':d.toLocaleString();
+}}
+function localInput(v){{
+  if(!v)return '';
+  const d=new Date(v);if(isNaN(d))return '';
+  const pad=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+}}
+function normalizeDue(o){{
+  if(o.due_at){{const d=new Date(o.due_at);if(!isNaN(d))o.due_at=d.toISOString();}}
+  return o;
+}}
+function isOverdue(t){{return t.status!=='completed'&&t.due_at&&new Date(t.due_at)<new Date()}}
+function assigneeText(t){{return t.assignee_name||'Unassigned'}}
+function taskCard(t){{
+  const checklist=t.checklist||[];
+  const done=checklist.filter(x=>x.is_done).length,total=checklist.length,pct=total?Math.round(done/total*100):0;
+  return '<div class="task-card" data-task="'+t.id+'"><div class="task-card-title">'+esc(t.title)+'</div><div class="task-card-meta">'+
+    '<span class="task-chip '+esc(t.priority)+'">'+esc(t.priority)+'</span>'+
+    '<span class="task-chip">'+esc(categoryLabels[t.category]||t.category)+'</span>'+
+    (t.map?'<span class="task-chip">'+esc(t.map)+'</span>':'')+
+    (isOverdue(t)?'<span class="task-chip urgent">OVERDUE</span>':'')+
+    '</div><div class="task-due">👤 '+esc(assigneeText(t))+(t.due_at?' • 📅 '+esc(fmtDate(t.due_at)):'')+'</div>'+
+    (total?'<div class="task-progress"><span style="width:'+pct+'%"></span></div><div class="task-due">'+done+'/'+total+' checklist items</div>':'')+
+    '</div>';
+}}
+function filteredTasks(){{
+  const q=document.getElementById('taskSearch').value.trim().toLowerCase();
+  const p=document.getElementById('priorityFilter').value,c=document.getElementById('categoryFilter').value;
+  const show=document.getElementById('showComplete').checked;
+  return TASKS.filter(t=>(show||t.status!=='completed')&&(!p||t.priority===p)&&(!c||t.category===c)&&(!q||(t.title+' '+t.description+' '+(t.assignee_name||'')).toLowerCase().includes(q)));
+}}
+function render(){{
+  const f=filteredTasks(),groups={{todo:[],in_progress:[],review:[],completed:[]}};
+  f.forEach(t=>(groups[t.status]||groups.todo).push(t));
+  const map={{todo:['colTodo','cTodo'],in_progress:['colProgress','cProgress'],review:['colReview','cReview'],completed:['colComplete','cComplete']}};
+  Object.entries(map).forEach(([status,[col,count]])=>{{
+    document.getElementById(col).innerHTML=groups[status].length?groups[status].map(taskCard).join(''):'<div class="task-empty">No tasks</div>';
+    document.getElementById(count).textContent=groups[status].length;
+  }});
+  document.querySelectorAll('[data-task]').forEach(el=>el.onclick=()=>openTask(Number(el.dataset.task)));
+}}
+async function loadTasks(){{
+  const d=await api('');
+  TASKS=d.tasks;
+  document.getElementById('kTodo').textContent=d.summary.todo;
+  document.getElementById('kProgress').textContent=d.summary.in_progress;
+  document.getElementById('kReview').textContent=d.summary.review;
+  document.getElementById('kComplete').textContent=d.summary.completed;
+  document.getElementById('kOverdue').textContent=d.summary.overdue;
+  render();
+}}
+['taskSearch','priorityFilter','categoryFilter','showComplete'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+
+const mapOptions=MAPS.map(m=>'<option value="'+esc(m.key)+'">'+esc(m.name)+'</option>').join('');
+document.getElementById('newMap').insertAdjacentHTML('beforeend',mapOptions);
+document.getElementById('newAssignee').insertAdjacentHTML('beforeend',ROLES.map(r=>'<option value="role:'+esc(r.id)+':'+esc(r.name)+'">Role: '+esc(r.name)+'</option>').join(''));
+
+document.getElementById('newTaskBtn').onclick=()=>openModal('createTaskModal');
+document.getElementById('createTaskForm').onsubmit=async e=>{{
+  e.preventDefault();
+  try{{
+    const f=new FormData(e.target),o=Object.fromEntries(f);
+    normalizeDue(o);const d=await api('',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});
+    e.target.reset();closeModal('createTaskModal');await loadTasks();await openTask(d.task.id);
+  }}catch(x){{const r=document.getElementById('createTaskResult');r.textContent=x.message;r.classList.add('show')}}
+}};
+
+async function openTask(id){{
+  const d=await api('/'+id);ACTIVE=d.task;
+  document.getElementById('detailNumber').textContent='TASK #'+ACTIVE.id;
+  document.getElementById('detailTitle').textContent=ACTIVE.title;
+  renderDetail();
+  openModal('taskDetailModal');
+}}
+function renderDetail(){{
+  const t=ACTIVE,check=t.checklist||[],comments=t.comments||[],activity=t.activity||[];
+  const done=check.filter(x=>x.is_done).length;
+  const currentUserOption=t.assignee_type==='user'?'<option selected value="user:'+esc(t.assignee_id)+':'+esc(t.assignee_name)+'">User: '+esc(t.assignee_name)+'</option>':'';
+  const roleOptions='<option value="unassigned" '+(!t.assignee_type?'selected':'')+'>Unassigned</option>'+currentUserOption+ROLES.map(r=>'<option value="role:'+esc(r.id)+':'+esc(r.name)+'" '+(t.assignee_type==='role'&&String(t.assignee_id)===String(r.id)?'selected':'')+'>Role: '+esc(r.name)+'</option>').join('');
+  document.getElementById('taskDetailBody').innerHTML=
+  '<div class="task-modal-grid"><div>'+
+    '<div class="task-detail-box"><form id="editTaskForm" class="task-create-grid">'+
+      '<div class="field full"><label>Title</label><input class="input" name="title" value="'+esc(t.title)+'" required></div>'+
+      '<div class="field full"><label>Description</label><textarea class="input" name="description" rows="5">'+esc(t.description)+'</textarea></div>'+
+      '<div class="field"><label>Priority</label><select class="select" name="priority">'+['low','normal','high','urgent'].map(x=>'<option '+(t.priority===x?'selected':'')+' value="'+x+'">'+x+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Category</label><select class="select" name="category">'+Object.keys(categoryLabels).map(x=>'<option '+(t.category===x?'selected':'')+' value="'+x+'">'+esc(categoryLabels[x])+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Map</label><select class="select" name="map"><option value="">Any / N/A</option>'+MAPS.map(m=>'<option '+(t.map===m.key?'selected':'')+' value="'+esc(m.key)+'">'+esc(m.name)+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Due Date</label><input class="input" type="datetime-local" name="due_at" value="'+esc(localInput(t.due_at))+'"></div>'+
+      '<div class="field"><label>Assignment</label><select class="select" name="assignee">'+roleOptions+'</select></div>'+
+      '<div class="field"><label>Recurrence</label><select class="select" name="recurrence">'+['none','daily','weekly','monthly'].map(x=>'<option '+(t.recurrence===x?'selected':'')+' value="'+x+'">'+x+'</option>').join('')+'</select></div>'+
+      '<div class="field full"><button class="btn primary" type="submit">Save Changes</button></div>'+
+    '</form></div>'+
+    '<div class="task-detail-box" style="margin-top:13px"><strong>✅ Checklist</strong><div class="meta" style="margin:4px 0 8px">'+done+'/'+check.length+' complete</div><div id="checklist">'+
+      (check.length?check.map(x=>'<div class="check-item '+(x.is_done?'done':'')+'"><input type="checkbox" data-toggle-check="'+x.id+'" '+(x.is_done?'checked':'')+'><span class="check-text" style="flex:1">'+esc(x.text)+'</span><button class="modal-close" style="font-size:15px" data-delete-check="'+x.id+'">×</button></div>').join(''):'<div class="task-empty">No checklist items yet.</div>')+
+      '</div><form id="addCheckForm" style="display:flex;gap:7px;margin-top:10px"><input class="input" name="text" maxlength="500" placeholder="Add checklist item…" required><button class="btn" type="submit">Add</button></form></div>'+
+    '<div class="task-detail-box" style="margin-top:13px"><strong>💬 Comments</strong><div id="comments">'+
+      (comments.length?comments.map(c=>'<div class="comment"><div class="comment-head">'+esc(c.author_name)+' • '+esc(fmtDate(c.created_at))+'</div>'+esc(c.body)+'</div>').join(''):'<div class="task-empty">No comments yet.</div>')+
+      '</div><form id="commentForm" style="display:flex;gap:7px;margin-top:10px"><input class="input" name="body" maxlength="3000" placeholder="Add a comment…" required><button class="btn" type="submit">Post</button></form></div>'+
+  '</div><div>'+
+    '<div class="task-detail-box"><strong>Status</strong><div class="task-actions">'+
+      ['todo','in_progress','review','completed'].map(s=>'<button class="btn '+(t.status===s?'primary':'')+'" data-status="'+s+'">'+esc(labels[s])+'</button>').join('')+
+    '</div><div class="task-actions"><button class="btn" id="claimTask">👤 Claim Task</button><button class="btn danger-btn" id="deleteTask">Delete Task</button></div></div>'+
+    '<div class="task-detail-box" style="margin-top:13px"><strong>Details</strong><div class="meta" style="line-height:1.9;margin-top:8px">Priority: '+esc(t.priority)+'<br>Category: '+esc(categoryLabels[t.category]||t.category)+'<br>Map: '+esc(t.map||'Any')+'<br>Assigned: '+esc(assigneeText(t))+'<br>Due: '+esc(fmtDate(t.due_at)||'None')+'<br>Repeats: '+esc(t.recurrence)+'<br>Created by: '+esc(t.created_by_name)+'<br>Created: '+esc(fmtDate(t.created_at))+'</div></div>'+
+    '<div class="task-detail-box" style="margin-top:13px"><strong>🕘 Activity</strong><div style="margin-top:7px">'+
+      (activity.length?activity.map(a=>'<div class="activity-line"><strong>'+esc(a.actor_name)+'</strong> • '+esc(a.action)+'<br><span class="meta">'+esc(a.details)+' • '+esc(fmtDate(a.created_at))+'</span></div>').join(''):'<div class="task-empty">No activity yet.</div>')+
+    '</div></div>'+
+  '</div></div>';
+
+  document.getElementById('editTaskForm').onsubmit=saveEdit;
+  document.getElementById('addCheckForm').onsubmit=addChecklist;
+  document.getElementById('commentForm').onsubmit=addComment;
+  document.querySelectorAll('[data-status]').forEach(b=>b.onclick=()=>changeStatus(b.dataset.status));
+  document.querySelectorAll('[data-toggle-check]').forEach(x=>x.onchange=()=>toggleChecklist(Number(x.dataset.toggleCheck)));
+  document.querySelectorAll('[data-delete-check]').forEach(x=>x.onclick=()=>deleteChecklist(Number(x.dataset.deleteCheck)));
+  document.getElementById('claimTask').onclick=claimTask;
+  document.getElementById('deleteTask').onclick=deleteTask;
+}}
+async function refreshActive(){{
+  const d=await api('/'+ACTIVE.id);ACTIVE=d.task;renderDetail();await loadTasks();
+}}
+async function saveEdit(e){{
+  e.preventDefault();const f=new FormData(e.target),o=Object.fromEntries(f);normalizeDue(o);
+  try{{await api('/'+ACTIVE.id,{{method:'PUT',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});await refreshActive()}}catch(x){{alert(x.message)}}
+}}
+async function changeStatus(status){{
+  try{{await api('/'+ACTIVE.id+'/status',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{status}})}});await refreshActive()}}catch(x){{alert(x.message)}}
+}}
+async function claimTask(){{
+  try{{await api('/'+ACTIVE.id+'/claim',{{method:'POST'}});await refreshActive()}}catch(x){{alert(x.message)}}
+}}
+async function deleteTask(){{
+  if(!confirm('Permanently delete this task?'))return;
+  try{{await api('/'+ACTIVE.id,{{method:'DELETE'}});closeModal('taskDetailModal');ACTIVE=null;await loadTasks()}}catch(x){{alert(x.message)}}
+}}
+async function addChecklist(e){{
+  e.preventDefault();const f=new FormData(e.target);
+  try{{await api('/'+ACTIVE.id+'/checklist',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{text:f.get('text')}})}});await refreshActive()}}catch(x){{alert(x.message)}}
+}}
+async function toggleChecklist(id){{
+  try{{await api('/'+ACTIVE.id+'/checklist/'+id+'/toggle',{{method:'POST'}});await refreshActive()}}catch(x){{alert(x.message)}}
+}}
+async function deleteChecklist(id){{
+  try{{await api('/'+ACTIVE.id+'/checklist/'+id,{{method:'DELETE'}});await refreshActive()}}catch(x){{alert(x.message)}}
+}}
+async function addComment(e){{
+  e.preventDefault();const f=new FormData(e.target);
+  try{{await api('/'+ACTIVE.id+'/comments',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{body:f.get('body')}})}});await refreshActive()}}catch(x){{alert(x.message)}}
+}}
+loadTasks().catch(e=>alert('Task Manager failed to load: '+e.message));
+</script>
+"""
+    return web.Response(
+        text=_page(
+            f"{guild.name} — Task Manager",
+            body,
+            _invite_url(bot),
+            f"Advanced DayZ Manager task system for {guild.name}.",
         ),
         content_type="text/html",
         headers={"Cache-Control": "no-store"},
@@ -1540,6 +1875,245 @@ async def manage_vehicle_api(request: web.Request) -> web.Response:
     )
 
 
+
+
+async def manage_tasks_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+
+    if request.method == "GET":
+        tasks = await utils.get_tasks(str(guild.id), include_completed=True)
+        # Add checklist counts without returning full details for every card.
+        for task in tasks:
+            checklist = await utils.get_task_checklist(str(guild.id), task["id"])
+            task["checklist"] = checklist
+        return web.json_response({
+            "tasks": tasks,
+            "summary": await utils.get_task_summary(str(guild.id)),
+        })
+
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+
+    data = await _request_json(request)
+    title = str(data.get("title") or "").strip()
+    if not title:
+        return web.json_response({"error": "Task title is required."}, status=400)
+
+    actor_id, actor_name = _web_actor(session)
+    assignee_type = assignee_id = assignee_name = None
+    raw_assignee = str(data.get("assignee") or "")
+    if raw_assignee.startswith("role:"):
+        parts = raw_assignee.split(":", 2)
+        if len(parts) == 3:
+            assignee_type, assignee_id, assignee_name = "role", parts[1], parts[2]
+
+    try:
+        due_at = _parse_due_at(data.get("due_at"))
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+
+    task = await utils.create_task(
+        str(guild.id), title, str(data.get("description") or ""),
+        str(data.get("priority") or "normal"), "todo",
+        str(data.get("category") or "other"),
+        str(data.get("map") or "") or None,
+        assignee_type, assignee_id, assignee_name,
+        due_at, str(data.get("recurrence") or "none"),
+        actor_id, actor_name,
+    )
+    return web.json_response({"ok": True, "task": task}, status=201)
+
+
+async def manage_task_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    task_id = int(request.match_info["task_id"])
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+
+    if request.method == "GET":
+        task = await _task_with_extras(str(guild.id), task_id)
+        if not task:
+            return web.json_response({"error": "Task not found."}, status=404)
+        return web.json_response({"task": task})
+
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+
+    actor_id, actor_name = _web_actor(session)
+
+    if request.method == "DELETE":
+        ok = await utils.delete_task(str(guild.id), task_id, actor_id, actor_name)
+        if not ok:
+            return web.json_response({"error": "Task not found."}, status=404)
+        return web.json_response({"ok": True})
+
+    data = await _request_json(request)
+    existing = await utils.get_task(str(guild.id), task_id)
+    if not existing:
+        return web.json_response({"error": "Task not found."}, status=404)
+
+    title = str(data.get("title") or "").strip()
+    if not title:
+        return web.json_response({"error": "Task title is required."}, status=400)
+
+    assignee_type = existing.get("assignee_type")
+    assignee_id = existing.get("assignee_id")
+    assignee_name = existing.get("assignee_name")
+    raw_assignee = str(data.get("assignee") or "")
+    if raw_assignee == "unassigned":
+        assignee_type = assignee_id = assignee_name = None
+    elif raw_assignee.startswith("role:"):
+        parts = raw_assignee.split(":", 2)
+        if len(parts) == 3:
+            assignee_type, assignee_id, assignee_name = "role", parts[1], parts[2]
+    elif raw_assignee.startswith("user:"):
+        parts = raw_assignee.split(":", 2)
+        if len(parts) == 3:
+            assignee_type, assignee_id, assignee_name = "user", parts[1], parts[2]
+
+    try:
+        due_at = _parse_due_at(data.get("due_at"))
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+
+    task = await utils.update_task(
+        str(guild.id), task_id,
+        title=title,
+        description=str(data.get("description") or ""),
+        priority=str(data.get("priority") or "normal"),
+        status=existing["status"],
+        category=str(data.get("category") or "other"),
+        map_key=str(data.get("map") or "") or None,
+        assignee_type=assignee_type,
+        assignee_id=assignee_id,
+        assignee_name=assignee_name,
+        due_at=due_at,
+        recurrence=str(data.get("recurrence") or "none"),
+        actor_id=actor_id,
+        actor_name=actor_name,
+    )
+    return web.json_response({"ok": True, "task": task})
+
+
+async def manage_task_status_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    task_id = int(request.match_info["task_id"])
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+    data = await _request_json(request)
+    actor_id, actor_name = _web_actor(session)
+    try:
+        task = await utils.set_task_status(
+            str(guild.id), task_id, str(data.get("status") or ""),
+            actor_id, actor_name,
+        )
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    if not task:
+        return web.json_response({"error": "Task not found."}, status=404)
+    return web.json_response({"ok": True, "task": task})
+
+
+async def manage_task_claim_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    task_id = int(request.match_info["task_id"])
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+    actor_id, actor_name = _web_actor(session)
+    task = await utils.claim_task(str(guild.id), task_id, actor_id, actor_name)
+    if not task:
+        return web.json_response({"error": "Task not found."}, status=404)
+    return web.json_response({"ok": True, "task": task})
+
+
+async def manage_task_checklist_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    task_id = int(request.match_info["task_id"])
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+    data = await _request_json(request)
+    text = str(data.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "Checklist text is required."}, status=400)
+    actor_id, actor_name = _web_actor(session)
+    item = await utils.add_task_checklist_item(
+        str(guild.id), task_id, text, actor_id, actor_name,
+    )
+    if not item:
+        return web.json_response({"error": "Task not found."}, status=404)
+    return web.json_response({"ok": True, "item": item}, status=201)
+
+
+async def manage_task_checklist_toggle_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    task_id = int(request.match_info["task_id"])
+    item_id = int(request.match_info["item_id"])
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+    actor_id, actor_name = _web_actor(session)
+    item = await utils.toggle_task_checklist_item(
+        str(guild.id), task_id, item_id, actor_id, actor_name,
+    )
+    if not item:
+        return web.json_response({"error": "Checklist item not found."}, status=404)
+    return web.json_response({"ok": True, "item": item})
+
+
+async def manage_task_checklist_delete_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    task_id = int(request.match_info["task_id"])
+    item_id = int(request.match_info["item_id"])
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+    actor_id, actor_name = _web_actor(session)
+    ok = await utils.delete_task_checklist_item(
+        str(guild.id), task_id, item_id, actor_id, actor_name,
+    )
+    if not ok:
+        return web.json_response({"error": "Checklist item not found."}, status=404)
+    return web.json_response({"ok": True})
+
+
+async def manage_task_comments_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    task_id = int(request.match_info["task_id"])
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+    data = await _request_json(request)
+    body = str(data.get("body") or "").strip()
+    if not body:
+        return web.json_response({"error": "Comment cannot be empty."}, status=400)
+    actor_id, actor_name = _web_actor(session)
+    comment = await utils.add_task_comment(
+        str(guild.id), task_id, body, actor_id, actor_name,
+    )
+    if not comment:
+        return web.json_response({"error": "Task not found."}, status=404)
+    return web.json_response({"ok": True, "comment": comment}, status=201)
+
+
 async def my_setups_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     session = await _current_session(request)
@@ -1824,6 +2398,17 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_get("/api/manage/{guild_id}/botstatus", manage_botstatus_api)
     app.router.add_post("/api/manage/{guild_id}/teleporter", manage_teleporter_api)
     app.router.add_post("/api/manage/{guild_id}/vehicle", manage_vehicle_api)
+    app.router.add_get("/api/manage/{guild_id}/tasks", manage_tasks_api)
+    app.router.add_post("/api/manage/{guild_id}/tasks", manage_tasks_api)
+    app.router.add_get("/api/manage/{guild_id}/tasks/{task_id}", manage_task_api)
+    app.router.add_put("/api/manage/{guild_id}/tasks/{task_id}", manage_task_api)
+    app.router.add_delete("/api/manage/{guild_id}/tasks/{task_id}", manage_task_api)
+    app.router.add_post("/api/manage/{guild_id}/tasks/{task_id}/status", manage_task_status_api)
+    app.router.add_post("/api/manage/{guild_id}/tasks/{task_id}/claim", manage_task_claim_api)
+    app.router.add_post("/api/manage/{guild_id}/tasks/{task_id}/checklist", manage_task_checklist_api)
+    app.router.add_post("/api/manage/{guild_id}/tasks/{task_id}/checklist/{item_id}/toggle", manage_task_checklist_toggle_api)
+    app.router.add_delete("/api/manage/{guild_id}/tasks/{task_id}/checklist/{item_id}", manage_task_checklist_delete_api)
+    app.router.add_post("/api/manage/{guild_id}/tasks/{task_id}/comments", manage_task_comments_api)
     app.router.add_get("/api/flags", flags_api)  # legacy API
     app.router.add_get("/api/flags/{guild_id}/{map_key}/{server_slug}", clean_flags_api)
 

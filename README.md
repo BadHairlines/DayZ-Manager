@@ -136,3 +136,29 @@ The existing `/vehicle` Discord utility is now also available from the authentic
 - Both Discord commands are available in any server where DayZ Manager is installed.
 - Website Server Tools are available to any authenticated server owner/Administrator for their own server.
 - Discord OAuth callback typo from v2.9 session persistence was corrected.
+
+
+## v3.0 Advanced Task Manager
+
+DayZ Manager now includes a website-first per-server Task Manager.
+
+### Task workflow
+- Kanban statuses: To Do, In Progress, Review, Complete
+- Priorities: Low, Normal, High, Urgent
+- Categories for DayZ operations
+- Optional map, due date, role assignment, and recurrence
+- Search and board filters
+- Claim task workflow
+- Recurring daily / weekly / monthly tasks
+
+### Task detail
+- Editable description and metadata
+- Checklist with completion progress
+- Staff comments
+- Full activity/audit history
+- Created-by and assignment tracking
+- Overdue detection
+
+All task data is PostgreSQL-backed and scoped by Discord guild. The initial Task Manager release uses the existing private portal permission model: Discord server Owner/Administrator access is required.
+
+Deployment note: no new Railway variables are required for v3.0; the task tables are created automatically by the existing PostgreSQL migration.
