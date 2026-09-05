@@ -768,6 +768,8 @@ async def guild_flag_tools_page(request: web.Request) -> web.Response:
     <section class="card tool-card"><span class="web-command">/flaghistory</span><h3>🕘 Flag History</h3><p>Review recent claims and releases.</p><div class="form-grid"><div class="field"><label>Setup</label><select class="select setup-select" id="historySetup"></select></div><div class="field"><label>Entries</label><select class="select" id="historyLimit"><option>5</option><option selected>10</option><option>20</option></select></div></div><button class="btn" id="historyBtn" type="button" style="margin-top:12px">Load History</button><div class="result" id="historyResult"></div></section>
   </div>
 
+  <section class="card tool-card"><span class="section-label">Website Management</span><h3>✏️ Rename Flag System</h3><p>Change an existing Flag System name without losing claims or history. DayZ Manager will also rename its Discord category/channel and refresh the live dashboard.</p><form id="renameForm" class="form-grid"><div class="field"><label>Existing Setup</label><select class="select setup-select" name="setup" required></select></div><div class="field"><label>New Setup Name</label><input class="input" name="new_server" maxlength="50" placeholder="Example: Server 2" required></div><div class="field full"><button class="btn primary" type="submit">Rename Flag System</button></div></form><div class="result" id="renameResult"></div></section>
+
   <section class="card tool-card"><span class="web-command">/deletesetup</span><h3>🗑️ Delete Flag System</h3><p>Permanently remove a setup. You can also delete its Discord channel and empty setup category.</p><form id="deleteForm" class="form-grid"><div class="field"><label>Setup</label><select class="select setup-select" name="setup" required></select></div><div class="field"><label>Discord Cleanup</label><label style="padding:12px;border:1px solid var(--line);border-radius:11px"><input type="checkbox" name="delete_channel" checked> Delete Discord flag channel too</label></div><div class="field full"><button class="btn danger-btn" type="submit">Delete Setup Permanently</button></div></form><div class="result" id="deleteResult"></div></section>
 </div>
 </section></main>
@@ -788,6 +790,7 @@ document.addEventListener('change',e=>{{if(e.target.classList.contains('setup-se
 document.getElementById('setupForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),d=await api('/setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(Object.fromEntries(f))}});show('setupResult',d.message);await loadState()}}catch(x){{show('setupResult',x.message,false)}}}};
 document.getElementById('assignForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),s=unpack(f.get('setup')),d=await api('/assign',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,flag:f.get('flag'),role_id:f.get('role_id')}})}});show('assignResult',d.message);await loadState()}}catch(x){{show('assignResult',x.message,false)}}}};
 document.getElementById('releaseForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),s=unpack(f.get('setup')),d=await api('/release',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,flag:f.get('flag')}})}});show('releaseResult',d.message);await loadState()}}catch(x){{show('releaseResult',x.message,false)}}}};
+document.getElementById('renameForm').onsubmit=async e=>{{e.preventDefault();const f=new FormData(e.target),old=unpack(f.get('setup')),newName=String(f.get('new_server')||'').trim();if(!newName)return show('renameResult','Enter a new setup name.',false);if(!confirm('Rename '+old.map+' • '+old.server+' to '+newName+'?'))return;try{{const d=await api('/rename-setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...old,new_server:newName}})}});show('renameResult',d.message);e.target.reset();await loadState()}}catch(x){{show('renameResult',x.message,false)}}}});
 document.getElementById('deleteForm').onsubmit=async e=>{{e.preventDefault();const f=new FormData(e.target),s=unpack(f.get('setup'));if(!confirm('Permanently delete '+s.map+' • '+s.server+'?'))return;try{{const d=await api('/delete-setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,delete_channel:f.get('delete_channel')==='on'}})}});show('deleteResult',d.message);await loadState()}}catch(x){{show('deleteResult',x.message,false)}}}};
 document.getElementById('statusBtn').onclick=async()=>{{try{{const s=unpack(document.getElementById('statusSetup').value),d=await api('/status?map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server));show('statusResult',JSON.stringify(d,null,2))}}catch(x){{show('statusResult',x.message,false)}}}};
 document.getElementById('refreshBtn').onclick=async()=>{{try{{const s=unpack(document.getElementById('refreshSetup').value),d=await api('/refresh',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(s)}});show('refreshResult',d.message)}}catch(x){{show('refreshResult',x.message,false)}}}};
@@ -1016,6 +1019,92 @@ async def manage_release_api(request: web.Request) -> web.Response:
     view = await FlagManageView.create(guild, map_key, server, bot)
     await view.refresh_message()
     return web.json_response({"ok": True, "message": f"✅ {flag} released."})
+
+
+async def manage_rename_setup_api(request: web.Request) -> web.Response:
+    bot: commands.Bot = request.app["bot"]
+    guild_id = request.match_info["guild_id"]
+    session, guild = _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+
+    data = await _request_json(request)
+    map_key = utils.normalize_map(data.get("map", ""))
+    old_server = utils.normalize_server(data.get("server", ""))
+    new_server = utils.normalize_server(data.get("new_server", ""))
+
+    if map_key not in utils.MAP_DATA:
+        return web.json_response({"error": "Invalid map."}, status=400)
+    if not old_server:
+        return web.json_response({"error": "Select an existing Flag System."}, status=400)
+    if not new_server or len(new_server) > 50:
+        return web.json_response({"error": "New setup name must be 1–50 characters."}, status=400)
+    if old_server == new_server:
+        return web.json_response({"error": "The new setup name is the same as the current name."}, status=400)
+
+    stored = await utils.get_flag_message(str(guild.id), map_key, old_server)
+    channel = None
+    category = None
+    if stored:
+        try:
+            channel = guild.get_channel(int(stored["channel_id"]))
+        except (TypeError, ValueError):
+            channel = None
+        if isinstance(channel, discord.TextChannel):
+            category = channel.category
+
+    try:
+        counts = await utils.rename_flag_session(
+            str(guild.id), map_key, old_server, new_server
+        )
+    except LookupError as exc:
+        return web.json_response({"error": str(exc)}, status=404)
+    except FileExistsError as exc:
+        return web.json_response({"error": str(exc)}, status=409)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+
+    warnings = []
+    map_name = utils.MAP_DATA[map_key]["name"]
+    reason = f"DayZ Manager Flag System renamed by Discord user {session['user']['id']}"
+
+    if isinstance(channel, discord.TextChannel):
+        try:
+            await channel.edit(name=utils.channel_name_for(map_key, new_server), reason=reason)
+        except discord.Forbidden:
+            warnings.append("I could not rename the Discord channel because Manage Channels permission is missing.")
+        except discord.HTTPException:
+            warnings.append("Discord returned an error while renaming the flag channel.")
+
+    if category is not None:
+        try:
+            await category.edit(name=f"🌍 {map_name} — {new_server}", reason=reason)
+        except discord.Forbidden:
+            warnings.append("I could not rename the Discord category because Manage Channels permission is missing.")
+        except discord.HTTPException:
+            warnings.append("Discord returned an error while renaming the setup category.")
+
+    # The database rename has already moved the stored message record, so refresh
+    # using the new key to update the displayed server name and button identifiers.
+    ok, refresh_note = await _refresh_flag_dashboard(bot, guild, map_key, new_server)
+    if not ok:
+        warnings.append(refresh_note)
+
+    message = f"✅ Renamed {map_name} • {old_server} → {new_server}. Claims and history were preserved."
+    if warnings:
+        message += "\n⚠️ " + " ".join(warnings)
+    return web.json_response({
+        "ok": True,
+        "message": message,
+        "map": map_key,
+        "old_server": old_server,
+        "new_server": new_server,
+        "url": flag_page_url(guild.id, map_key, new_server),
+        "counts": counts,
+        "warnings": warnings,
+    })
 
 
 async def manage_delete_setup_api(request: web.Request) -> web.Response:
@@ -1478,6 +1567,7 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_post("/api/manage/{guild_id}/setup", manage_setup_api)
     app.router.add_post("/api/manage/{guild_id}/assign", manage_assign_api)
     app.router.add_post("/api/manage/{guild_id}/release", manage_release_api)
+    app.router.add_post("/api/manage/{guild_id}/rename-setup", manage_rename_setup_api)
     app.router.add_post("/api/manage/{guild_id}/delete-setup", manage_delete_setup_api)
     app.router.add_get("/api/manage/{guild_id}/status", manage_status_api)
     app.router.add_post("/api/manage/{guild_id}/refresh", manage_refresh_api)

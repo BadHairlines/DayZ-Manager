@@ -107,3 +107,8 @@ The authenticated server dashboard is now split into focused sections:
 - **Live Pages** — direct access to that server's public flag pages
 
 Existing OAuth, guild scoping, CSRF protection, and management APIs remain in place.
+
+
+## Website Flag System Rename
+
+Server owners/admins can rename an existing Flag System from the private **Flag System Tools** page. The rename is atomic across `flags`, `flag_messages`, and `flag_audit_log`, preserves claims/history, rejects duplicate setup names for the same map, renames the Discord channel/category when permitted, and refreshes the Components V2 dashboard under the new setup key.
