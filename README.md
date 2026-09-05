@@ -55,3 +55,7 @@ Server administrators can manage their own guild-scoped flag setups:
 - `/deletesetup` — permanently deletes one setup after an administrator-only confirmation. It can also delete the setup channel and will only remove the category when that channel was the category's only channel.
 
 Setup deletion is always restricted to the guild where the command is run. It removes the matching flags, stored message record, and that setup's audit history from PostgreSQL.
+
+## Components V2 Flag Dashboard
+
+The public Flag System now uses Discord Components V2 (`discord.py` 2.6+) instead of a traditional embed. Each setup has a persistent live dashboard with Claim Flag, Release Flag, View Flags, Find Flag, History, and Admin Panel controls. Existing classic flag messages are automatically replaced with the Components V2 dashboard during restoration. The official fixed flag registry remains unchanged; custom user-created flags are not supported.
