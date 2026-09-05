@@ -18,8 +18,6 @@ import discord
 from discord.ext import commands
 
 from cogs import utils
-from misc.teleporter import ALLOWED_GUILD_IDS
-from misc.vehicle import ALLOWED_GUILD_IDS as VEHICLE_ALLOWED_GUILD_IDS
 
 log = logging.getLogger("dayz-manager")
 
@@ -598,7 +596,7 @@ async def discord_callback(request: web.Request) -> web.StreamResponse:
         user_id=str(user.get("id") or ""),
         username=str(user.get("global_name") or user.get("username") or "Discord User"),
         avatar_url=_discord_avatar_url(user),
-        guild_ids=allowed_guild_ids,
+        guild_ids=sorted(admin_guilds),
         csrf_token=secrets.token_urlsafe(32),
         ttl_seconds=SESSION_TTL,
     )
@@ -736,8 +734,8 @@ async def guild_dashboard_page(request: web.Request) -> web.Response:
         claimed += c
         available += max(0, len(rows) - c)
 
-    teleporter_enabled = guild.id in set(ALLOWED_GUILD_IDS)
-    vehicle_enabled = guild.id in set(VEHICLE_ALLOWED_GUILD_IDS)
+    teleporter_enabled = True
+    vehicle_enabled = True
     body = f"""
 <main class="wrap"><section class="section" style="padding-top:32px">
 {_guild_portal_header(guild, "overview", "Choose a section below. Tools are separated into focused pages so the portal stays clean as DayZ Manager grows.")}
@@ -828,8 +826,8 @@ async def guild_server_tools_page(request: web.Request) -> web.Response:
     bot, session, guild, setups = await _guild_portal_context(request)
     csrf = json.dumps(str(session.get("csrf_token") or ""))
 
-    teleporter_enabled = guild.id in set(ALLOWED_GUILD_IDS)
-    vehicle_enabled = guild.id in set(VEHICLE_ALLOWED_GUILD_IDS)
+    teleporter_enabled = True
+    vehicle_enabled = True
 
     if teleporter_enabled:
         teleporter = """
@@ -1057,7 +1055,7 @@ async def manage_state_api(request: web.Request) -> web.Response:
         "guild_name": guild.name,
         "setups": setups,
         "roles": roles,
-        "teleporter_enabled": guild.id in set(ALLOWED_GUILD_IDS),
+        "teleporter_enabled": True,
     })
 
 
@@ -1431,8 +1429,6 @@ async def manage_teleporter_api(request: web.Request) -> web.StreamResponse:
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
-    if guild.id not in set(ALLOWED_GUILD_IDS):
-        return web.json_response({"error": "The Teleporter tool is not enabled for this Discord server."}, status=403)
     if not _require_csrf(request, session):
         return web.json_response({"error": "Invalid session security token."}, status=403)
     data = await _request_json(request)
@@ -1467,11 +1463,6 @@ async def manage_vehicle_api(request: web.Request) -> web.Response:
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
 
-    if guild.id not in set(VEHICLE_ALLOWED_GUILD_IDS):
-        return web.json_response(
-            {"error": "The Vehicle Generator is not enabled for this Discord server."},
-            status=403,
-        )
 
     if not _require_csrf(request, session):
         return web.json_response({"error": "Invalid session security token."}, status=403)

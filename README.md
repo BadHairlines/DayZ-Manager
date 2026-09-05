@@ -128,3 +128,11 @@ The existing `/vehicle` Discord utility is now also available from the authentic
 - Uses the same built-in DayZ vehicle choices.
 - Generates the matching `events.xml` and `cfgeventspawns.xml` snippets.
 - Supports one-click copying of either XML block from the website.
+
+
+## v2.10.1 Server Tools Access
+
+- `/teleporter` and `/vehicle` are no longer restricted to hard-coded Discord guild IDs.
+- Both Discord commands are available in any server where DayZ Manager is installed.
+- Website Server Tools are available to any authenticated server owner/Administrator for their own server.
+- Discord OAuth callback typo from v2.9 session persistence was corrected.
