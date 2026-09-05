@@ -112,3 +112,9 @@ Existing OAuth, guild scoping, CSRF protection, and management APIs remain in pl
 ## Website Flag System Rename
 
 Server owners/admins can rename an existing Flag System from the private **Flag System Tools** page. The rename is atomic across `flags`, `flag_messages`, and `flag_audit_log`, preserves claims/history, rejects duplicate setup names for the same map, renames the Discord channel/category when permitted, and refreshes the Components V2 dashboard under the new setup key.
+
+
+## v2.9 Deployment Hardening
+- Railway healthcheck: `/health` (503 until Discord + PostgreSQL are ready).
+- OAuth website sessions persist in PostgreSQL across app redeploys.
+- Recommended variables: `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=15` and `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=10`.

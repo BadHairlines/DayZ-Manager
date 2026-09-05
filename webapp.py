@@ -37,7 +37,6 @@ SESSION_TTL = 8 * 60 * 60
 STATE_TTL = 10 * 60
 
 # Server-side sessions: browsers only receive random opaque IDs.
-WEB_SESSIONS: dict[str, dict] = {}
 OAUTH_STATES: dict[str, float] = {}
 
 FLAG_IMAGES: dict[str, str] = {
@@ -71,9 +70,6 @@ FLAG_IMAGES: dict[str, str] = {
 
 def _prune_web_auth() -> None:
     now = time.time()
-    for key, session in list(WEB_SESSIONS.items()):
-        if float(session.get("expires_at", 0)) <= now:
-            WEB_SESSIONS.pop(key, None)
     for key, expires_at in list(OAUTH_STATES.items()):
         if expires_at <= now:
             OAUTH_STATES.pop(key, None)
@@ -98,16 +94,15 @@ def _oauth_redirect_uri() -> str | None:
     return f"{base}/auth/discord/callback" if base else None
 
 
-def _current_session(request: web.Request) -> dict | None:
-    _prune_web_auth()
+async def _current_session(request: web.Request) -> dict | None:
     session_id = request.cookies.get(SESSION_COOKIE, "")
-    session = WEB_SESSIONS.get(session_id)
-    if not session:
+    if not session_id:
         return None
-    if float(session.get("expires_at", 0)) <= time.time():
-        WEB_SESSIONS.pop(session_id, None)
+    try:
+        return await utils.get_web_session(session_id)
+    except Exception:
+        log.exception("Failed loading web session from PostgreSQL.")
         return None
-    return session
 
 
 def _discord_avatar_url(user: dict) -> str | None:
@@ -128,9 +123,9 @@ def _can_admin_oauth_guild(guild: dict) -> bool:
         return False
 
 
-def _authorized_web_guild(request: web.Request, guild_id: str) -> tuple[dict | None, discord.Guild | None]:
+async def _authorized_web_guild(request: web.Request, guild_id: str) -> tuple[dict | None, discord.Guild | None]:
     """Return the authenticated session + live guild only when this user may administer it."""
-    session = _current_session(request)
+    session = await _current_session(request)
     if not session or str(guild_id) not in set(session.get("guild_ids", [])):
         return None, None
     bot: commands.Bot = request.app["bot"]
@@ -424,12 +419,15 @@ def _invite_url(bot: commands.Bot) -> str | None:
 
 async def health(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
+    discord_ready = bot.is_ready()
+    database_ready = await utils.database_ready()
+    ready = bool(discord_ready and database_ready)
     return web.json_response({
-        "ok": True,
-        "service": "dayz-manager",
-        "discord_ready": bot.is_ready(),
-        "guilds": len(bot.guilds),
-    })
+        "ok": ready, "service": "dayz-manager",
+        "discord_ready": discord_ready,
+        "database_ready": database_ready,
+        "guilds": len(bot.guilds) if discord_ready else 0,
+    }, status=200 if ready else 503)
 
 
 async def homepage(request: web.Request) -> web.Response:
@@ -572,16 +570,15 @@ async def discord_callback(request: web.Request) -> web.StreamResponse:
         if guild.get("id") and _can_admin_oauth_guild(guild)
     }
     session_id = secrets.token_urlsafe(40)
-    WEB_SESSIONS[session_id] = {
-        "user": {
-            "id": str(user.get("id") or ""),
-            "username": str(user.get("global_name") or user.get("username") or "Discord User"),
-            "avatar_url": _discord_avatar_url(user),
-        },
-        "guild_ids": sorted(admin_guilds),
-        "csrf_token": secrets.token_urlsafe(32),
-        "expires_at": time.time() + SESSION_TTL,
-    }
+    await utils.save_web_session(
+        session_id=session_id,
+        user_id=str(user.get("id") or ""),
+        username=str(user.get("global_name") or user.get("username") or "Discord User"),
+        avatar_url=_discord_avatar_url(user),
+        guild_ids=allowed_guild_ids,
+        csrf_token=secrets.token_urlsafe(32),
+        ttl_seconds=SESSION_TTL,
+    )
 
     response = web.HTTPFound("/dashboard")
     response.set_cookie(
@@ -600,7 +597,10 @@ async def discord_callback(request: web.Request) -> web.StreamResponse:
 async def discord_logout(request: web.Request) -> web.StreamResponse:
     session_id = request.cookies.get(SESSION_COOKIE, "")
     if session_id:
-        WEB_SESSIONS.pop(session_id, None)
+        try:
+            await utils.delete_web_session(session_id)
+        except Exception:
+            log.exception("Failed deleting web session during logout.")
     response = web.HTTPFound("/")
     response.del_cookie(SESSION_COOKIE, path="/")
     raise response
@@ -608,7 +608,7 @@ async def discord_logout(request: web.Request) -> web.StreamResponse:
 
 async def dashboard_page(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
-    session = _current_session(request)
+    session = await _current_session(request)
     if not session:
         body = """
 <main class="wrap"><section class="section" style="padding-top:60px"><div class="card" style="padding:34px;max-width:720px;margin:auto;text-align:center"><span class="private-badge">🔐 PRIVATE SERVER-OWNER AREA</span><h1 style="font-size:clamp(36px,6vw,58px)">Your DayZ Manager <span class="gradient">Dashboard</span></h1><p class="lead" style="margin:0 auto 24px">Sign in with Discord. DayZ Manager will only show servers you own or where you have Administrator permission.</p><a class="btn primary" href="/auth/discord">Login with Discord</a><p class="meta" style="margin-top:18px">Requested scopes: identify + guilds. Management access is checked against your Discord permissions.</p></div></section></main>"""
@@ -668,9 +668,9 @@ def _guild_portal_tabs(guild_id: int, active: str) -> str:
 async def _guild_portal_context(request: web.Request) -> tuple[commands.Bot, dict, discord.Guild, list[dict]]:
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
-        if not _current_session(request):
+        if not await _current_session(request):
             raise web.HTTPFound("/auth/discord")
         raise web.HTTPForbidden(text="You do not have permission to manage this Discord server.")
 
@@ -872,7 +872,7 @@ document.getElementById('refreshStatus').onclick=()=>loadStatus().catch(alert);l
 async def manage_state_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     sessions = await utils.get_guild_flag_setups(str(guild.id))
@@ -912,7 +912,7 @@ async def manage_state_api(request: web.Request) -> web.Response:
 async def manage_flags_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     map_key = utils.normalize_map(request.query.get("map", ""))
@@ -927,7 +927,7 @@ async def manage_setup_api(request: web.Request) -> web.Response:
     from cogs.ui.flag_views import FlagManageView
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
@@ -987,7 +987,7 @@ async def manage_assign_api(request: web.Request) -> web.Response:
     from cogs.ui.flag_views import FlagManageView
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
@@ -1019,7 +1019,7 @@ async def manage_release_api(request: web.Request) -> web.Response:
     from cogs.ui.flag_views import FlagManageView
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
@@ -1042,7 +1042,7 @@ async def manage_release_api(request: web.Request) -> web.Response:
 async def manage_rename_setup_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
@@ -1127,7 +1127,7 @@ async def manage_rename_setup_api(request: web.Request) -> web.Response:
 
 async def manage_delete_setup_api(request: web.Request) -> web.Response:
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
@@ -1163,7 +1163,7 @@ async def manage_delete_setup_api(request: web.Request) -> web.Response:
 
 async def manage_status_api(request: web.Request) -> web.Response:
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     map_key, server = utils.normalize_map(request.query.get("map", "")), utils.normalize_server(request.query.get("server", ""))
@@ -1202,7 +1202,7 @@ async def manage_status_api(request: web.Request) -> web.Response:
 async def manage_refresh_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
@@ -1215,7 +1215,7 @@ async def manage_refresh_api(request: web.Request) -> web.Response:
 
 async def manage_history_api(request: web.Request) -> web.Response:
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     map_key, server = utils.normalize_map(request.query.get("map", "")), utils.normalize_server(request.query.get("server", ""))
@@ -1248,7 +1248,7 @@ async def manage_history_api(request: web.Request) -> web.Response:
 async def manage_botstatus_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     db_ok = True
@@ -1276,7 +1276,7 @@ async def manage_botstatus_api(request: web.Request) -> web.Response:
 
 async def manage_teleporter_api(request: web.Request) -> web.StreamResponse:
     guild_id = request.match_info["guild_id"]
-    session, guild = _authorized_web_guild(request, guild_id)
+    session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if guild.id not in set(ALLOWED_GUILD_IDS):
@@ -1311,7 +1311,7 @@ async def manage_teleporter_api(request: web.Request) -> web.StreamResponse:
 
 async def my_setups_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
-    session = _current_session(request)
+    session = await _current_session(request)
     if not session:
         return web.json_response({"error": "Authentication required."}, status=401)
     allowed = set(session.get("guild_ids", []))
