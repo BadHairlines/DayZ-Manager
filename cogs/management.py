@@ -155,7 +155,7 @@ class FlagManagement(commands.Cog):
         # Refresh the public flag message.
         # -----------------------------------------------------
 
-        view = FlagManageView(
+        view = await FlagManageView.create(
             guild,
             map_key,
             server,
@@ -261,7 +261,7 @@ class FlagManagement(commands.Cog):
         # Refresh the public flag message.
         # -----------------------------------------------------
 
-        view = FlagManageView(
+        view = await FlagManageView.create(
             guild,
             map_key,
             server,

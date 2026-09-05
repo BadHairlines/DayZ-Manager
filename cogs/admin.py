@@ -414,13 +414,22 @@ class FlagAdmin(commands.Cog):
                 "❌ The stored flag message no longer exists. Run `/setup` to recreate it.", ephemeral=True
             )
 
-        view = FlagManageView(guild, map_key, server_key, self.bot)
-        embed = await utils.create_flag_embed(str(guild.id), map_key, server_key, guild)
+        view = await FlagManageView.create(guild, map_key, server_key, self.bot)
         try:
             self.bot.add_view(view, message_id=message.id)
         except ValueError:
             pass
-        await message.edit(embed=embed, view=view)
+        if getattr(message.flags, "components_v2", False):
+            await message.edit(view=view)
+        else:
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                pass
+            message = await channel.send(view=view)
+            await utils.save_flag_message(
+                str(guild.id), map_key, server_key, str(channel.id), str(message.id)
+            )
 
         await interaction.followup.send(
             f"✅ Refreshed the flag message in {channel.mention}.", ephemeral=True

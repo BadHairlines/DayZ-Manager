@@ -115,10 +115,7 @@ class Setup(commands.Cog):
                 ),
             )
 
-            embed = await utils.create_flag_embed(
-                str(guild.id), map_key, server, guild
-            )
-            view = FlagManageView(guild, map_key, server, self.bot)
+            view = await FlagManageView.create(guild, map_key, server, self.bot)
 
             stored = await utils.get_flag_message(
                 str(guild.id), map_key, server
@@ -133,18 +130,22 @@ class Setup(commands.Cog):
                         message = await old_channel.fetch_message(
                             int(stored["message_id"])
                         )
-                        await message.edit(embed=embed, view=view)
+                        if getattr(message.flags, "components_v2", False):
+                            await message.edit(view=view)
+                        else:
+                            await message.delete()
+                            message = None
                     except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                         message = None
 
             if message is None:
-                message = await channel.send(embed=embed, view=view)
+                message = await channel.send(view=view)
 
             await utils.save_flag_message(
                 str(guild.id),
                 map_key,
                 server,
-                str(channel.id),
+                str(message.channel.id),
                 str(message.id),
             )
 

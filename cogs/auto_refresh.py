@@ -53,28 +53,33 @@ class AutoRefresh(commands.Cog):
             log.exception("Discord error reading flag message.")
             return
 
-        view = FlagManageView(
+        view = await FlagManageView.create(
             guild,
             map_key,
             server,
             self.bot,
         )
 
-        embed = await utils.create_flag_embed(
-            str(guild.id),
-            map_key,
-            server,
-            guild,
-        )
-
         try:
-            self.bot.add_view(view, message_id=message.id)
-        except ValueError:
-            # Already registered.
-            pass
-
-        try:
-            await message.edit(embed=embed, view=view)
+            if getattr(message.flags, "components_v2", False):
+                await message.edit(view=view)
+                try:
+                    self.bot.add_view(view, message_id=message.id)
+                except ValueError:
+                    pass
+            else:
+                try:
+                    await message.delete()
+                except discord.HTTPException:
+                    pass
+                message = await channel.send(view=view)
+                await utils.save_flag_message(
+                    str(guild.id), map_key, server, str(channel.id), str(message.id)
+                )
+                try:
+                    self.bot.add_view(view, message_id=message.id)
+                except ValueError:
+                    pass
         except discord.HTTPException:
             log.exception(
                 "Failed to refresh flag message | guild=%s map=%s server=%s",
