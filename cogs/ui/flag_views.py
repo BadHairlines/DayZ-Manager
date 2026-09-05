@@ -94,19 +94,29 @@ class FlagManageView(discord.ui.LayoutView):
         else:
             stats_component = stats_text
 
-        claimed_preview = []
-        for row in claimed[:8]:
-            owner = f"<@&{row['role_id']}>" if row["role_id"] else "Assigned"
-            claimed_preview.append(f"🔴 **{row['flag']}** → {owner}")
-
-        if claimed_preview:
-            registry = discord.ui.TextDisplay(
-                "## Claimed Preview\n" + "\n".join(claimed_preview)
-                + (f"\n*+{len(claimed) - 8} more claimed flags — use **View Flags***" if len(claimed) > 8 else "")
+        # Keep the public dashboard useful at a glance: players can immediately
+        # see both what is available and what has already been claimed.
+        if available:
+            available_lines = [f"🟢 **{row['flag']}**" for row in available]
+            available_registry = discord.ui.TextDisplay(
+                "## Available Flags\n" + " • ".join(available_lines)
             )
         else:
-            registry = discord.ui.TextDisplay(
-                "## Claimed Preview\n🟢 No flags are currently claimed."
+            available_registry = discord.ui.TextDisplay(
+                "## Available Flags\n🔴 No flags are currently available."
+            )
+
+        if claimed:
+            claimed_lines = []
+            for row in claimed:
+                owner = f"<@&{row['role_id']}>" if row["role_id"] else "Assigned"
+                claimed_lines.append(f"🔴 **{row['flag']}** → {owner}")
+            claimed_registry = discord.ui.TextDisplay(
+                "## Claimed Flags\n" + "\n".join(claimed_lines)
+            )
+        else:
+            claimed_registry = discord.ui.TextDisplay(
+                "## Claimed Flags\n🟢 No flags are currently claimed."
             )
 
         primary_row = discord.ui.ActionRow(
@@ -130,7 +140,9 @@ class FlagManageView(discord.ui.LayoutView):
             discord.ui.Separator(spacing=discord.SeparatorSpacing.large),
             stats_component,
             discord.ui.Separator(),
-            registry,
+            available_registry,
+            discord.ui.Separator(),
+            claimed_registry,
             discord.ui.Separator(),
             primary_row,
             secondary_row,
