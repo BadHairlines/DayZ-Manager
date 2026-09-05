@@ -94,3 +94,16 @@ The authenticated website dashboard now mirrors all current Discord commands for
 - `/teleporter` (only for guilds where the Discord command is enabled)
 
 Every mutating web request is guild-scoped, requires a valid Discord OAuth administrator session, and uses a CSRF token stored server-side.
+
+
+## v2.7 Website Portal Organization
+
+The authenticated server dashboard is now split into focused sections:
+
+- **Overview** — server summary and navigation
+- **Flag System Tools** — setup, setups, assign, release, status, refresh, history, delete
+- **Server Tools** — teleporter generator and future DayZ utilities
+- **Bot Status** — Discord/database/latency/uptime information
+- **Live Pages** — direct access to that server's public flag pages
+
+Existing OAuth, guild scoping, CSRF protection, and management APIs remain in place.
