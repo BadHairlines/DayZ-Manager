@@ -615,6 +615,35 @@ async def get_flag_sessions(
         )
 
 
+async def get_guild_flag_setups(
+    guild_id: str,
+):
+    """Return every known Flag System name for a guild.
+
+    Unlike get_flag_sessions(), this does not depend on a stored Discord
+    dashboard message existing. A setup remains discoverable from its flags
+    even if its channel/message record was deleted or became stale.
+    """
+    async with safe_acquire() as conn:
+        return await conn.fetch("""
+            SELECT map, server
+            FROM (
+                SELECT DISTINCT map, server
+                FROM flags
+                WHERE guild_id=$1
+
+                UNION
+
+                SELECT DISTINCT map, server
+                FROM flag_messages
+                WHERE guild_id=$1
+            ) AS setups
+            ORDER BY map, server
+        """,
+            str(guild_id),
+        )
+
+
 async def get_public_flag_sessions():
     """Return one public summary row per active guild/map/server Flag System."""
     async with safe_acquire() as conn:
