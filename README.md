@@ -118,3 +118,13 @@ Server owners/admins can rename an existing Flag System from the private **Flag 
 - Railway healthcheck: `/health` (503 until Discord + PostgreSQL are ready).
 - OAuth website sessions persist in PostgreSQL across app redeploys.
 - Recommended variables: `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=15` and `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=10`.
+
+
+## v2.10 Vehicle Server Tool
+
+The existing `/vehicle` Discord utility is now also available from the authenticated **Server Tools** page.
+
+- Uses the same approved-guild restriction as the uploaded `vehicle.py` cog.
+- Uses the same built-in DayZ vehicle choices.
+- Generates the matching `events.xml` and `cfgeventspawns.xml` snippets.
+- Supports one-click copying of either XML block from the website.

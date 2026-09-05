@@ -19,6 +19,7 @@ from discord.ext import commands
 
 from cogs import utils
 from misc.teleporter import ALLOWED_GUILD_IDS
+from misc.vehicle import ALLOWED_GUILD_IDS as VEHICLE_ALLOWED_GUILD_IDS
 
 log = logging.getLogger("dayz-manager")
 
@@ -66,6 +67,28 @@ FLAG_IMAGES: dict[str, str] = {
     "Zagorky": "https://i.postimg.cc/7P9Gp6KX/Zagorky.png",
     "Zenit": "https://i.postimg.cc/rszLzQxh/Zenit.png",
 }
+
+VEHICLE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("🚤 Boat - Black", "Boat_01_Black"),
+    ("🚤 Boat - Blue", "Boat_01_Blue"),
+    ("🚤 Boat - Camo", "Boat_01_Camo"),
+    ("🚤 Boat - Orange", "Boat_01_Orange"),
+    ("🚘 Olga - Civilian", "CivilianSedan"),
+    ("🚘 Olga - Black", "CivilianSedan_Black"),
+    ("🚘 Olga - Wine", "CivilianSedan_Wine"),
+    ("🚗 Gunter - Civilian", "Hatchback_02"),
+    ("🚗 Gunter - Black", "Hatchback_02_Black"),
+    ("🚗 Gunter - Blue", "Hatchback_02_Blue"),
+    ("🚙 Humvee", "Offroad_02"),
+    ("🚙 ADA 4x4 - Green", "OffroadHatchback"),
+    ("🚙 ADA 4x4 - Blue", "OffroadHatchback_Blue"),
+    ("🚙 ADA 4x4 - White", "OffroadHatchback_White"),
+    ("🚚 Cargo Truck - Covered", "Truck_01_Covered"),
+    ("🚚 Cargo Truck - Blue", "Truck_01_Covered_Blue"),
+    ("🚚 Cargo Truck - Orange", "Truck_01_Covered_Orange"),
+)
+
+VEHICLE_CLASSES = {value for _, value in VEHICLE_OPTIONS}
 
 
 def _prune_web_auth() -> None:
@@ -714,6 +737,7 @@ async def guild_dashboard_page(request: web.Request) -> web.Response:
         available += max(0, len(rows) - c)
 
     teleporter_enabled = guild.id in set(ALLOWED_GUILD_IDS)
+    vehicle_enabled = guild.id in set(VEHICLE_ALLOWED_GUILD_IDS)
     body = f"""
 <main class="wrap"><section class="section" style="padding-top:32px">
 {_guild_portal_header(guild, "overview", "Choose a section below. Tools are separated into focused pages so the portal stays clean as DayZ Manager grows.")}
@@ -721,7 +745,7 @@ async def guild_dashboard_page(request: web.Request) -> web.Response:
   <div class="portal-kpi"><strong>{len(setups)}</strong><span>Flag System setups</span></div>
   <div class="portal-kpi"><strong class="green">{available}</strong><span>Available flags</span></div>
   <div class="portal-kpi"><strong class="red">{claimed}</strong><span>Claimed flags</span></div>
-  <div class="portal-kpi"><strong>{"Enabled" if teleporter_enabled else "Restricted"}</strong><span>Server tools access</span></div>
+  <div class="portal-kpi"><strong>{"Enabled" if (teleporter_enabled or vehicle_enabled) else "Restricted"}</strong><span>Server tools access</span></div>
 </div>
 <div class="portal-grid">
   <div class="card portal-card"><div class="portal-icon">🚩</div><h3>Flag System Tools</h3><p>Create and delete setups, assign and release flags, inspect status, refresh Discord dashboards, and review audit history.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/flags">Open Flag System →</a><a class="btn" href="/servers/{guild.id}">Public Flag Pages</a></div></div>
@@ -803,10 +827,12 @@ fillMaps();fillSetups();loadState();
 async def guild_server_tools_page(request: web.Request) -> web.Response:
     bot, session, guild, setups = await _guild_portal_context(request)
     csrf = json.dumps(str(session.get("csrf_token") or ""))
-    enabled = guild.id in set(ALLOWED_GUILD_IDS)
 
-    if enabled:
-        teleporter = f"""
+    teleporter_enabled = guild.id in set(ALLOWED_GUILD_IDS)
+    vehicle_enabled = guild.id in set(VEHICLE_ALLOWED_GUILD_IDS)
+
+    if teleporter_enabled:
+        teleporter = """
 <section class="card tool-card">
   <span class="web-command">/teleporter</span><h3>🌀 Teleporter Generator</h3>
   <p>Generate both two-way DayZ teleporter JSON files from the website and download them together as a ZIP.</p>
@@ -818,12 +844,7 @@ async def guild_server_tools_page(request: web.Request) -> web.Response:
     <div class="field"><label>Location B Coordinates</label><input class="input" name="location_b" placeholder="9876,54,321" required></div>
     <div class="field full"><button class="btn primary" type="submit">Generate Teleporter ZIP</button></div>
   </form><div class="result" id="teleporterResult"></div>
-</section>
-<script>
-const GUILD={json.dumps(str(guild.id))},CSRF={csrf};
-const show=(id,msg,ok=true)=>{{const e=document.getElementById(id);e.textContent=msg;e.classList.add('show');e.style.borderColor=ok?'#285642':'#6d2637'}};
-document.getElementById('teleporterForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),r=await fetch('/api/manage/'+encodeURIComponent(GUILD)+'/teleporter',{{method:'POST',headers:{{'X-CSRF-Token':CSRF,'Content-Type':'application/json'}},body:JSON.stringify(Object.fromEntries(f))}});if(!r.ok){{let d;try{{d=await r.json()}}catch{{d={{error:'Generation failed'}}}}throw new Error(d.error)}}const blob=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='DayZ_Manager_Teleporters.zip';a.click();URL.revokeObjectURL(a.href);show('teleporterResult','✅ Generated both teleporter JSON files.')}}catch(x){{show('teleporterResult',x.message,false)}}}};
-</script>"""
+</section>"""
     else:
         teleporter = """
 <section class="card tool-card">
@@ -832,15 +853,146 @@ document.getElementById('teleporterForm').onsubmit=async e=>{{e.preventDefault()
   <div class="notice">🔒 Teleporter Generator is not enabled for this Discord server.</div>
 </section>"""
 
+    if vehicle_enabled:
+        vehicle_options_html = "".join(
+            f'<option value="{html.escape(value)}">{html.escape(label)}</option>'
+            for label, value in VEHICLE_OPTIONS
+        )
+        vehicle = f"""
+<section class="card tool-card">
+  <span class="web-command">/vehicle</span><h3>🚗 Vehicle XML Generator</h3>
+  <p>Generate a fixed DayZ vehicle event for <code>events.xml</code> and its matching position for <code>cfgeventspawns.xml</code>.</p>
+  <form id="vehicleForm" class="form-grid">
+    <div class="field">
+      <label>Vehicle Name</label>
+      <input class="input" name="name" placeholder="Taco" maxlength="50" required>
+      <div class="role-note">“Vehicle” is added automatically, matching the Discord command.</div>
+    </div>
+    <div class="field">
+      <label>Vehicle Class</label>
+      <select class="select" name="vehicle" required>{vehicle_options_html}</select>
+    </div>
+    <div class="field"><label>X Coordinate</label><input class="input" name="x" placeholder="2912.536377" required></div>
+    <div class="field"><label>Z Coordinate</label><input class="input" name="z" placeholder="3969.390625" required></div>
+    <div class="field full"><button class="btn primary" type="submit">Generate Vehicle XML</button></div>
+  </form>
+  <div class="result" id="vehicleResult"></div>
+  <div id="vehicleOutput" style="display:none;margin-top:14px">
+    <div class="setup-row"><div><strong id="vehicleEventName"></strong><div class="tiny" id="vehicleClassName"></div></div></div>
+    <div style="margin-top:14px">
+      <div class="toolbar" style="justify-content:space-between;align-items:center"><strong>events.xml</strong><button class="btn" type="button" data-copy="vehicleEventsXml">Copy</button></div>
+      <pre id="vehicleEventsXml" style="white-space:pre-wrap;overflow:auto;background:#080d13;border:1px solid var(--line);padding:14px;border-radius:12px;margin-top:8px"></pre>
+    </div>
+    <div style="margin-top:14px">
+      <div class="toolbar" style="justify-content:space-between;align-items:center"><strong>cfgeventspawns.xml</strong><button class="btn" type="button" data-copy="vehicleSpawnsXml">Copy</button></div>
+      <pre id="vehicleSpawnsXml" style="white-space:pre-wrap;overflow:auto;background:#080d13;border:1px solid var(--line);padding:14px;border-radius:12px;margin-top:8px"></pre>
+    </div>
+  </div>
+</section>"""
+    else:
+        vehicle = """
+<section class="card tool-card">
+  <span class="web-command">/vehicle</span><h3>🚗 Vehicle XML Generator</h3>
+  <p>This utility is restricted to approved Discord servers, matching the existing Discord command restriction.</p>
+  <div class="notice">🔒 Vehicle Generator is not enabled for this Discord server.</div>
+</section>"""
+
     body = f"""
 <main class="wrap"><section class="section" style="padding-top:32px">
 {_guild_portal_header(guild, "tools", "DayZ utilities that are separate from the Flag System live here.")}
 <div class="tool-page">
   {teleporter}
-  <section class="card tool-card coming-soon"><span class="section-label">Future Expansion</span><h3>🧰 More Server Tools</h3><p>This page is now the home for future DayZ utilities—vehicle/config generators, restart tools, map utilities, converters, and other server-owner tools can be added here without cluttering the Flag System.</p></section>
+  {vehicle}
+  <section class="card tool-card coming-soon"><span class="section-label">Future Expansion</span><h3>🧰 More Server Tools</h3><p>This page is the home for future DayZ utilities—config generators, restart tools, map utilities, converters, and other server-owner tools can be added here without cluttering the Flag System.</p></section>
 </div>
-</section></main>"""
-    return web.Response(text=_page(f"{guild.name} — Server Tools", body, _invite_url(bot), f"DayZ server tools for {guild.name}."), content_type="text/html", headers={"Cache-Control": "no-store"})
+</section></main>
+<script>
+const GUILD={json.dumps(str(guild.id))},CSRF={csrf};
+
+function showResult(id,msg,ok=true){{
+  const e=document.getElementById(id);
+  if(!e)return;
+  e.textContent=msg;
+  e.classList.add('show');
+  e.style.borderColor=ok?'#285642':'#6d2637';
+}}
+
+const teleporterForm=document.getElementById('teleporterForm');
+if(teleporterForm)teleporterForm.onsubmit=async e=>{{
+  e.preventDefault();
+  try{{
+    const f=new FormData(e.target);
+    const r=await fetch('/api/manage/'+encodeURIComponent(GUILD)+'/teleporter',{{
+      method:'POST',
+      headers:{{'X-CSRF-Token':CSRF,'Content-Type':'application/json'}},
+      body:JSON.stringify(Object.fromEntries(f))
+    }});
+    if(!r.ok){{
+      let d;
+      try{{d=await r.json()}}catch{{d={{error:'Generation failed'}}}}
+      throw new Error(d.error||'Generation failed');
+    }}
+    const blob=await r.blob(),a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='DayZ_Manager_Teleporters.zip';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showResult('teleporterResult','✅ Generated both teleporter JSON files.');
+  }}catch(x){{
+    showResult('teleporterResult',x.message,false);
+  }}
+}};
+
+const vehicleForm=document.getElementById('vehicleForm');
+if(vehicleForm)vehicleForm.onsubmit=async e=>{{
+  e.preventDefault();
+  try{{
+    const f=new FormData(e.target);
+    const r=await fetch('/api/manage/'+encodeURIComponent(GUILD)+'/vehicle',{{
+      method:'POST',
+      headers:{{'X-CSRF-Token':CSRF,'Content-Type':'application/json'}},
+      body:JSON.stringify(Object.fromEntries(f))
+    }});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Vehicle generation failed.');
+
+    document.getElementById('vehicleEventName').textContent='📛 '+d.event_name;
+    document.getElementById('vehicleClassName').textContent='🚗 '+d.vehicle_class+' • X '+d.x+' • Z '+d.z;
+    document.getElementById('vehicleEventsXml').textContent=d.events_xml;
+    document.getElementById('vehicleSpawnsXml').textContent=d.spawns_xml;
+    document.getElementById('vehicleOutput').style.display='block';
+    showResult('vehicleResult','✅ Vehicle XML generated successfully.');
+  }}catch(x){{
+    document.getElementById('vehicleOutput').style.display='none';
+    showResult('vehicleResult',x.message,false);
+  }}
+}};
+
+document.querySelectorAll('[data-copy]').forEach(btn=>{{
+  btn.addEventListener('click',async()=>{{
+    const target=document.getElementById(btn.dataset.copy);
+    if(!target)return;
+    try{{
+      await navigator.clipboard.writeText(target.textContent);
+      const old=btn.textContent;
+      btn.textContent='Copied!';
+      setTimeout(()=>btn.textContent=old,1200);
+    }}catch{{
+      showResult('vehicleResult','⚠️ Clipboard access was blocked. Select the XML and copy it manually.',false);
+    }}
+  }});
+}});
+</script>"""
+    return web.Response(
+        text=_page(
+            f"{guild.name} — Server Tools",
+            body,
+            _invite_url(bot),
+            f"DayZ server tools for {guild.name}.",
+        ),
+        content_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def guild_status_page(request: web.Request) -> web.Response:
@@ -1309,6 +1461,94 @@ async def manage_teleporter_api(request: web.Request) -> web.StreamResponse:
 
 
 
+async def manage_vehicle_api(request: web.Request) -> web.Response:
+    guild_id = request.match_info["guild_id"]
+    session, guild = await _authorized_web_guild(request, guild_id)
+    if not session or not guild:
+        return web.json_response({"error": "Administrator access required."}, status=403)
+
+    if guild.id not in set(VEHICLE_ALLOWED_GUILD_IDS):
+        return web.json_response(
+            {"error": "The Vehicle Generator is not enabled for this Discord server."},
+            status=403,
+        )
+
+    if not _require_csrf(request, session):
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+
+    data = await _request_json(request)
+
+    raw_name = str(data.get("name") or "").strip()
+    clean_name = raw_name.replace(" ", "")
+    if clean_name.lower().startswith("vehicle"):
+        clean_name = clean_name[7:]
+    clean_name = re.sub(r"[^A-Za-z0-9_-]", "", clean_name)
+
+    if not clean_name:
+        return web.json_response(
+            {"error": "Invalid vehicle name. Use a name such as Taco."},
+            status=400,
+        )
+
+    vehicle_class = str(data.get("vehicle") or "").strip()
+    if vehicle_class not in VEHICLE_CLASSES:
+        return web.json_response({"error": "Invalid vehicle selection."}, status=400)
+
+    x = str(data.get("x") or "").strip()
+    z = str(data.get("z") or "").strip()
+
+    try:
+        float(x)
+        float(z)
+    except ValueError:
+        return web.json_response(
+            {
+                "error": (
+                    "Invalid coordinate format. X and Z must be valid numbers. "
+                    "Example: X 2912.536377, Z 3969.390625."
+                )
+            },
+            status=400,
+        )
+
+    event_name = f"Vehicle{clean_name}"
+
+    event_xml = f"""<event name="{event_name}">
+    <nominal>1</nominal>
+    <min>1</min>
+    <max>1</max>
+    <lifetime>3888000</lifetime>
+    <restock>0</restock>
+    <saferadius>1</saferadius>
+    <distanceradius>1</distanceradius>
+    <cleanupradius>100</cleanupradius>
+    <flags deletable="0" init_random="0" remove_damaged="1"/>
+    <position>fixed</position>
+    <limit>child</limit>
+    <active>1</active>
+    <children>
+        <child lootmax="0" lootmin="0" max="1" min="1" type="{vehicle_class}"/>
+    </children>
+</event>"""
+
+    position_xml = f"""<event name="{event_name}">
+    <pos x="{x}" z="{z}" a="0.0"/>
+</event>"""
+
+    return web.json_response(
+        {
+            "ok": True,
+            "event_name": event_name,
+            "vehicle_class": vehicle_class,
+            "x": x,
+            "z": z,
+            "events_xml": event_xml,
+            "spawns_xml": position_xml,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 async def my_setups_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     session = await _current_session(request)
@@ -1529,7 +1769,7 @@ async def flag_detail_page(request: web.Request) -> web.Response:
 async def docs_page(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
     body = """
-<main class="wrap"><section class="section" style="padding-top:45px"><span class="eyebrow">📖 Documentation</span><h1 style="font-size:clamp(38px,6vw,64px)">DayZ Manager <span class="gradient">commands</span></h1><p class="lead">A quick guide for server owners and administrators using the current Flag System and utilities.</p><div class="docs"><aside class="card toc"><a href="#setup">Setup</a><a href="#flags">Flag Management</a><a href="#admin">Admin Tools</a><a href="#web">Live Website</a><a href="#utility">Utilities</a></aside><article class="card doc-body"><h2 id="setup">Flag System Setup</h2><p><span class="command">/setup</span> creates/configures a Flag System for a selected map and server.</p><p><span class="command">/setups</span> lists Flag System setups belonging to the current Discord server.</p><p><span class="command">/deletesetup</span> permanently removes one of the current Discord server's setups after confirmation.</p><h2 id="flags">Flag Management</h2><p><span class="command">/assign</span> assigns an available flag to a faction role. Administrator-only.</p><p><span class="command">/release</span> releases a claimed flag. Administrator-only.</p><p>The permanent Components V2 dashboard also provides Claim, Release, View Flags, Find Flag, History, Admin Panel, and Live Website controls.</p><h2 id="admin">Admin Tools</h2><p><span class="command">/flagstatus</span> checks a setup's health.</p><p><span class="command">/flagrefresh</span> manually refreshes or repairs a setup dashboard.</p><p><span class="command">/flaghistory</span> shows recent flag audit history.</p><p><span class="command">/botstatus</span> shows bot/database status and latency.</p><h2 id="web">Live Website</h2><p>Every active Flag System has a public read-only page showing available and claimed flags. Server owners and administrators can also use <span class="command">/dashboard</span> on the website to sign in with Discord and see only Flag Systems from servers they own/administer. The private web dashboard mirrors all current Discord commands, including claim/release management.</p><h2 id="utility">Utilities</h2><p><span class="command">/teleporter</span> generates DayZ teleporter configuration files.</p></article></div></section></main>"""
+<main class="wrap"><section class="section" style="padding-top:45px"><span class="eyebrow">📖 Documentation</span><h1 style="font-size:clamp(38px,6vw,64px)">DayZ Manager <span class="gradient">commands</span></h1><p class="lead">A quick guide for server owners and administrators using the current Flag System and utilities.</p><div class="docs"><aside class="card toc"><a href="#setup">Setup</a><a href="#flags">Flag Management</a><a href="#admin">Admin Tools</a><a href="#web">Live Website</a><a href="#utility">Utilities</a></aside><article class="card doc-body"><h2 id="setup">Flag System Setup</h2><p><span class="command">/setup</span> creates/configures a Flag System for a selected map and server.</p><p><span class="command">/setups</span> lists Flag System setups belonging to the current Discord server.</p><p><span class="command">/deletesetup</span> permanently removes one of the current Discord server's setups after confirmation.</p><h2 id="flags">Flag Management</h2><p><span class="command">/assign</span> assigns an available flag to a faction role. Administrator-only.</p><p><span class="command">/release</span> releases a claimed flag. Administrator-only.</p><p>The permanent Components V2 dashboard also provides Claim, Release, View Flags, Find Flag, History, Admin Panel, and Live Website controls.</p><h2 id="admin">Admin Tools</h2><p><span class="command">/flagstatus</span> checks a setup's health.</p><p><span class="command">/flagrefresh</span> manually refreshes or repairs a setup dashboard.</p><p><span class="command">/flaghistory</span> shows recent flag audit history.</p><p><span class="command">/botstatus</span> shows bot/database status and latency.</p><h2 id="web">Live Website</h2><p>Every active Flag System has a public read-only page showing available and claimed flags. Server owners and administrators can also use <span class="command">/dashboard</span> on the website to sign in with Discord and see only Flag Systems from servers they own/administer. The private web dashboard mirrors all current Discord commands, including claim/release management.</p><h2 id="utility">Utilities</h2><p><span class="command">/teleporter</span> generates DayZ teleporter configuration files.</p><p><span class="command">/vehicle</span> generates a fixed vehicle entry for <code>events.xml</code> and <code>cfgeventspawns.xml</code>.</p></article></div></section></main>"""
     return web.Response(text=_page("Documentation — DayZ Manager", body, _invite_url(bot)), content_type="text/html")
 
 
@@ -1592,6 +1832,7 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_get("/api/manage/{guild_id}/history", manage_history_api)
     app.router.add_get("/api/manage/{guild_id}/botstatus", manage_botstatus_api)
     app.router.add_post("/api/manage/{guild_id}/teleporter", manage_teleporter_api)
+    app.router.add_post("/api/manage/{guild_id}/vehicle", manage_vehicle_api)
     app.router.add_get("/api/flags", flags_api)  # legacy API
     app.router.add_get("/api/flags/{guild_id}/{map_key}/{server_slug}", clean_flags_api)
 
