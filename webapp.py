@@ -353,7 +353,7 @@ async def _public_setups(bot: commands.Bot) -> list[dict]:
 
 
 async def _resolve_server_slug(guild_id: str, map_key: str, server_slug: str) -> str | None:
-    sessions = await utils.get_flag_sessions(guild_id)
+    sessions = await utils.get_guild_flag_setups(guild_id)
     map_key = utils.normalize_map(map_key)
     wanted = _slug(server_slug)
     for row in sessions:
@@ -674,7 +674,7 @@ async def _guild_portal_context(request: web.Request) -> tuple[commands.Bot, dic
             raise web.HTTPFound("/auth/discord")
         raise web.HTTPForbidden(text="You do not have permission to manage this Discord server.")
 
-    sessions = await utils.get_flag_sessions(str(guild.id))
+    sessions = await utils.get_guild_flag_setups(str(guild.id))
     setups: list[dict] = []
     for row in sessions:
         map_key = utils.normalize_map(row["map"])
@@ -784,7 +784,7 @@ async function api(path,opt={{}}){{opt.headers=Object.assign({{'X-CSRF-Token':CS
 function fillMaps(){{document.getElementById('setupMap').innerHTML=MAPS.map(m=>'<option value="'+esc(m.key)+'">'+esc(m.name)+'</option>').join('')}}
 function fillSetups(){{const options=SETUPS.length?SETUPS.map(s=>'<option value="'+esc(key(s))+'">'+esc(s.map_name+' • '+s.server)+'</option>').join(''):'<option value="">No setups yet</option>';document.querySelectorAll('.setup-select').forEach(el=>el.innerHTML=options);updateFlagChoices()}}
 function renderSetups(){{document.getElementById('setupList').innerHTML=SETUPS.length?SETUPS.map(s=>'<div class="setup-row"><div><strong>'+esc(s.map_name+' • '+s.server)+'</strong><div class="tiny">'+esc(key(s))+'</div></div><a class="btn" href="'+esc(s.url||'#')+'">Live Page</a></div>').join(''):'<div class="empty">No Flag Systems yet. Use Create / Repair Setup below.</div>'}}
-async function loadState(){{const d=await api('/state');SETUPS=d.setups;ROLES=d.roles;fillSetups();renderSetups();document.getElementById('roleSelect').innerHTML=ROLES.length?ROLES.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join(''):'<option value="">No assignable roles</option>'}}
+async function loadState(){{try{{const d=await api('/state');SETUPS=d.setups;ROLES=d.roles;fillSetups();renderSetups();document.getElementById('roleSelect').innerHTML=ROLES.length?ROLES.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join(''):'<option value="">No assignable roles found</option>'}}catch(err){{console.error('DayZ Manager state load failed:',err);document.getElementById('roleSelect').innerHTML='<option value="">Unable to load roles</option>';const list=document.getElementById('setupList');if(list)list.innerHTML='<div class="empty">⚠️ Unable to load setups: '+esc(err.message)+'</div>';}}}}
 async function updateFlagChoices(){{try{{const ae=document.querySelector('#assignForm .setup-select');if(ae&&ae.value){{const s=unpack(ae.value),d=await api('/flags?map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server));document.getElementById('assignFlag').innerHTML=d.available.map(x=>'<option value="'+esc(x.flag)+'">'+esc(x.flag)+'</option>').join('')||'<option value="">No available flags</option>'}}const re=document.querySelector('#releaseForm .setup-select');if(re&&re.value){{const s=unpack(re.value),d=await api('/flags?map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server));document.getElementById('releaseFlag').innerHTML=d.claimed.map(x=>'<option value="'+esc(x.flag)+'">'+esc(x.flag+' — '+x.role_name)+'</option>').join('')||'<option value="">No claimed flags</option>'}}}}catch(e){{}}}}
 document.addEventListener('change',e=>{{if(e.target.classList.contains('setup-select'))updateFlagChoices()}});
 document.getElementById('setupForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),d=await api('/setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(Object.fromEntries(f))}});show('setupResult',d.message);await loadState()}}catch(x){{show('setupResult',x.message,false)}}}};
@@ -875,7 +875,7 @@ async def manage_state_api(request: web.Request) -> web.Response:
     session, guild = _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
-    sessions = await utils.get_flag_sessions(str(guild.id))
+    sessions = await utils.get_guild_flag_setups(str(guild.id))
     setups = []
     for row in sessions:
         map_key = utils.normalize_map(row["map"])
@@ -887,8 +887,26 @@ async def manage_state_api(request: web.Request) -> web.Response:
             "url": flag_page_url(guild.id, map_key, server),
         })
     setups.sort(key=lambda x: (x["map_name"].casefold(), x["server"].casefold()))
-    roles = [{"id": str(role.id), "name": role.name} for role in sorted(guild.roles, key=lambda r: r.position, reverse=True) if not role.is_default() and not role.managed]
-    return web.json_response({"guild_id": str(guild.id), "guild_name": guild.name, "setups": setups, "roles": roles, "teleporter_enabled": guild.id in set(ALLOWED_GUILD_IDS)})
+    # Fetch roles directly from Discord so the web dashboard does not depend
+    # on an incomplete/stale local role cache.
+    try:
+        discord_roles = await guild.fetch_roles()
+    except (discord.Forbidden, discord.HTTPException):
+        discord_roles = list(guild.roles)
+
+    roles = [
+        {"id": str(role.id), "name": role.name}
+        for role in sorted(discord_roles, key=lambda r: r.position, reverse=True)
+        if not role.is_default() and not role.managed
+    ]
+
+    return web.json_response({
+        "guild_id": str(guild.id),
+        "guild_name": guild.name,
+        "setups": setups,
+        "roles": roles,
+        "teleporter_enabled": guild.id in set(ALLOWED_GUILD_IDS),
+    })
 
 
 async def manage_flags_api(request: web.Request) -> web.Response:
