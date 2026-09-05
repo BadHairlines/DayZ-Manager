@@ -1,76 +1,79 @@
-# DayZ Manager
+# DayZ Manager v2.4 — Full Website
 
-Discord bot for The Hive's DayZ flag-management system plus utility cogs.
+DayZ Manager now runs a public website alongside the Discord bot from the same Railway service.
 
-## Core commands
+## Website routes
 
-- `/setup` — create or repair a map/server flag board
-- `/assign` — administrator flag assignment
-- `/release` — administrator flag release
-- `/flagstatus` — inspect a flag session, stored message, and missing roles
-- `/flagrefresh` — force-refresh a public flag board and its persistent buttons
-- `/flaghistory` — view recent audited claim/release actions
-- `/botstatus` — check Discord/database health, latency, uptime, and command count
-- `/teleporter` — generate two-way teleporter JSON files in approved guilds
+- `/` — DayZ Manager homepage
+- `/flags` — public live Flag System directory with search
+- `/flags/<guild>/<map>/<server>` — clean live Flag System page
+- `/docs` — current bot command / feature guide
+- `/status` — Discord, database, web, latency, and setup status
+- `/invite` — generated Discord bot invite redirect
+- `/health` — JSON health endpoint
+- `/api/setups` — read-only public setup summaries
+- `/api/flags/...` — read-only live flag data
 
-## Flag UI
+The legacy `/flags?guild=...&map=...&server=...` URLs are redirected to the new clean URL format.
 
-The public flag board keeps persistent Assign and Release buttons. Assign requires the user to have a role whose name starts with `Faction-`. Release requires Administrator permission. The role picker uses Discord's native role selector instead of a 25-role static dropdown.
+## Recommended Railway variables
 
-The flag dropdown supports more than Discord's 25-option component limit by paging into additional choices when necessary.
+Keep the existing `DISCORD_TOKEN` and `DATABASE_URL` variables exactly as they are. Add:
 
-## Supported maps
+```env
+DAYZ_MANAGER_BASE_URL=https://dayzmanager.xyz
+```
 
-- Livonia
-- Chernarus
-- Sakhal
-- Nasdara
+`FLAG_WEB_BASE_URL` from v2.3 remains supported as a fallback, but `DAYZ_MANAGER_BASE_URL` takes priority.
 
-## Database
+The HTTP server listens on Railway's `PORT` environment variable (default fallback `8080`).
 
-PostgreSQL is required. Migrations run automatically at startup and preserve the existing `flags` and `flag_messages` data. The upgrade adds `flag_audit_log` for future claim/release history; no reset is required.
+## Domains
 
-## Railway / environment
+Attach both domains to the same DayZ Manager Railway service:
 
-Required:
+- `dayzmanager.xyz` — main website
+- `flags.dayzmanager.xyz` — optional shortcut; `/` redirects to `/flags`
 
-- `DISCORD_TOKEN`
-- `DATABASE_URL`
+Use the exact DNS records Railway provides for each custom domain.
 
-Optional:
+## Discord dashboard
 
-- `LOG_LEVEL` (default `INFO`)
-- `DB_MAX_POOL_SIZE` (default `10`)
+The `Live Website` button now generates clean URLs under `DAYZ_MANAGER_BASE_URL`, for example:
 
-Install with `pip install -r requirements.txt` and start with `python main.py`.
+`https://dayzmanager.xyz/flags/123456789/livonia/server-1`
 
-Privileged Discord gateway intents remain disabled: Server Members and Message Content are not required by the current bot.
+Flag claiming and releasing remain Administrator-only and remain inside Discord. The public website is read-only.
 
+## Private server-owner dashboard (Discord OAuth2)
 
-## Setup management
+DayZ Manager includes a private `/dashboard` that signs users in with Discord and only shows Flag Systems from Discord servers they own or where Discord reports the Administrator permission.
 
-Server administrators can manage their own guild-scoped flag setups:
+The public `/flags` directory and individual live flag pages remain read-only and public for players. The private dashboard is a separate owner/admin view.
 
-- `/setups` — lists all saved flag setups in the current Discord server.
-- `/deletesetup` — permanently deletes one setup after an administrator-only confirmation. It can also delete the setup channel and will only remove the category when that channel was the category's only channel.
+### Discord Developer Portal setup
 
-Setup deletion is always restricted to the guild where the command is run. It removes the matching flags, stored message record, and that setup's audit history from PostgreSQL.
+In the same Discord application used by the bot:
 
-## Components V2 Flag Dashboard
+1. Open **OAuth2** in the Discord Developer Portal.
+2. Add this redirect URL exactly:
+   `https://dayzmanager.xyz/auth/discord/callback`
+3. Copy the application's OAuth2 **Client Secret**.
+4. Never expose the client secret in GitHub or client-side website code.
 
-The public Flag System now uses Discord Components V2 (`discord.py` 2.6+) instead of a traditional embed. Each setup has a persistent live dashboard with Claim Flag, Release Flag, View Flags, Find Flag, History, and Admin Panel controls. Existing classic flag messages are automatically replaced with the Components V2 dashboard during restoration. The official fixed flag registry remains unchanged; custom user-created flags are not supported.
+### Railway variables
 
-## Live Flag Website
+Add:
 
-DayZ Manager now serves a read-only live flag portal from the same Railway service as the Discord bot.
+```env
+DAYZ_MANAGER_BASE_URL=https://dayzmanager.xyz
+DISCORD_CLIENT_ID=<your Discord application ID>
+DISCORD_CLIENT_SECRET=<your Discord OAuth2 client secret>
+DISCORD_OAUTH_REDIRECT_URI=https://dayzmanager.xyz/auth/discord/callback
+```
 
-Routes:
-- `/flags?guild=<guild_id>&map=<map>&server=<server>` - live public flag page
-- `/api/flags?guild=<guild_id>&map=<map>&server=<server>` - read-only JSON data
-- `/health` - web health check
+`DISCORD_CLIENT_ID` may be omitted because DayZ Manager can fall back to the logged-in bot application's ID, but setting it explicitly is recommended.
 
-The Discord Components V2 flag dashboard automatically displays a **Live Website** link when a public base URL is available.
+The website requests only the Discord OAuth2 `identify` and `guilds` scopes. After login it filters the user's guild list to guilds where the user is the owner or has the Administrator permission, then intersects those guilds with active DayZ Manager Flag Systems.
 
-On Railway, generate a public domain for the DayZ Manager service. Railway supplies `RAILWAY_PUBLIC_DOMAIN` automatically. You may optionally override the generated link by setting `FLAG_WEB_BASE_URL` to a custom domain such as `https://flags.example.com`.
-
-The web portal is read-only. Flag claims/releases still happen through Administrator-only Discord controls.
+The browser receives only an opaque, HTTP-only, Secure session cookie. Discord access tokens are not stored in browser cookies. Web sessions expire after 8 hours and users can sign out at `/auth/logout`.
