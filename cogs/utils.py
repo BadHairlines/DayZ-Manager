@@ -121,15 +121,36 @@ def normalize_server(value: str) -> str:
     )
 
 
+def server_name_includes_map(
+    map_key: str,
+    server: str,
+) -> bool:
+    """Return True when the normalized server name already contains its map name."""
+    map_key = normalize_map(map_key)
+    server_name = normalize_server(server)
+
+    # Current supported map names are single words, so token matching avoids
+    # false positives such as a map name merely appearing inside another word.
+    tokens = {
+        token
+        for token in "".join(
+            ch if ch.isalnum() else " "
+            for ch in server_name
+        ).split()
+        if token
+    }
+
+    return map_key in tokens
+
+
 def channel_name_for(
     map_key: str,
     server: str,
 ) -> str:
-    raw = (
-        f"flags-"
-        f"{normalize_map(map_key)}-"
-        f"{normalize_server(server)}"
-    )
+    """Build Discord flag channel names from the server name only."""
+    server_name = normalize_server(server)
+
+    raw = f"flags-{server_name}"
 
     safe = "".join(
         ch if ch.isalnum() or ch in "-_"
@@ -141,6 +162,21 @@ def channel_name_for(
         safe = safe.replace("--", "-")
 
     return safe.strip("-")[:100] or "flags"
+
+
+def category_name_for(
+    map_key: str,
+    server: str,
+) -> str:
+    """Build a readable setup category without duplicating the map name."""
+    map_key = normalize_map(map_key)
+    server_name = normalize_server(server)
+    map_name = MAP_DATA.get(map_key, {}).get("name", map_key.title())
+
+    if server_name_includes_map(map_key, server_name):
+        return f"🌍 {server_name}"
+
+    return f"🌍 {map_name} — {server_name}"
 
 
 # =========================================================
