@@ -615,6 +615,27 @@ async def get_flag_sessions(
         )
 
 
+async def get_public_flag_sessions():
+    """Return one public summary row per active guild/map/server Flag System."""
+    async with safe_acquire() as conn:
+        return await conn.fetch("""
+            SELECT
+                guild_id,
+                map,
+                server,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (
+                    WHERE role_id IS NULL AND status = '✅'
+                ) AS available_count,
+                COUNT(*) FILTER (
+                    WHERE role_id IS NOT NULL OR status = '❌'
+                ) AS claimed_count
+            FROM flags
+            GROUP BY guild_id, map, server
+            ORDER BY guild_id, map, server
+        """)
+
+
 async def flag_session_exists(
     guild_id: str,
     map_key: str,
