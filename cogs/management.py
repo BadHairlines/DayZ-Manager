@@ -9,6 +9,7 @@ from discord.ext import commands
 from cogs import utils
 from cogs.decorators import MAP_CHOICES, admin_only, normalize_map
 from cogs.ui.flag_views import FlagManageView
+from cogs.ui.gear_views import GearManageView
 
 log = logging.getLogger("dayz-manager")
 
@@ -23,14 +24,15 @@ class FlagManagement(commands.Cog):
         current: str,
     ) -> list[app_commands.Choice[str]]:
         current = current.casefold()
-
+        selected = getattr(interaction.namespace, "system_type", None)
+        claim_type = utils.normalize_system_type(
+            getattr(selected, "value", selected) or "flags"
+        )
+        items = utils.system_items(claim_type) or utils.FLAGS
         return [
-            app_commands.Choice(
-                name=flag,
-                value=flag,
-            )
-            for flag in utils.FLAGS
-            if current in flag.casefold()
+            app_commands.Choice(name=item, value=item)
+            for item in items
+            if current in item.casefold()
         ][:25]
 
     def base_embed(
@@ -64,12 +66,17 @@ class FlagManagement(commands.Cog):
     )
     @admin_only()
     @app_commands.choices(
-        selected_map=MAP_CHOICES
+        selected_map=MAP_CHOICES,
+        system_type=[
+            app_commands.Choice(name="🚩 Flags", value="flags"),
+            app_commands.Choice(name="🧥 Raincoats", value="raincoats"),
+            app_commands.Choice(name="🎽 Armbands", value="armbands"),
+        ],
     )
     @app_commands.describe(
         selected_map="Map for this flag.",
         server="Server name/identifier.",
-        flag="Flag name.",
+        flag="Flag / raincoat / armband option.",
         role="Role to assign.",
     )
     @app_commands.autocomplete(
@@ -82,6 +89,7 @@ class FlagManagement(commands.Cog):
         server: str,
         flag: str,
         role: discord.Role,
+        system_type: app_commands.Choice[str],
     ):
 
         guild = interaction.guild
@@ -100,13 +108,16 @@ class FlagManagement(commands.Cog):
             server
         )
 
-        flag_name = utils.normalize_flag(
-            flag
+        claim_type = utils.normalize_system_type(system_type.value)
+        flag_name = (
+            utils.normalize_flag(flag)
+            if claim_type == "flags"
+            else utils.normalize_system_item(claim_type, flag)
         )
 
         if not flag_name:
             return await interaction.response.send_message(
-                f"❌ Invalid flag `{flag}`.",
+                f"❌ Invalid option `{flag}` for `{claim_type}`.",
                 ephemeral=True,
             )
 
@@ -135,14 +146,10 @@ class FlagManagement(commands.Cog):
             thinking=True
         )
 
-        result = await utils.claim_flag(
-            str(guild.id),
-            map_key,
-            server,
-            flag_name,
-            str(role.id),
-            actor_id=str(interaction.user.id),
-            source="slash:/assign",
+        result = await utils.claim_system_item(
+            str(guild.id), map_key, server, claim_type,
+            flag_name, str(role.id),
+            actor_id=str(interaction.user.id), source="slash:/assign",
         )
 
         if not result:
@@ -155,12 +162,12 @@ class FlagManagement(commands.Cog):
         # Refresh the public flag message.
         # -----------------------------------------------------
 
-        view = await FlagManageView.create(
-            guild,
-            map_key,
-            server,
-            self.bot,
-        )
+        if claim_type == "flags":
+            view = await FlagManageView.create(guild, map_key, server, self.bot)
+        else:
+            view = await GearManageView.create(
+                guild, map_key, server, claim_type, self.bot
+            )
 
         await view.refresh_message()
 
@@ -194,12 +201,17 @@ class FlagManagement(commands.Cog):
     )
     @admin_only()
     @app_commands.choices(
-        selected_map=MAP_CHOICES
+        selected_map=MAP_CHOICES,
+        system_type=[
+            app_commands.Choice(name="🚩 Flags", value="flags"),
+            app_commands.Choice(name="🧥 Raincoats", value="raincoats"),
+            app_commands.Choice(name="🎽 Armbands", value="armbands"),
+        ],
     )
     @app_commands.describe(
         selected_map="Map containing the flag.",
         server="Server name/identifier.",
-        flag="Flag to release.",
+        flag="Flag / raincoat / armband option to release.",
     )
     @app_commands.autocomplete(
         flag=flag_autocomplete
@@ -210,6 +222,7 @@ class FlagManagement(commands.Cog):
         selected_map: app_commands.Choice[str],
         server: str,
         flag: str,
+        system_type: app_commands.Choice[str],
     ):
 
         guild = interaction.guild
@@ -228,13 +241,16 @@ class FlagManagement(commands.Cog):
             server
         )
 
-        flag_name = utils.normalize_flag(
-            flag
+        claim_type = utils.normalize_system_type(system_type.value)
+        flag_name = (
+            utils.normalize_flag(flag)
+            if claim_type == "flags"
+            else utils.normalize_system_item(claim_type, flag)
         )
 
         if not flag_name:
             return await interaction.response.send_message(
-                f"❌ Invalid flag `{flag}`.",
+                f"❌ Invalid option `{flag}` for `{claim_type}`.",
                 ephemeral=True,
             )
 
@@ -242,13 +258,9 @@ class FlagManagement(commands.Cog):
             thinking=True
         )
 
-        result = await utils.release_flag(
-            str(guild.id),
-            map_key,
-            server,
-            flag_name,
-            actor_id=str(interaction.user.id),
-            source="slash:/release",
+        result = await utils.release_system_item(
+            str(guild.id), map_key, server, claim_type,
+            flag_name, actor_id=str(interaction.user.id), source="slash:/release",
         )
 
         if not result:
@@ -261,12 +273,12 @@ class FlagManagement(commands.Cog):
         # Refresh the public flag message.
         # -----------------------------------------------------
 
-        view = await FlagManageView.create(
-            guild,
-            map_key,
-            server,
-            self.bot,
-        )
+        if claim_type == "flags":
+            view = await FlagManageView.create(guild, map_key, server, self.bot)
+        else:
+            view = await GearManageView.create(
+                guild, map_key, server, claim_type, self.bot
+            )
 
         await view.refresh_message()
 

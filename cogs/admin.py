@@ -23,6 +23,7 @@ class DeleteSetupConfirmView(discord.ui.View):
         guild: discord.Guild,
         map_key: str,
         server: str,
+        system_type: str,
         stored_message,
         delete_channel: bool,
     ) -> None:
@@ -31,6 +32,7 @@ class DeleteSetupConfirmView(discord.ui.View):
         self.guild = guild
         self.map_key = map_key
         self.server = server
+        self.system_type = utils.normalize_system_type(system_type)
         self.stored_message = stored_message
         self.delete_channel = delete_channel
         self.completed = False
@@ -75,10 +77,8 @@ class DeleteSetupConfirmView(discord.ui.View):
         channel_note = "Channel cleanup was not requested."
 
         try:
-            counts = await utils.delete_flag_session(
-                str(self.guild.id),
-                self.map_key,
-                self.server,
+            counts = await utils.delete_claim_system(
+                str(self.guild.id), self.map_key, self.server, self.system_type
             )
 
             if self.delete_channel and self.stored_message:
@@ -98,7 +98,7 @@ class DeleteSetupConfirmView(discord.ui.View):
                             )
                         )
                         channel_deleted = True
-                        channel_note = "The flag channel was deleted."
+                        channel_note = "The claim-system channel was deleted."
                     except discord.Forbidden:
                         channel_note = "Database deleted, but I do not have permission to delete the flag channel."
                     except discord.HTTPException:
@@ -113,7 +113,7 @@ class DeleteSetupConfirmView(discord.ui.View):
                         except (discord.Forbidden, discord.HTTPException):
                             pass
                 else:
-                    channel_note = "The stored flag channel was already missing."
+                    channel_note = "The stored claim-system channel was already missing."
 
             await self._disable(interaction)
 
@@ -123,7 +123,8 @@ class DeleteSetupConfirmView(discord.ui.View):
             embed = discord.Embed(
                 title="🗑️ Setup Deleted",
                 description=(
-                    f"The flag setup for **{map_name} — {self.server}** has been permanently removed."
+                    f"The {utils.CLAIM_SYSTEMS[self.system_type]['name']} setup for "
+                    f"**{map_name} — {self.server}** has been permanently removed."
                 ),
                 color=discord.Color.red(),
                 timestamp=discord.utils.utcnow(),
@@ -185,8 +186,19 @@ class FlagAdmin(commands.Cog):
         if interaction.guild is None:
             return []
 
+        selected_type = getattr(interaction.namespace, "system_type", None)
+        system_type = utils.normalize_system_type(
+            getattr(selected_type, "value", selected_type) or "flags"
+        )
+
         try:
-            rows = await utils.get_flag_sessions(str(interaction.guild.id))
+            if system_type == "flags":
+                rows = await utils.get_flag_sessions(str(interaction.guild.id))
+            else:
+                rows = [
+                    row for row in await utils.get_nonflag_claim_sessions(str(interaction.guild.id))
+                    if utils.normalize_system_type(row["system_type"]) == system_type
+                ]
         except Exception:
             log.exception("Failed loading setup autocomplete for guild %s", interaction.guild.id)
             return []
@@ -218,29 +230,40 @@ class FlagAdmin(commands.Cog):
             return await interaction.response.send_message("❌ Server only.", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True, thinking=True)
-        rows = await utils.get_flag_sessions(str(guild.id))
+        flag_rows = await utils.get_flag_sessions(str(guild.id))
+        gear_rows = await utils.get_nonflag_claim_sessions(str(guild.id))
 
-        if not rows:
+        combined = [
+            (row, "flags") for row in flag_rows
+        ] + [
+            (row, utils.normalize_system_type(row["system_type"])) for row in gear_rows
+        ]
+
+        if not combined:
             return await interaction.followup.send(
-                "ℹ️ This Discord server does not currently have any saved flag setups.",
+                "ℹ️ This Discord server does not currently have any saved claim-system setups.",
                 ephemeral=True,
             )
 
         lines: list[str] = []
-        for row in rows:
+        for row, system_type in combined:
             map_key = utils.normalize_map(row["map"])
             map_name = utils.MAP_DATA.get(map_key, {}).get("name", map_key.title())
+            info = utils.CLAIM_SYSTEMS.get(system_type, {"name": system_type.title(), "emoji": "📌"})
             channel = guild.get_channel(int(row["channel_id"]))
             channel_text = channel.mention if isinstance(channel, discord.TextChannel) else "⚠️ Missing channel"
-            lines.append(f"• **{map_name} — {row['server']}**\n  {channel_text}")
+            lines.append(
+                f"• {info['emoji']} **{info['name']} • {map_name} — {row['server']}**\n"
+                f"  {channel_text}"
+            )
 
         embed = discord.Embed(
-            title="🗂️ Flag Setups",
+            title="🗂️ Claim System Setups",
             description="\n\n".join(lines),
             color=0x3498DB,
             timestamp=discord.utils.utcnow(),
         )
-        embed.set_footer(text=f"{len(rows)} setup(s) • Use /deletesetup to remove one")
+        embed.set_footer(text=f"{len(combined)} setup(s) • Use /deletesetup to remove one")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(
@@ -248,11 +271,19 @@ class FlagAdmin(commands.Cog):
         description="Permanently delete one flag setup from this Discord server.",
     )
     @admin_only()
-    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.choices(
+        selected_map=MAP_CHOICES,
+        system_type=[
+            app_commands.Choice(name="🚩 Flags", value="flags"),
+            app_commands.Choice(name="🧥 Raincoats", value="raincoats"),
+            app_commands.Choice(name="🎽 Armbands", value="armbands"),
+        ],
+    )
     @app_commands.describe(
         selected_map="Map used by the setup.",
         server="Server setup to delete.",
         delete_channel="Also delete the setup's Discord channel (default: yes).",
+        system_type="Choose Flags, Raincoats, or Armbands.",
     )
     @app_commands.autocomplete(server=setup_server_autocomplete)
     async def deletesetup(
@@ -260,6 +291,7 @@ class FlagAdmin(commands.Cog):
         interaction: discord.Interaction,
         selected_map: app_commands.Choice[str],
         server: str,
+        system_type: app_commands.Choice[str],
         delete_channel: bool = True,
     ) -> None:
         guild = interaction.guild
@@ -268,31 +300,37 @@ class FlagAdmin(commands.Cog):
 
         map_key = normalize_map(selected_map)
         server_key = utils.normalize_server(server)
+        claim_type = utils.normalize_system_type(system_type.value)
 
         if not server_key:
             return await interaction.response.send_message(
                 "❌ Select or enter a valid server setup.", ephemeral=True
             )
 
-        exists = await utils.flag_session_exists(str(guild.id), map_key, server_key)
+        exists = await utils.claim_system_exists(
+            str(guild.id), map_key, server_key, claim_type
+        )
         if not exists:
             return await interaction.response.send_message(
                 "⚠️ I couldn't find that setup in **this Discord server**. Use `/setups` to see the setups you can manage.",
                 ephemeral=True,
             )
 
-        stored = await utils.get_flag_message(str(guild.id), map_key, server_key)
+        stored = await utils.get_claim_system_message(
+            str(guild.id), map_key, server_key, claim_type
+        )
         map_name = utils.MAP_DATA.get(map_key, {}).get("name", map_key.title())
 
-        cleanup_text = "Yes — delete its stored flag channel too." if delete_channel else "No — leave the Discord channel in place."
+        cleanup_text = "Yes — delete its stored claim-system channel too." if delete_channel else "No — leave the Discord channel in place."
         embed = discord.Embed(
-            title="⚠️ Delete Flag Setup?",
+            title=f"⚠️ Delete {utils.CLAIM_SYSTEMS[claim_type]['name']} Setup?",
             description=(
                 f"You are about to permanently delete:\n\n"
+                f"**Type:** `{utils.CLAIM_SYSTEMS[claim_type]['name']}`\n"
                 f"**Map:** `{map_name}`\n"
                 f"**Server:** `{server_key}`\n"
                 f"**Delete channel:** {cleanup_text}\n\n"
-                "This removes the setup's flags, saved message record, and claim/release history. "
+                "This removes the setup's claim options, saved message record, and assignment history. "
                 "**This cannot be undone.**"
             ),
             color=discord.Color.orange(),
@@ -305,6 +343,7 @@ class FlagAdmin(commands.Cog):
             guild=guild,
             map_key=map_key,
             server=server_key,
+            system_type=claim_type,
             stored_message=stored,
             delete_channel=delete_channel,
         )

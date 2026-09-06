@@ -51,6 +51,88 @@ FLAG_LOOKUP = {
 }
 
 
+CLAIM_SYSTEMS: dict[str, dict[str, Any]] = {
+    "flags": {
+        "name": "Flags",
+        "singular": "Flag",
+        "emoji": "🚩",
+        "items": FLAGS,
+    },
+    "raincoats": {
+        "name": "Raincoats",
+        "singular": "Raincoat",
+        "emoji": "🧥",
+        "items": [
+            "Orange", "Black", "Blue", "Green", "Pink", "Red", "Yellow",
+        ],
+    },
+    "armbands": {
+        "name": "Armbands",
+        "singular": "Armband",
+        "emoji": "🎽",
+        "items": [
+            "Yellow", "Blue", "Pink", "White", "Green", "Red", "Black", "Orange",
+        ],
+    },
+}
+
+CLAIM_SYSTEM_IMAGES: dict[str, dict[str, str]] = {
+    "raincoats": {
+        "Orange": "https://i.postimg.cc/Y0p9k0VT/Raincoat-Orange.png",
+        "Black": "https://i.postimg.cc/WzX44jck/Raincoat-Black.png",
+        "Blue": "https://i.postimg.cc/cCXJJZGX/Raincoat-Blue.png",
+        "Green": "https://i.postimg.cc/VsRvg90z/Raincoat-Green.png",
+        "Pink": "https://i.postimg.cc/h4rvs8Qf/Raincoat-Pink.png",
+        "Red": "https://i.postimg.cc/vHZBN15g/Raincoat-Red.png",
+        "Yellow": "https://i.postimg.cc/zGLfq9ty/Raincoat-Yellow.png",
+    },
+    "armbands": {
+        "Yellow": "https://i.postimg.cc/J0gQvfYt/Armband-Yellow.png",
+        "Blue": "https://i.postimg.cc/YCQxDy6L/Armband-Blue.png",
+        "Pink": "https://i.postimg.cc/fbZfGjCj/Armband-Pink.png",
+        "White": "https://i.postimg.cc/QMsJ2kmY/Armband-White.png",
+        "Green": "https://i.postimg.cc/cJZBpMTd/Armband-Green.png",
+        "Red": "https://i.postimg.cc/1zHrsnY9/Armband-Red.png",
+        "Black": "https://i.postimg.cc/vBZLBYp1/Armband-Black.png",
+        "Orange": "https://i.postimg.cc/nLHqRVVW/Armband-Orange.png",
+    },
+}
+
+def normalize_system_type(value: str) -> str:
+    value = str(value or "").strip().casefold()
+    aliases = {
+        "flag": "flags", "flags": "flags",
+        "raincoat": "raincoats", "raincoats": "raincoats",
+        "armband": "armbands", "armbands": "armbands",
+    }
+    return aliases.get(value, value)
+
+def system_items(system_type: str) -> list[str]:
+    info = CLAIM_SYSTEMS.get(normalize_system_type(system_type))
+    return list(info["items"]) if info else []
+
+def normalize_system_item(system_type: str, value: str) -> Optional[str]:
+    value_cf = str(value or "").strip().casefold()
+    for item in system_items(system_type):
+        if item.casefold() == value_cf:
+            return item
+    return None
+
+def system_channel_name_for(system_type: str, server: str) -> str:
+    system_type = normalize_system_type(system_type)
+    prefix = {
+        "flags": "flags",
+        "raincoats": "raincoats",
+        "armbands": "armbands",
+    }.get(system_type, system_type or "claims")
+    server_name = normalize_server(server)
+    raw = f"{prefix}-{server_name}"
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in raw)
+    while "--" in safe:
+        safe = safe.replace("--", "-")
+    return safe.strip("-")[:100] or prefix
+
+
 # =========================================================
 # MAP DATA
 # =========================================================
@@ -357,6 +439,58 @@ async def migrate(
     await conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_web_sessions_expires
         ON web_sessions (expires_at)
+    """)
+
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS claim_system_items (
+            guild_id TEXT NOT NULL,
+            map TEXT NOT NULL,
+            server TEXT NOT NULL,
+            system_type TEXT NOT NULL,
+            item TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT '✅',
+            role_id TEXT,
+            PRIMARY KEY (guild_id, map, server, system_type, item)
+        )
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_claim_system_items_lookup
+        ON claim_system_items (guild_id, map, server, system_type)
+    """)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS claim_system_messages (
+            guild_id TEXT NOT NULL,
+            map TEXT NOT NULL,
+            server TEXT NOT NULL,
+            system_type TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, map, server, system_type)
+        )
+    """)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS claim_system_audit (
+            id BIGSERIAL PRIMARY KEY,
+            guild_id TEXT NOT NULL,
+            map TEXT NOT NULL,
+            server TEXT NOT NULL,
+            system_type TEXT NOT NULL,
+            item TEXT NOT NULL,
+            action TEXT NOT NULL,
+            role_id TEXT,
+            actor_id TEXT,
+            source TEXT NOT NULL DEFAULT 'unknown',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_claim_system_audit_lookup
+        ON claim_system_audit (guild_id, map, server, system_type, created_at DESC)
     """)
 
 
@@ -1381,6 +1515,224 @@ async def refresh_flag_embed(
         discord.HTTPException,
     ):
         return False
+
+
+
+
+# =========================================================
+# NON-FLAG CLAIM SYSTEMS (RAINCOATS / ARMBANDS)
+# =========================================================
+
+async def initialize_claim_system(
+    guild_id: str,
+    map_key: str,
+    server: str,
+    system_type: str,
+) -> None:
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        await initialize_flags(guild_id, map_key, server)
+        return
+    items = system_items(system_type)
+    if not items:
+        raise ValueError("Invalid claim system type.")
+    async with safe_acquire() as conn:
+        await conn.executemany("""
+            INSERT INTO claim_system_items
+                (guild_id,map,server,system_type,item,status,role_id)
+            VALUES ($1,$2,$3,$4,$5,'✅',NULL)
+            ON CONFLICT (guild_id,map,server,system_type,item) DO NOTHING
+        """, [
+            (str(guild_id), normalize_map(map_key), normalize_server(server), system_type, item)
+            for item in items
+        ])
+
+
+async def get_claim_system_items(
+    guild_id: str,
+    map_key: str,
+    server: str,
+    system_type: str,
+):
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        return await get_all_flags(guild_id, map_key, server)
+    async with safe_acquire() as conn:
+        return await conn.fetch("""
+            SELECT item AS flag,status,role_id
+            FROM claim_system_items
+            WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            ORDER BY LOWER(item)
+        """, str(guild_id), normalize_map(map_key), normalize_server(server), system_type)
+
+
+async def claim_system_item(
+    guild_id: str,
+    map_key: str,
+    server: str,
+    system_type: str,
+    item: str,
+    role_id: str,
+    actor_id: str | None = None,
+    source: str = "unknown",
+) -> bool:
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        return await claim_flag(
+            guild_id,map_key,server,item,role_id,actor_id=actor_id,source=source
+        )
+    item = normalize_system_item(system_type, item)
+    if not item:
+        return False
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow("""
+                UPDATE claim_system_items
+                SET status='❌', role_id=$6
+                WHERE guild_id=$1 AND map=$2 AND server=$3
+                  AND system_type=$4 AND item=$5
+                  AND status='✅' AND role_id IS NULL
+                RETURNING item
+            """, str(guild_id), normalize_map(map_key), normalize_server(server),
+                 system_type, item, str(role_id))
+            if not row:
+                return False
+            await conn.execute("""
+                INSERT INTO claim_system_audit
+                    (guild_id,map,server,system_type,item,action,role_id,actor_id,source)
+                VALUES ($1,$2,$3,$4,$5,'claim',$6,$7,$8)
+            """, str(guild_id), normalize_map(map_key), normalize_server(server),
+                 system_type, item, str(role_id), actor_id, source)
+            return True
+
+
+async def release_system_item(
+    guild_id: str,
+    map_key: str,
+    server: str,
+    system_type: str,
+    item: str,
+    actor_id: str | None = None,
+    source: str = "unknown",
+) -> bool:
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        return await release_flag(
+            guild_id,map_key,server,item,actor_id=actor_id,source=source
+        )
+    item = normalize_system_item(system_type, item)
+    if not item:
+        return False
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow("""
+                SELECT role_id FROM claim_system_items
+                WHERE guild_id=$1 AND map=$2 AND server=$3
+                  AND system_type=$4 AND item=$5
+                FOR UPDATE
+            """, str(guild_id), normalize_map(map_key), normalize_server(server),
+                 system_type, item)
+            if not row or (row["role_id"] is None):
+                return False
+            old_role = row["role_id"]
+            await conn.execute("""
+                UPDATE claim_system_items
+                SET status='✅', role_id=NULL
+                WHERE guild_id=$1 AND map=$2 AND server=$3
+                  AND system_type=$4 AND item=$5
+            """, str(guild_id), normalize_map(map_key), normalize_server(server),
+                 system_type, item)
+            await conn.execute("""
+                INSERT INTO claim_system_audit
+                    (guild_id,map,server,system_type,item,action,role_id,actor_id,source)
+                VALUES ($1,$2,$3,$4,$5,'release',$6,$7,$8)
+            """, str(guild_id), normalize_map(map_key), normalize_server(server),
+                 system_type, item, old_role, actor_id, source)
+            return True
+
+
+async def save_claim_system_message(
+    guild_id: str,map_key: str,server: str,system_type: str,
+    channel_id: str,message_id: str,
+) -> None:
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        await save_flag_message(guild_id,map_key,server,channel_id,message_id)
+        return
+    async with safe_acquire() as conn:
+        await conn.execute("""
+            INSERT INTO claim_system_messages
+                (guild_id,map,server,system_type,channel_id,message_id)
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT (guild_id,map,server,system_type)
+            DO UPDATE SET channel_id=EXCLUDED.channel_id,message_id=EXCLUDED.message_id
+        """, str(guild_id),normalize_map(map_key),normalize_server(server),
+             system_type,str(channel_id),str(message_id))
+
+
+async def get_claim_system_message(
+    guild_id: str,map_key: str,server: str,system_type: str,
+):
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        return await get_flag_message(guild_id,map_key,server)
+    async with safe_acquire() as conn:
+        return await conn.fetchrow("""
+            SELECT channel_id,message_id
+            FROM claim_system_messages
+            WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+        """, str(guild_id),normalize_map(map_key),normalize_server(server),system_type)
+
+
+async def get_nonflag_claim_sessions(guild_id: str):
+    async with safe_acquire() as conn:
+        return await conn.fetch("""
+            SELECT map,server,system_type,channel_id,message_id
+            FROM claim_system_messages
+            WHERE guild_id=$1
+            ORDER BY system_type,map,server
+        """, str(guild_id))
+
+
+async def claim_system_exists(
+    guild_id: str,map_key: str,server: str,system_type: str,
+) -> bool:
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        return await flag_session_exists(guild_id,map_key,server)
+    async with safe_acquire() as conn:
+        return bool(await conn.fetchval("""
+            SELECT EXISTS(
+                SELECT 1 FROM claim_system_items
+                WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            )
+        """, str(guild_id),normalize_map(map_key),normalize_server(server),system_type))
+
+
+async def delete_claim_system(
+    guild_id: str,map_key: str,server: str,system_type: str,
+) -> dict[str,int]:
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        return await delete_flag_session(guild_id,map_key,server)
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            audit = await conn.execute("""
+                DELETE FROM claim_system_audit
+                WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            """,str(guild_id),normalize_map(map_key),normalize_server(server),system_type)
+            msg = await conn.execute("""
+                DELETE FROM claim_system_messages
+                WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            """,str(guild_id),normalize_map(map_key),normalize_server(server),system_type)
+            items = await conn.execute("""
+                DELETE FROM claim_system_items
+                WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            """,str(guild_id),normalize_map(map_key),normalize_server(server),system_type)
+            def count(result: str) -> int:
+                try: return int(result.rsplit(" ",1)[-1])
+                except Exception: return 0
+            return {"flags":count(items),"messages":count(msg),"audit":count(audit)}
 
 
 # =========================================================

@@ -9,6 +9,7 @@ from discord.ext import commands
 from cogs import utils
 from cogs.decorators import MAP_CHOICES, admin_only, normalize_map
 from cogs.ui.flag_views import FlagManageView
+from cogs.ui.gear_views import GearManageView
 
 log = logging.getLogger("dayz-manager")
 
@@ -56,16 +57,25 @@ class Setup(commands.Cog):
         description="Set up the flag system for a server.",
     )
     @admin_only()
-    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.choices(
+        selected_map=MAP_CHOICES,
+        system_type=[
+            app_commands.Choice(name="🚩 Flags", value="flags"),
+            app_commands.Choice(name="🧥 Raincoats", value="raincoats"),
+            app_commands.Choice(name="🎽 Armbands", value="armbands"),
+        ],
+    )
     @app_commands.describe(
-        selected_map="Map for this flag system.",
+        selected_map="Map for this claim system.",
         server="Server name/identifier, e.g. Livonia #1.",
+        system_type="Choose Flags, Raincoats, or Armbands.",
     )
     async def setup(
         self,
         interaction: Interaction,
         selected_map: app_commands.Choice[str],
         server: str,
+        system_type: app_commands.Choice[str],
     ):
         guild = interaction.guild
         if guild is None:
@@ -96,7 +106,8 @@ class Setup(commands.Cog):
 
         try:
             await utils.ensure_connection()
-            await utils.initialize_flags(str(guild.id), map_key, server)
+            claim_type = utils.normalize_system_type(system_type.value)
+            await utils.initialize_claim_system(str(guild.id), map_key, server, claim_type)
 
             category = await self.get_or_create_category(
                 guild,
@@ -106,19 +117,22 @@ class Setup(commands.Cog):
 
             channel = await self.get_or_create_text_channel(
                 guild,
-                utils.channel_name_for(map_key, server),
+                utils.system_channel_name_for(claim_type, server),
                 category,
                 "Flag System Setup",
                 (
-                    f"📜 **{map_info['name']} Flag System Initialized**\n"
+                    f"📜 **{map_info['name']} {utils.CLAIM_SYSTEMS[claim_type]['name']} System Initialized**\n"
                     f"🖥️ Server: **{server}**"
                 ),
             )
 
-            view = await FlagManageView.create(guild, map_key, server, self.bot)
+            if claim_type == "flags":
+                view = await FlagManageView.create(guild, map_key, server, self.bot)
+            else:
+                view = await GearManageView.create(guild, map_key, server, claim_type, self.bot)
 
-            stored = await utils.get_flag_message(
-                str(guild.id), map_key, server
+            stored = await utils.get_claim_system_message(
+                str(guild.id), map_key, server, claim_type
             )
 
             message = None
@@ -141,12 +155,9 @@ class Setup(commands.Cog):
             if message is None:
                 message = await channel.send(view=view)
 
-            await utils.save_flag_message(
-                str(guild.id),
-                map_key,
-                server,
-                str(message.channel.id),
-                str(message.id),
+            await utils.save_claim_system_message(
+                str(guild.id), map_key, server, claim_type,
+                str(message.channel.id), str(message.id),
             )
 
             self.bot.add_view(view, message_id=message.id)
@@ -157,8 +168,9 @@ class Setup(commands.Cog):
                     description=(
                         f"**Map:** `{map_info['name']}`\n"
                         f"**Server:** `{server}`\n"
+                        f"**Type:** `{utils.CLAIM_SYSTEMS[claim_type]['name']}`\n"
                         f"**Channel:** {channel.mention}\n\n"
-                        "The flag system is ready and will persist through bot restarts."
+                        "The claim system is ready and will persist through bot restarts."
                     ),
                     color=discord.Color.green(),
                 ),

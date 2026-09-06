@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from cogs import utils
 from cogs.ui.flag_views import FlagManageView
+from cogs.ui.gear_views import GearManageView
 
 log = logging.getLogger("dayz-manager")
 
@@ -86,6 +87,30 @@ class AutoRefresh(commands.Cog):
                 guild.id, map_key, server
             )
 
+    async def restore_claim_system(
+        self,guild,map_key,server,system_type,channel_id,message_id
+    ) -> None:
+        channel=guild.get_channel(int(channel_id))
+        if not isinstance(channel,discord.TextChannel):
+            log.warning(
+                "Claim system channel missing | guild=%s type=%s map=%s server=%s",
+                guild.id,system_type,map_key,server
+            )
+            return
+        try:
+            message=await channel.fetch_message(int(message_id))
+            view=await GearManageView.create(
+                guild,map_key,server,system_type,self.bot
+            )
+            await message.edit(view=view)
+            try:self.bot.add_view(view,message_id=message.id)
+            except ValueError:pass
+        except (discord.NotFound,discord.Forbidden,discord.HTTPException):
+            log.exception(
+                "Failed restoring claim system | guild=%s type=%s",
+                guild.id,system_type
+            )
+
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         if getattr(self.bot, "_auto_refresh_done", False):
@@ -106,6 +131,14 @@ class AutoRefresh(commands.Cog):
                         row["server"],
                         row["channel_id"],
                         row["message_id"],
+                    )
+                    await asyncio.sleep(0.25)
+
+                gear_sessions = await utils.get_nonflag_claim_sessions(str(guild.id))
+                for row in gear_sessions:
+                    await self.restore_claim_system(
+                        guild,row["map"],row["server"],row["system_type"],
+                        row["channel_id"],row["message_id"],
                     )
                     await asyncio.sleep(0.25)
             except Exception:
