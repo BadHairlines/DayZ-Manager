@@ -1735,6 +1735,161 @@ async def delete_claim_system(
             return {"flags":count(items),"messages":count(msg),"audit":count(audit)}
 
 
+
+# =========================================================
+# GENERIC CLAIM SYSTEM HELPERS
+# =========================================================
+
+async def get_claim_system_setups(guild_id: str) -> list[dict]:
+    result: list[dict] = []
+
+    for row in await get_guild_flag_setups(str(guild_id)):
+        result.append({
+            "map": normalize_map(row["map"]),
+            "server": normalize_server(row["server"]),
+            "system_type": "flags",
+        })
+
+    async with safe_acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT map, server, system_type
+            FROM (
+                SELECT DISTINCT map, server, system_type
+                FROM claim_system_items
+                WHERE guild_id=$1
+                UNION
+                SELECT DISTINCT map, server, system_type
+                FROM claim_system_messages
+                WHERE guild_id=$1
+            ) systems
+            ORDER BY system_type, map, server
+        """, str(guild_id))
+
+    for row in rows:
+        result.append({
+            "map": normalize_map(row["map"]),
+            "server": normalize_server(row["server"]),
+            "system_type": normalize_system_type(row["system_type"]),
+        })
+
+    result.sort(key=lambda x: (x["system_type"], x["map"], x["server"]))
+    return result
+
+
+async def get_claim_system_history(
+    guild_id: str,
+    map_key: str,
+    server: str,
+    system_type: str,
+    limit: int = 10,
+):
+    system_type = normalize_system_type(system_type)
+    if system_type == "flags":
+        return await get_flag_history(guild_id, map_key, server, limit)
+
+    async with safe_acquire() as conn:
+        return await conn.fetch("""
+            SELECT item AS flag, action, role_id, actor_id, source, created_at
+            FROM claim_system_audit
+            WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            ORDER BY created_at DESC
+            LIMIT $5
+        """,
+            str(guild_id),
+            normalize_map(map_key),
+            normalize_server(server),
+            system_type,
+            max(1, min(int(limit), 100)),
+        )
+
+
+async def rename_claim_system(
+    guild_id: str,
+    map_key: str,
+    old_server: str,
+    new_server: str,
+    system_type: str,
+) -> dict[str, int]:
+    system_type = normalize_system_type(system_type)
+
+    if system_type == "flags":
+        return await rename_flag_session(
+            guild_id, map_key, old_server, new_server
+        )
+
+    guild_id = str(guild_id)
+    map_key = normalize_map(map_key)
+    old_server = normalize_server(old_server)
+    new_server = normalize_server(new_server)
+
+    if not old_server or not new_server:
+        raise ValueError("Both the current and new setup names are required.")
+    if old_server == new_server:
+        raise ValueError("The new setup name is the same as the current name.")
+
+    async with safe_acquire() as conn:
+        async with conn.transaction():
+            source_exists = await conn.fetchval("""
+                SELECT EXISTS(
+                    SELECT 1 FROM claim_system_items
+                    WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+                ) OR EXISTS(
+                    SELECT 1 FROM claim_system_messages
+                    WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+                )
+            """, guild_id, map_key, old_server, system_type)
+
+            if not source_exists:
+                raise LookupError(
+                    "The claim system you are trying to rename no longer exists."
+                )
+
+            destination_exists = await conn.fetchval("""
+                SELECT EXISTS(
+                    SELECT 1 FROM claim_system_items
+                    WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+                ) OR EXISTS(
+                    SELECT 1 FROM claim_system_messages
+                    WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+                )
+            """, guild_id, map_key, new_server, system_type)
+
+            if destination_exists:
+                raise FileExistsError(
+                    "A claim system with that name already exists for this map and type."
+                )
+
+            items_result = await conn.execute("""
+                UPDATE claim_system_items
+                SET server=$5
+                WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            """, guild_id, map_key, old_server, system_type, new_server)
+
+            messages_result = await conn.execute("""
+                UPDATE claim_system_messages
+                SET server=$5
+                WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            """, guild_id, map_key, old_server, system_type, new_server)
+
+            audit_result = await conn.execute("""
+                UPDATE claim_system_audit
+                SET server=$5
+                WHERE guild_id=$1 AND map=$2 AND server=$3 AND system_type=$4
+            """, guild_id, map_key, old_server, system_type, new_server)
+
+    def count(result: str) -> int:
+        try:
+            return int(result.rsplit(" ", 1)[-1])
+        except (TypeError, ValueError):
+            return 0
+
+    return {
+        "items": count(items_result),
+        "messages": count(messages_result),
+        "audit": count(audit_result),
+    }
+
+
 # =========================================================
 # WEBSITE TASK MANAGER
 # =========================================================

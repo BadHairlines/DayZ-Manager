@@ -9,6 +9,7 @@ from discord.ext import commands
 from cogs import utils
 from cogs.decorators import MAP_CHOICES, admin_only, normalize_map
 from cogs.ui.flag_views import FlagManageView
+from cogs.ui.gear_views import GearManageView
 
 log = logging.getLogger("dayz-manager")
 
@@ -351,15 +352,20 @@ class FlagAdmin(commands.Cog):
 
     @app_commands.command(
         name="flagstatus",
-        description="Show the health and ownership summary for a flag session.",
+        description="Show health and ownership for a Claim System.",
     )
     @admin_only()
-    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.choices(selected_map=MAP_CHOICES, system_type=[
+            app_commands.Choice(name="🚩 Flags", value="flags"),
+            app_commands.Choice(name="🧥 Raincoats", value="raincoats"),
+            app_commands.Choice(name="🎽 Armbands", value="armbands"),
+        ])
     async def flagstatus(
         self,
         interaction: discord.Interaction,
         selected_map: app_commands.Choice[str],
         server: str,
+        system_type: app_commands.Choice[str],
     ) -> None:
         guild = interaction.guild
         if guild is None:
@@ -367,29 +373,47 @@ class FlagAdmin(commands.Cog):
 
         map_key = normalize_map(selected_map)
         server_key = utils.normalize_server(server)
+        claim_type = utils.normalize_system_type(system_type.value)
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        flags = await utils.get_all_flags(str(guild.id), map_key, server_key)
-        stored = await utils.get_flag_message(str(guild.id), map_key, server_key)
+        rows = await utils.get_claim_system_items(
+            str(guild.id), map_key, server_key, claim_type
+        )
+        stored = await utils.get_claim_system_message(
+            str(guild.id), map_key, server_key, claim_type
+        )
 
-        if not flags:
+        if not rows:
             return await interaction.followup.send(
-                "⚠️ No flag session exists for that map/server. Run `/setup` first.",
+                "⚠️ No Claim System exists for that selection.",
                 ephemeral=True,
             )
 
-        claimed = [row for row in flags if row["status"] == "❌" and row["role_id"]]
-        available = len(flags) - len(claimed)
-        missing_roles = sum(
-            1 for row in claimed
-            if guild.get_role(int(row["role_id"])) is None
-        )
+        claimed = [
+            row for row in rows
+            if row["role_id"] or row["status"] == "❌"
+        ]
 
-        message_state = "Not stored"
+        missing_roles = 0
+        for row in claimed:
+            if row["role_id"]:
+                try:
+                    if guild.get_role(int(row["role_id"])) is None:
+                        missing_roles += 1
+                except (TypeError, ValueError):
+                    missing_roles += 1
+
         channel_text = "Not stored"
+        message_state = "Not stored"
+
         if stored:
             channel = guild.get_channel(int(stored["channel_id"]))
-            channel_text = channel.mention if isinstance(channel, discord.TextChannel) else "Missing channel"
+            channel_text = (
+                channel.mention
+                if isinstance(channel, discord.TextChannel)
+                else "Missing channel"
+            )
+
             if isinstance(channel, discord.TextChannel):
                 try:
                     await channel.fetch_message(int(stored["message_id"]))
@@ -401,32 +425,47 @@ class FlagAdmin(commands.Cog):
                 except discord.HTTPException:
                     message_state = "⚠️ Discord error"
 
+        info = utils.CLAIM_SYSTEMS[claim_type]
+
         embed = discord.Embed(
-            title="🏴 Flag Session Status",
+            title=f"{info['emoji']} {info['name']} System Status",
             color=0x3498DB,
             timestamp=discord.utils.utcnow(),
         )
-        embed.add_field(name="Map", value=utils.MAP_DATA.get(map_key, {}).get("name", map_key.title()))
+        embed.add_field(
+            name="Map",
+            value=utils.MAP_DATA.get(map_key, {}).get("name", map_key.title()),
+        )
         embed.add_field(name="Server", value=server_key)
-        embed.add_field(name="Flags", value=f"🟩 {available} available\n🟥 {len(claimed)} claimed")
+        embed.add_field(
+            name=info["name"],
+            value=f"🟩 {len(rows) - len(claimed)} available\n"
+                  f"🟥 {len(claimed)} claimed",
+        )
         embed.add_field(name="Channel", value=channel_text, inline=False)
         embed.add_field(name="Public message", value=message_state)
         embed.add_field(name="Missing roles", value=str(missing_roles))
-        embed.set_footer(text="DayZ Manager • Flag Admin")
+        embed.set_footer(text="DayZ Manager • Claim Systems")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+
     @app_commands.command(
         name="flagrefresh",
-        description="Force-refresh a stored public flag message and persistent buttons.",
+        description="Force-refresh a stored Claim System dashboard.",
     )
     @admin_only()
-    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.choices(selected_map=MAP_CHOICES, system_type=[
+            app_commands.Choice(name="🚩 Flags", value="flags"),
+            app_commands.Choice(name="🧥 Raincoats", value="raincoats"),
+            app_commands.Choice(name="🎽 Armbands", value="armbands"),
+        ])
     async def flagrefresh(
         self,
         interaction: discord.Interaction,
         selected_map: app_commands.Choice[str],
         server: str,
+        system_type: app_commands.Choice[str],
     ) -> None:
         guild = interaction.guild
         if guild is None:
@@ -434,57 +473,73 @@ class FlagAdmin(commands.Cog):
 
         map_key = normalize_map(selected_map)
         server_key = utils.normalize_server(server)
+        claim_type = utils.normalize_system_type(system_type.value)
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        stored = await utils.get_flag_message(str(guild.id), map_key, server_key)
+        stored = await utils.get_claim_system_message(
+            str(guild.id), map_key, server_key, claim_type
+        )
+
         if not stored:
             return await interaction.followup.send(
-                "⚠️ No stored public flag message was found for that session.", ephemeral=True
+                "⚠️ No stored public dashboard was found.",
+                ephemeral=True,
             )
 
         channel = guild.get_channel(int(stored["channel_id"]))
+
         if not isinstance(channel, discord.TextChannel):
-            return await interaction.followup.send("❌ The stored channel no longer exists.", ephemeral=True)
+            return await interaction.followup.send(
+                "❌ The stored channel no longer exists.",
+                ephemeral=True,
+            )
 
         try:
             message = await channel.fetch_message(int(stored["message_id"]))
         except discord.NotFound:
             return await interaction.followup.send(
-                "❌ The stored flag message no longer exists. Run `/setup` to recreate it.", ephemeral=True
+                "❌ The stored dashboard message no longer exists. Run `/setup`.",
+                ephemeral=True,
             )
 
-        view = await FlagManageView.create(guild, map_key, server_key, self.bot)
+        if claim_type == "flags":
+            view = await FlagManageView.create(
+                guild, map_key, server_key, self.bot
+            )
+        else:
+            view = await GearManageView.create(
+                guild, map_key, server_key, claim_type, self.bot
+            )
+
         try:
             self.bot.add_view(view, message_id=message.id)
         except ValueError:
             pass
-        if getattr(message.flags, "components_v2", False):
-            await message.edit(view=view)
-        else:
-            try:
-                await message.delete()
-            except discord.HTTPException:
-                pass
-            message = await channel.send(view=view)
-            await utils.save_flag_message(
-                str(guild.id), map_key, server_key, str(channel.id), str(message.id)
-            )
+
+        await message.edit(view=view)
 
         await interaction.followup.send(
-            f"✅ Refreshed the flag message in {channel.mention}.", ephemeral=True
+            f"✅ Refreshed {utils.CLAIM_SYSTEMS[claim_type]['name']} in {channel.mention}.",
+            ephemeral=True,
         )
+
 
     @app_commands.command(
         name="flaghistory",
-        description="Show recent claim/release activity for a flag session.",
+        description="Show recent assign/release activity for a Claim System.",
     )
     @admin_only()
-    @app_commands.choices(selected_map=MAP_CHOICES)
+    @app_commands.choices(selected_map=MAP_CHOICES, system_type=[
+            app_commands.Choice(name="🚩 Flags", value="flags"),
+            app_commands.Choice(name="🧥 Raincoats", value="raincoats"),
+            app_commands.Choice(name="🎽 Armbands", value="armbands"),
+        ])
     async def flaghistory(
         self,
         interaction: discord.Interaction,
         selected_map: app_commands.Choice[str],
         server: str,
+        system_type: app_commands.Choice[str],
         limit: app_commands.Range[int, 1, 20] = 10,
     ) -> None:
         guild = interaction.guild
@@ -493,33 +548,53 @@ class FlagAdmin(commands.Cog):
 
         map_key = normalize_map(selected_map)
         server_key = utils.normalize_server(server)
+        claim_type = utils.normalize_system_type(system_type.value)
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        rows = await utils.get_flag_history(str(guild.id), map_key, server_key, limit)
+        rows = await utils.get_claim_system_history(
+            str(guild.id), map_key, server_key, claim_type, limit
+        )
+
         if not rows:
             return await interaction.followup.send(
-                "ℹ️ No audited flag activity has been recorded for this session yet.", ephemeral=True
+                "ℹ️ No audited activity has been recorded yet.",
+                ephemeral=True,
             )
 
-        lines: list[str] = []
+        lines = []
         for row in rows:
             icon = "🏴" if row["action"] == "claim" else "🏳️"
-            actor = f"<@{row['actor_id']}>" if row["actor_id"] else "Unknown"
-            role = f"<@&{row['role_id']}>" if row["role_id"] else "No role"
+            actor = (
+                f"<@{row['actor_id']}>"
+                if row["actor_id"]
+                else "Unknown"
+            )
+            role = (
+                f"<@&{row['role_id']}>"
+                if row["role_id"]
+                else "No role"
+            )
             timestamp = int(row["created_at"].timestamp())
+
             lines.append(
                 f"{icon} **{row['flag']}** • {row['action'].title()} • {role}\n"
                 f"└ {actor} • <t:{timestamp}:R> • `{row['source']}`"
             )
 
+        info = utils.CLAIM_SYSTEMS[claim_type]
+
         embed = discord.Embed(
-            title="📜 Flag Activity History",
+            title=f"📜 {info['name']} Activity History",
             description="\n\n".join(lines),
             color=0x5865F2,
             timestamp=discord.utils.utcnow(),
         )
-        embed.set_footer(text=f"{utils.MAP_DATA.get(map_key, {}).get('name', map_key.title())} • {server_key}")
+        embed.set_footer(
+            text=f"{utils.MAP_DATA.get(map_key, {}).get('name', map_key.title())} • {server_key}"
+        )
+
         await interaction.followup.send(embed=embed, ephemeral=True)
+
 
     @app_commands.command(
         name="botstatus",
