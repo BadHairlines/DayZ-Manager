@@ -481,6 +481,32 @@ async def _resolve_server_slug(guild_id: str, map_key: str, server_slug: str) ->
     return None
 
 
+
+async def _resolve_claim_system_server_slug(
+    guild_id: str,
+    system_type: str,
+    map_key: str,
+    server_slug: str,
+) -> str | None:
+    """Resolve a public Claim System URL slug back to its stored server name."""
+    system_type = utils.normalize_system_type(system_type)
+    map_key = utils.normalize_map(map_key)
+    wanted = _slug(server_slug)
+
+    sessions = await utils.get_claim_system_setups(str(guild_id))
+    for row in sessions:
+        if utils.normalize_system_type(row["system_type"]) != system_type:
+            continue
+        if utils.normalize_map(row["map"]) != map_key:
+            continue
+
+        server = utils.normalize_server(row["server"])
+        if _slug(server) == wanted:
+            return server
+
+    return None
+
+
 # =========================================================
 # SHARED SITE CHROME
 # =========================================================
@@ -2842,13 +2868,23 @@ async def claim_system_detail_page(request: web.Request) -> web.Response:
     guild_id=request.match_info["guild_id"]
     system_type=utils.normalize_system_type(request.match_info["system_type"])
     map_key=utils.normalize_map(request.match_info["map_key"])
-    server=_unslug(request.match_info["server_slug"])
     if system_type not in {"raincoats","armbands"}:
         raise web.HTTPNotFound()
+
+    server = await _resolve_claim_system_server_slug(
+        guild_id,
+        system_type,
+        map_key,
+        request.match_info["server_slug"],
+    )
+    if not server:
+        raise web.HTTPNotFound(text="Claim system not found.")
+
     payload=await _claim_system_payload(
         bot,guild_id,system_type,map_key,server
     )
-    if not payload:raise web.HTTPNotFound(text="Claim system not found.")
+    if not payload:
+        raise web.HTTPNotFound(text="Claim system not found.")
     data=json.dumps(payload).replace("<","\\u003c")
     body=f"""
 <main class="wrap"><section class="section" style="padding-top:38px">
@@ -2892,9 +2928,20 @@ async def claim_system_api(request: web.Request) -> web.Response:
     guild_id=request.match_info["guild_id"]
     system_type=utils.normalize_system_type(request.match_info["system_type"])
     map_key=utils.normalize_map(request.match_info["map_key"])
-    server=_unslug(request.match_info["server_slug"])
-    payload=await _claim_system_payload(bot,guild_id,system_type,map_key,server)
-    if not payload:return web.json_response({"error":"Not found"},status=404)
+    server = await _resolve_claim_system_server_slug(
+        guild_id,
+        system_type,
+        map_key,
+        request.match_info["server_slug"],
+    )
+    if not server:
+        return web.json_response({"error":"Not found"},status=404)
+
+    payload=await _claim_system_payload(
+        bot,guild_id,system_type,map_key,server
+    )
+    if not payload:
+        return web.json_response({"error":"Not found"},status=404)
     return web.json_response(payload,headers={"Cache-Control":"no-store"})
 
 async def start_web_server(bot: commands.Bot) -> web.AppRunner:
