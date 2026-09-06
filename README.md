@@ -162,3 +162,18 @@ DayZ Manager now includes a website-first per-server Task Manager.
 All task data is PostgreSQL-backed and scoped by Discord guild. The initial Task Manager release uses the existing private portal permission model: Discord server Owner/Administrator access is required.
 
 Deployment note: no new Railway variables are required for v3.0; the task tables are created automatically by the existing PostgreSQL migration.
+
+
+## v3.2 Claim Systems
+
+DayZ Manager now supports three faction claim-system types:
+
+- 🚩 Flags — existing 26-flag system
+- 🧥 Raincoats — Orange, Black, Blue, Green, Pink, Red, Yellow
+- 🎽 Armbands — Yellow, Blue, Pink, White, Green, Red, Black, Orange
+
+`/setup` asks which claim-system type to create. Raincoat and Armband systems use separate PostgreSQL tables so existing Flag System data remains untouched. They have persistent Discord Components V2 dashboards with Assign, Release, and Live Website controls.
+
+`/assign` and `/release` support all three types. `/setups` lists all claim systems and `/deletesetup` can remove any of the three.
+
+Raincoat and Armband live website pages use the configured Postimg artwork for each color.

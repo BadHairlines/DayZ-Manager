@@ -331,6 +331,54 @@ async def _get_payload(bot: commands.Bot, guild_id: str, map_key: str, server: s
     }
 
 
+
+
+async def _claim_system_payload(
+    bot: commands.Bot,guild_id: str,system_type: str,map_key: str,server: str
+) -> dict | None:
+    system_type=utils.normalize_system_type(system_type)
+    if system_type=="flags":
+        return await _get_payload(bot,guild_id,map_key,server)
+    rows=await utils.get_claim_system_items(
+        guild_id,map_key,server,system_type
+    )
+    if not rows:return None
+    guild=None
+    try:guild=bot.get_guild(int(guild_id))
+    except (TypeError,ValueError):pass
+    info=utils.CLAIM_SYSTEMS[system_type]
+    images=utils.CLAIM_SYSTEM_IMAGES.get(system_type,{})
+    available=[];claimed=[]
+    for row in sorted(rows,key=lambda r:str(r["flag"]).casefold()):
+        name=str(row["flag"])
+        item={"flag":name,"image":images.get(name)}
+        if row["role_id"] or row["status"]=="❌":
+            role_id=str(row["role_id"]) if row["role_id"] else None
+            role_name="Assigned"
+            if guild and role_id:
+                try:
+                    role=guild.get_role(int(role_id))
+                    if role:role_name=role.name
+                except (TypeError,ValueError):pass
+            item.update({"role_id":role_id,"role_name":role_name})
+            claimed.append(item)
+        else:available.append(item)
+    total=len(rows)
+    return {
+        "guild_id":str(guild_id),
+        "guild_name":guild.name if guild else "DayZ Server",
+        "guild_icon":str(guild.icon.url) if guild and guild.icon else None,
+        "system_type":system_type,
+        "system_name":info["name"],
+        "system_emoji":info["emoji"],
+        "map":utils.normalize_map(map_key),
+        "map_name":utils.MAP_DATA.get(utils.normalize_map(map_key),{}).get("name",map_key.title()),
+        "server":utils.normalize_server(server),
+        "total":total,"available_count":len(available),"claimed_count":len(claimed),
+        "claimed_pct":round(len(claimed)/total*100) if total else 0,
+        "available":available,"claimed":claimed,
+    }
+
 async def _public_setups(bot: commands.Bot) -> list[dict]:
     rows = await utils.get_public_flag_sessions()
     result: list[dict] = []
@@ -408,6 +456,26 @@ SITE_CSS = r"""
 @media(max-width:700px){.badlands-home{min-height:455px}.badlands-home-content{padding:24px}.badlands-counter{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:900px){.portal-grid,.command-grid,.status-grid{grid-template-columns:1fr}.portal-kpis{grid-template-columns:1fr 1fr}.manage-shell{grid-template-columns:1fr}.manage-side{position:static}.form-grid{grid-template-columns:1fr}.field.full{grid-column:auto}}@media(max-width:900px){.hero-home{grid-template-columns:1fr;padding-top:45px}.mock{transform:none}.feature-grid{grid-template-columns:1fr 1fr}.stat-band{grid-template-columns:1fr 1fr}.server-grid{grid-template-columns:1fr}.docs{grid-template-columns:1fr}.toc{position:static}.flag-grid{grid-template-columns:1fr}}@media(max-width:620px){.nav{height:auto;padding:14px 0;align-items:flex-start}.navlinks a:not(.keep){display:none}.hero-home{padding-top:34px}.feature-grid{grid-template-columns:1fr}.flag-stats{grid-template-columns:1fr 1fr 1fr}.flag-stat{padding:11px}.flag-stat strong{font-size:21px}.wrap{width:min(100% - 22px,1180px)}h1{letter-spacing:-2px}.stat-band{grid-template-columns:1fr 1fr}}
 """
+
+
+def claim_system_page_url(
+    guild_id: str | int,
+    system_type: str,
+    map_key: str,
+    server: str,
+) -> str | None:
+    system_type = utils.normalize_system_type(system_type)
+    if system_type == "flags":
+        return flag_page_url(guild_id,map_key,server)
+    base = public_base_url()
+    if not base:
+        return None
+    return (
+        f"{base}/claims/{quote(str(guild_id))}/"
+        f"{quote(system_type)}/{quote(utils.normalize_map(map_key))}/"
+        f"{quote(_slug(utils.normalize_server(server)))}"
+    )
+
 
 
 def _nav(invite_url: str | None = None) -> str:
@@ -2426,6 +2494,68 @@ async def invite_redirect(request: web.Request) -> web.StreamResponse:
 # SERVER
 # =========================================================
 
+
+
+async def claim_system_detail_page(request: web.Request) -> web.Response:
+    bot=request.app["bot"]
+    guild_id=request.match_info["guild_id"]
+    system_type=utils.normalize_system_type(request.match_info["system_type"])
+    map_key=utils.normalize_map(request.match_info["map_key"])
+    server=_unslug(request.match_info["server_slug"])
+    if system_type not in {"raincoats","armbands"}:
+        raise web.HTTPNotFound()
+    payload=await _claim_system_payload(
+        bot,guild_id,system_type,map_key,server
+    )
+    if not payload:raise web.HTTPNotFound(text="Claim system not found.")
+    data=json.dumps(payload).replace("<","\\u003c")
+    body=f"""
+<main class="wrap"><section class="section" style="padding-top:38px">
+<a href="/servers/{html.escape(guild_id)}" class="meta">← Server</a>
+<div class="card" style="padding:26px;margin-top:15px">
+<span class="eyebrow"><span class="dot"></span> LIVE FROM DAYZ MANAGER</span>
+<h1 style="font-size:clamp(34px,6vw,58px);margin:12px 0 4px">{html.escape(payload["system_emoji"])} {html.escape(payload["system_name"])}</h1>
+<p class="section-sub">{html.escape(payload["guild_name"])} • {html.escape(payload["map_name"])} • {html.escape(payload["server"])}</p>
+<div class="mini-stat-grid"><div class="mini-stat"><strong class="green" id="claimAvailable">0</strong><span class="meta">Available</span></div><div class="mini-stat"><strong class="red" id="claimClaimed">0</strong><span class="meta">Claimed</span></div><div class="mini-stat"><strong class="gold" id="claimTotal">0</strong><span class="meta">Total</span></div></div>
+</div>
+<div class="flag-columns" style="margin-top:16px">
+<div class="card"><div class="list-head"><strong class="green">🟢 Available</strong><span class="pill" id="availCount">0</span></div><div id="availableList" class="flag-list"></div></div>
+<div class="card"><div class="list-head"><strong class="red">🔴 Claimed</strong><span class="pill" id="claimedCount">0</span></div><div id="claimedList" class="flag-list"></div></div>
+</div></section></main>
+<script>
+const DATA={data};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+function renderClaimSystem(d){{
+ document.getElementById('claimAvailable').textContent=d.available_count;
+ document.getElementById('claimClaimed').textContent=d.claimed_count;
+ document.getElementById('claimTotal').textContent=d.total;
+ document.getElementById('availCount').textContent=d.available_count;
+ document.getElementById('claimedCount').textContent=d.claimed_count;
+ document.getElementById('availableList').innerHTML=d.available.length?d.available.map(x=>'<div class="flag-row"><div class="flag-ident">'+(x.image?'<img class="flag-thumb" src="'+esc(x.image)+'" alt="" loading="lazy">':'<span class="flag-fallback">🟢</span>')+'<strong>'+esc(x.flag)+'</strong></div><span class="green flag-state">AVAILABLE</span></div>').join(''):'<div class="empty">None available.</div>';
+ document.getElementById('claimedList').innerHTML=d.claimed.length?d.claimed.map(x=>'<div class="flag-row"><div class="flag-ident">'+(x.image?'<img class="flag-thumb" src="'+esc(x.image)+'" alt="" loading="lazy">':'<span class="flag-fallback">🔴</span>')+'<strong>'+esc(x.flag)+'</strong></div><span class="owner"><span class="red flag-state">CLAIMED</span><br>'+esc(x.role_name)+'</span></div>').join(''):'<div class="empty">None claimed.</div>';
+}}
+renderClaimSystem(DATA);
+setInterval(async()=>{{try{{const r=await fetch(location.pathname+'/api',{{cache:'no-store'}});if(r.ok)renderClaimSystem(await r.json())}}catch{{}}}},10000);
+</script>"""
+    return web.Response(
+        text=_page(
+            f"{payload['system_name']} — {payload['guild_name']}",
+            body,_invite_url(bot)
+        ),
+        content_type="text/html",headers={"Cache-Control":"no-store"}
+    )
+
+
+async def claim_system_api(request: web.Request) -> web.Response:
+    bot=request.app["bot"]
+    guild_id=request.match_info["guild_id"]
+    system_type=utils.normalize_system_type(request.match_info["system_type"])
+    map_key=utils.normalize_map(request.match_info["map_key"])
+    server=_unslug(request.match_info["server_slug"])
+    payload=await _claim_system_payload(bot,guild_id,system_type,map_key,server)
+    if not payload:return web.json_response({"error":"Not found"},status=404)
+    return web.json_response(payload,headers={"Cache-Control":"no-store"})
+
 async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app = web.Application()
     app["bot"] = bot
@@ -2479,6 +2609,8 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_get("/servers/{guild_id}", server_flag_systems_page)
     app.router.add_get("/flags", flags_root_redirect)
     app.router.add_get("/flags/{guild_id}/{map_key}/{server_slug}", flag_detail_page)
+    app.router.add_get("/claims/{guild_id}/{system_type}/{map_key}/{server_slug}", claim_system_detail_page)
+    app.router.add_get("/claims/{guild_id}/{system_type}/{map_key}/{server_slug}/api", claim_system_api)
     app.router.add_get("/flags-legacy", legacy_flags_page)
 
     runner = web.AppRunner(app, access_log=None)
