@@ -177,3 +177,24 @@ DayZ Manager now supports three faction claim-system types:
 `/assign` and `/release` support all three types. `/setups` lists all claim systems and `/deletesetup` can remove any of the three.
 
 Raincoat and Armband live website pages use the configured Postimg artwork for each color.
+
+
+## v3.3 Full Claim Systems Integration
+
+Flags, Raincoats, and Armbands are now first-class Claim Systems throughout DayZ Manager.
+
+### Website
+- **Claim Systems** replaces the old Flag System management page.
+- Create / repair works for Flags, Raincoats, and Armbands.
+- Assign and Release work for all three types.
+- Status, Refresh, History, Rename, and Delete work for all three types.
+- Main dashboard counts all Claim Systems.
+- Managed Servers and per-server public pages show all three types.
+- Existing `/dashboard/<guild>/flags` links remain supported; the primary management URL is `/dashboard/<guild>/claims`.
+
+### Discord
+- `/setup`, `/assign`, `/release`, `/setups`, and `/deletesetup` support all three types.
+- `/flagstatus`, `/flagrefresh`, and `/flaghistory` now include a Claim System type choice and work with Raincoats and Armbands too.
+- Persistent Raincoat and Armband dashboards use the same Assign / Release / Live Website pattern as Flags.
+
+Existing Flag System data remains in its original tables and is not reset.

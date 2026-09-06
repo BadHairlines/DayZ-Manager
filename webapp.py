@@ -215,6 +215,51 @@ async def _refresh_flag_dashboard(bot: commands.Bot, guild: discord.Guild, map_k
     return True, f"Dashboard refreshed in #{channel.name}."
 
 
+async def _refresh_claim_dashboard(
+    bot: commands.Bot,
+    guild: discord.Guild,
+    map_key: str,
+    server: str,
+    system_type: str,
+) -> tuple[bool, str]:
+    system_type = utils.normalize_system_type(system_type)
+    if system_type == "flags":
+        return await _refresh_flag_dashboard(bot, guild, map_key, server)
+
+    from cogs.ui.gear_views import GearManageView
+
+    stored = await utils.get_claim_system_message(
+        str(guild.id), map_key, server, system_type
+    )
+    if not stored:
+        return False, "No stored public dashboard was found."
+
+    channel = guild.get_channel(int(stored["channel_id"]))
+    if not isinstance(channel, discord.TextChannel):
+        return False, "The stored claim-system channel no longer exists."
+
+    try:
+        message = await channel.fetch_message(int(stored["message_id"]))
+    except discord.NotFound:
+        return False, "The stored dashboard message no longer exists."
+    except discord.Forbidden:
+        return False, "DayZ Manager cannot access the stored dashboard."
+    except discord.HTTPException:
+        return False, "Discord returned an error reading the dashboard."
+
+    view = await GearManageView.create(
+        guild, map_key, server, system_type, bot
+    )
+    try:
+        bot.add_view(view, message_id=message.id)
+    except ValueError:
+        pass
+
+    await message.edit(view=view)
+    return True, f"Dashboard refreshed in #{channel.name}."
+
+
+
 def _normalize_position(position: str) -> list[int | float]:
     position = str(position or "").strip().replace(" ", "")
     if not position.startswith("["):
@@ -338,7 +383,13 @@ async def _claim_system_payload(
 ) -> dict | None:
     system_type=utils.normalize_system_type(system_type)
     if system_type=="flags":
-        return await _get_payload(bot,guild_id,map_key,server)
+        payload = await _get_payload(bot,guild_id,map_key,server)
+        if not payload:
+            return None
+        payload["system_type"] = "flags"
+        payload["system_name"] = utils.CLAIM_SYSTEMS["flags"]["name"]
+        payload["system_emoji"] = utils.CLAIM_SYSTEMS["flags"]["emoji"]
+        return payload
     rows=await utils.get_claim_system_items(
         guild_id,map_key,server,system_type
     )
@@ -523,6 +574,30 @@ def _invite_url(bot: commands.Bot) -> str | None:
 # =========================================================
 # ROUTES
 # =========================================================
+
+async def _public_claim_setups(bot: commands.Bot) -> list[dict]:
+    output = []
+    for guild in bot.guilds:
+        sessions = await utils.get_claim_system_setups(str(guild.id))
+        for row in sessions:
+            payload = await _claim_system_payload(
+                bot,
+                str(guild.id),
+                row["system_type"],
+                row["map"],
+                row["server"],
+            )
+            if not payload:
+                continue
+            payload["url"] = claim_system_page_url(
+                guild.id,
+                row["system_type"],
+                row["map"],
+                row["server"],
+            )
+            output.append(payload)
+    return output
+
 
 async def health(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
@@ -767,7 +842,7 @@ async def dashboard_page(request: web.Request) -> web.Response:
         return web.Response(text=_page("My Dashboard — DayZ Manager", body, _invite_url(bot)), content_type="text/html", headers={"Cache-Control": "no-store"})
 
     allowed = set(session.get("guild_ids", []))
-    setups = await _public_setups(bot)
+    setups = await _public_claim_setups(bot)
     setup_counts: dict[str, int] = {}
     for item in setups:
         if item["guild_id"] in allowed:
@@ -788,7 +863,7 @@ async def dashboard_page(request: web.Request) -> web.Response:
             f'<div class="server-icon">{icon}</div><div class="server-main">'
             f'<div class="server-name">{html.escape(guild.name)}</div>'
             f'<div class="meta">Discord server management</div>'
-            f'<div class="counts"><span class="pill">🚩 {count} Flag Setup{"s" if count != 1 else ""}</span>'
+            f'<div class="counts"><span class="pill">📌 {count} Claim System{"s" if count != 1 else ""}</span>'
             f'<span class="pill green">⚙️ Full Web Controls</span></div></div>'
             '<span style="color:#7f93a9">→</span></a>'
         )
@@ -806,7 +881,7 @@ async def dashboard_page(request: web.Request) -> web.Response:
 def _guild_portal_tabs(guild_id: int, active: str) -> str:
     items = [
         ("overview", f"/dashboard/{guild_id}", "🏠 Overview"),
-        ("flags", f"/dashboard/{guild_id}/flags", "🚩 Flag System"),
+        ("flags", f"/dashboard/{guild_id}/claims", "📌 Claim Systems"),
         ("tools", f"/dashboard/{guild_id}/tools", "🛠️ Server Tools"),
         ("tasks", f"/dashboard/{guild_id}/tasks", "📋 Task Manager"),
         ("status", f"/dashboard/{guild_id}/status", "🤖 Bot Status"),
@@ -827,18 +902,27 @@ async def _guild_portal_context(request: web.Request) -> tuple[commands.Bot, dic
             raise web.HTTPFound("/auth/discord")
         raise web.HTTPForbidden(text="You do not have permission to manage this Discord server.")
 
-    sessions = await utils.get_guild_flag_setups(str(guild.id))
+    sessions = await utils.get_claim_system_setups(str(guild.id))
     setups: list[dict] = []
     for row in sessions:
         map_key = utils.normalize_map(row["map"])
         server = utils.normalize_server(row["server"])
+        system_type = utils.normalize_system_type(row["system_type"])
+        info = utils.CLAIM_SYSTEMS[system_type]
         setups.append({
             "map": map_key,
             "map_name": utils.MAP_DATA.get(map_key, {}).get("name", map_key.title()),
             "server": server,
-            "url": flag_page_url(guild.id, map_key, server),
+            "system_type": system_type,
+            "system_name": info["name"],
+            "system_emoji": info["emoji"],
+            "url": claim_system_page_url(guild.id, system_type, map_key, server),
         })
-    setups.sort(key=lambda x: (x["map_name"].casefold(), x["server"].casefold()))
+    setups.sort(key=lambda x: (
+        x["system_name"].casefold(),
+        x["map_name"].casefold(),
+        x["server"].casefold(),
+    ))
     return bot, session, guild, setups
 
 
@@ -917,104 +1001,194 @@ async def _task_with_extras(guild_id: str, task_id: int) -> dict | None:
 
 async def guild_dashboard_page(request: web.Request) -> web.Response:
     bot, session, guild, setups = await _guild_portal_context(request)
+
     claimed = 0
     available = 0
     for setup in setups:
-        rows = await utils.get_all_flags(str(guild.id), setup["map"], setup["server"])
-        c = sum(1 for row in rows if row["role_id"] or row["status"] == "❌")
-        claimed += c
-        available += max(0, len(rows) - c)
+        rows = await utils.get_claim_system_items(
+            str(guild.id), setup["map"], setup["server"], setup["system_type"]
+        )
+        claimed_count = sum(
+            1 for row in rows if row["role_id"] or row["status"] == "❌"
+        )
+        claimed += claimed_count
+        available += max(0, len(rows) - claimed_count)
 
-    teleporter_enabled = True
-    vehicle_enabled = True
+    by_type = {
+        key: sum(1 for setup in setups if setup["system_type"] == key)
+        for key in ("flags", "raincoats", "armbands")
+    }
+
     task_summary = await utils.get_task_summary(str(guild.id))
-    open_tasks = task_summary["todo"] + task_summary["in_progress"] + task_summary["review"]
+    open_tasks = (
+        task_summary["todo"] +
+        task_summary["in_progress"] +
+        task_summary["review"]
+    )
+
     body = f"""
 <main class="wrap"><section class="section" style="padding-top:32px">
-{_guild_portal_header(guild, "overview", "Choose a section below. Tools are separated into focused pages so the portal stays clean as DayZ Manager grows.")}
+{_guild_portal_header(guild, "overview", "Manage Claim Systems, DayZ utilities, staff tasks, and live pages from one portal.")}
 <div class="portal-kpis">
-  <div class="portal-kpi"><strong>{len(setups)}</strong><span>Flag System setups</span></div>
-  <div class="portal-kpi"><strong class="green">{available}</strong><span>Available flags</span></div>
-  <div class="portal-kpi"><strong class="red">{claimed}</strong><span>Claimed flags</span></div>
-  <div class="portal-kpi"><strong>{open_tasks}</strong><span>Open staff tasks</span></div>
-  <div class="portal-kpi"><strong>{"Enabled" if (teleporter_enabled or vehicle_enabled) else "Restricted"}</strong><span>Server tools access</span></div>
+  <div class="portal-kpi"><strong>{len(setups)}</strong><span>Total Claim Systems</span></div>
+  <div class="portal-kpi"><strong class="green">{available}</strong><span>Available Options</span></div>
+  <div class="portal-kpi"><strong class="red">{claimed}</strong><span>Claimed Options</span></div>
+  <div class="portal-kpi"><strong>{open_tasks}</strong><span>Open Staff Tasks</span></div>
+</div>
+<div class="notice" style="margin-bottom:18px">
+🚩 {by_type["flags"]} Flag setup(s) • 🧥 {by_type["raincoats"]} Raincoat setup(s) • 🎽 {by_type["armbands"]} Armband setup(s)
 </div>
 <div class="portal-grid">
-  <div class="card portal-card"><div class="portal-icon">🚩</div><h3>Flag System Tools</h3><p>Create and delete setups, assign and release flags, inspect status, refresh Discord dashboards, and review audit history.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/flags">Open Flag System →</a><a class="btn" href="/servers/{guild.id}">Public Flag Pages</a></div></div>
-  <div class="card portal-card"><div class="portal-icon">🛠️</div><h3>Server Tools</h3><p>DayZ utilities live here separately from the Flag System. Your Teleporter Generator is here now, with room for more server tools later.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/tools">Open Server Tools →</a></div></div>
-  <div class="card portal-card"><div class="portal-icon">📋</div><h3>Advanced Task Manager</h3><p>Run your server staff workflow with priorities, Kanban statuses, due dates, assignments, checklists, comments, activity history, and recurring tasks.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/tasks">Open Task Manager →</a></div></div>
-  <div class="card portal-card"><div class="portal-icon">🤖</div><h3>Bot & Connection Status</h3><p>Check DayZ Manager's Discord connection, PostgreSQL health, latency, uptime, connected guild count, and registered commands.</p><div class="portal-actions"><a class="btn" href="/dashboard/{guild.id}/status">View Bot Status →</a></div></div>
-  <div class="card portal-card"><div class="portal-icon">🌐</div><h3>Live Public Pages</h3><p>Open the public-facing pages players use to see available and claimed flags for this Discord community.</p><div class="portal-actions"><a class="btn" href="/servers/{guild.id}">View Live Pages →</a></div></div>
+  <div class="card portal-card"><div class="portal-icon">📌</div><h3>Claim Systems</h3><p>Flags, Raincoats, and Armbands share the same full workflow: setup, assign, release, rename, status, refresh, history, delete, and live website pages.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/claims">Open Claim Systems →</a><a class="btn" href="/servers/{guild.id}">Live Pages</a></div></div>
+  <div class="card portal-card"><div class="portal-icon">🛠️</div><h3>Server Tools</h3><p>Use DayZ generators and server-owner utilities separately from claim management.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/tools">Open Server Tools →</a></div></div>
+  <div class="card portal-card"><div class="portal-icon">📋</div><h3>Advanced Task Manager</h3><p>Run server staff workflows with priorities, statuses, due dates, assignments, checklists, comments, history, and recurring tasks.</p><div class="portal-actions"><a class="btn primary" href="/dashboard/{guild.id}/tasks">Open Task Manager →</a></div></div>
+  <div class="card portal-card"><div class="portal-icon">🤖</div><h3>Bot & Connection Status</h3><p>Check Discord connection, PostgreSQL health, latency, uptime, connected guild count, and registered commands.</p><div class="portal-actions"><a class="btn" href="/dashboard/{guild.id}/status">View Bot Status →</a></div></div>
+  <div class="card portal-card"><div class="portal-icon">🌐</div><h3>Live Public Pages</h3><p>Players can view all public Flag, Raincoat, and Armband systems for this community.</p><div class="portal-actions"><a class="btn" href="/servers/{guild.id}">View Live Pages →</a></div></div>
 </div>
 </section></main>"""
-    return web.Response(text=_page(f"{guild.name} — Dashboard", body, _invite_url(bot), f"Private DayZ Manager dashboard for {guild.name}."), content_type="text/html", headers={"Cache-Control": "no-store"})
+    return web.Response(
+        text=_page(f"{guild.name} — Dashboard", body, _invite_url(bot)),
+        content_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def guild_flag_tools_page(request: web.Request) -> web.Response:
     bot, session, guild, setups = await _guild_portal_context(request)
     setup_json = json.dumps(setups).replace("<", "\\u003c")
-    maps_json = json.dumps([{"key": key, "name": value["name"]} for key, value in utils.MAP_DATA.items()]).replace("<", "\\u003c")
+    maps_json = json.dumps(
+        [{"key": key, "name": value["name"]} for key, value in utils.MAP_DATA.items()]
+    ).replace("<", "\\u003c")
     csrf = json.dumps(str(session.get("csrf_token") or ""))
-
-    setup_list = "".join(
-        f'<div class="setup-row"><div><strong>{html.escape(x["map_name"])} • {html.escape(x["server"])}</strong><div class="tiny">{html.escape(_setup_key(x["map"], x["server"]))}</div></div><a class="btn" href="{html.escape(x["url"] or "#")}">Live Page</a></div>'
-        for x in setups
-    ) or '<div class="empty">No Flag Systems yet. Use Create / Repair Setup below.</div>'
 
     body = f"""
 <main class="wrap"><section class="section" style="padding-top:32px">
-{_guild_portal_header(guild, "flags", "All Flag System management is grouped here. These controls mirror the Discord slash commands.")}
+{_guild_portal_header(guild, "flags", "Flags, Raincoats, and Armbands use the same complete management workflow.")}
 <div class="tool-page">
-  <section class="card tool-card"><span class="section-label">Current Systems</span><h3>🗂️ Flag System Setups</h3><p>All Flag Systems configured for this Discord server.</p><div id="setupList" class="setup-table">{setup_list}</div></section>
+  <section class="card tool-card">
+    <span class="section-label">Current Systems</span><h3>📌 Claim System Setups</h3>
+    <p>Every Flag, Raincoat, and Armband system configured for this Discord server.</p>
+    <div id="setupList" class="setup-table"></div>
+  </section>
 
   <div class="command-grid">
-    <section class="card tool-card"><span class="web-command">/setup</span><h3>➕ Create / Repair Setup</h3><p>Create a new Flag System or repair its Discord dashboard.</p><form id="setupForm" class="form-grid"><div class="field"><label>Map</label><select class="select" name="map" id="setupMap" required></select></div><div class="field"><label>Server Name</label><input class="input" name="server" maxlength="50" placeholder="Server 1" required></div><div class="field full"><button class="btn primary" type="submit">Create / Repair</button></div></form><div class="result" id="setupResult"></div></section>
+    <section class="card tool-card">
+      <span class="web-command">/setup</span><h3>➕ Create / Repair</h3>
+      <p>Create or repair any Claim System.</p>
+      <form id="setupForm" class="form-grid">
+        <div class="field"><label>System Type</label><select class="select" name="system_type"><option value="flags">🚩 Flags</option><option value="raincoats">🧥 Raincoats</option><option value="armbands">🎽 Armbands</option></select></div>
+        <div class="field"><label>Map</label><select class="select" name="map" id="setupMap" required></select></div>
+        <div class="field full"><label>Server Name</label><input class="input" name="server" maxlength="50" required></div>
+        <div class="field full"><button class="btn primary" type="submit">Create / Repair</button></div>
+      </form><div class="result" id="setupResult"></div>
+    </section>
 
-    <section class="card tool-card"><span class="web-command">/flagstatus</span><h3>📊 Flag Status</h3><p>Inspect counts, Discord channel/message health, and missing faction roles.</p><div class="field"><label>Setup</label><select class="select setup-select" id="statusSetup"></select></div><button class="btn" id="statusBtn" type="button" style="margin-top:12px">Check Status</button><div class="result" id="statusResult"></div></section>
+    <section class="card tool-card">
+      <span class="web-command">status</span><h3>📊 System Status</h3>
+      <p>Inspect counts, Discord dashboard health, and missing faction roles.</p>
+      <div class="field"><label>Claim System</label><select class="select setup-select" id="statusSetup"></select></div>
+      <button class="btn" id="statusBtn" type="button" style="margin-top:12px">Check Status</button>
+      <div class="result" id="statusResult"></div>
+    </section>
   </div>
 
   <div class="command-grid">
-    <section class="card tool-card"><span class="web-command">/assign</span><h3>🏴 Assign Flag</h3><p>Assign an available flag to a Discord role.</p><form id="assignForm" class="form-grid"><div class="field full"><label>Setup</label><select class="select setup-select" name="setup" required></select></div><div class="field"><label>Available Flag</label><select class="select" name="flag" id="assignFlag" required></select></div><div class="field"><label>Faction Role</label><select class="select" name="role_id" id="roleSelect" required><option>Loading roles…</option></select></div><div class="field full"><button class="btn primary" type="submit">Assign Flag</button></div></form><div class="result" id="assignResult"></div></section>
+    <section class="card tool-card">
+      <span class="web-command">/assign</span><h3>🟢 Assign</h3>
+      <p>Assign an available option to a faction role.</p>
+      <form id="assignForm" class="form-grid">
+        <div class="field full"><label>Claim System</label><select class="select setup-select" name="setup" required></select></div>
+        <div class="field"><label>Available Option</label><select class="select" name="item" id="assignItem" required></select></div>
+        <div class="field"><label>Faction Role</label><select class="select" name="role_id" id="roleSelect" required><option>Loading roles…</option></select></div>
+        <div class="field full"><button class="btn primary" type="submit">Assign</button></div>
+      </form><div class="result" id="assignResult"></div>
+    </section>
 
-    <section class="card tool-card"><span class="web-command">/release</span><h3>🏳️ Release Flag</h3><p>Return a claimed flag to the available pool.</p><form id="releaseForm" class="form-grid"><div class="field full"><label>Setup</label><select class="select setup-select" name="setup" required></select></div><div class="field full"><label>Claimed Flag</label><select class="select" name="flag" id="releaseFlag" required></select></div><div class="field full"><button class="btn" type="submit">Release Flag</button></div></form><div class="result" id="releaseResult"></div></section>
+    <section class="card tool-card">
+      <span class="web-command">/release</span><h3>🔴 Release</h3>
+      <p>Return a claimed option to the available pool.</p>
+      <form id="releaseForm" class="form-grid">
+        <div class="field full"><label>Claim System</label><select class="select setup-select" name="setup" required></select></div>
+        <div class="field full"><label>Claimed Option</label><select class="select" name="item" id="releaseItem" required></select></div>
+        <div class="field full"><button class="btn" type="submit">Release</button></div>
+      </form><div class="result" id="releaseResult"></div>
+    </section>
   </div>
 
   <div class="command-grid">
-    <section class="card tool-card"><span class="web-command">/flagrefresh</span><h3>🔄 Refresh Dashboard</h3><p>Force-refresh the public Components V2 dashboard in Discord.</p><div class="field"><label>Setup</label><select class="select setup-select" id="refreshSetup"></select></div><button class="btn" id="refreshBtn" type="button" style="margin-top:12px">Refresh Discord Dashboard</button><div class="result" id="refreshResult"></div></section>
+    <section class="card tool-card">
+      <span class="web-command">refresh</span><h3>🔄 Refresh Dashboard</h3>
+      <p>Force-refresh the selected Discord Components V2 dashboard.</p>
+      <div class="field"><label>Claim System</label><select class="select setup-select" id="refreshSetup"></select></div>
+      <button class="btn" id="refreshBtn" type="button" style="margin-top:12px">Refresh Dashboard</button>
+      <div class="result" id="refreshResult"></div>
+    </section>
 
-    <section class="card tool-card"><span class="web-command">/flaghistory</span><h3>🕘 Flag History</h3><p>Review recent claims and releases.</p><div class="form-grid"><div class="field"><label>Setup</label><select class="select setup-select" id="historySetup"></select></div><div class="field"><label>Entries</label><select class="select" id="historyLimit"><option>5</option><option selected>10</option><option>20</option></select></div></div><button class="btn" id="historyBtn" type="button" style="margin-top:12px">Load History</button><div class="result" id="historyResult"></div></section>
+    <section class="card tool-card">
+      <span class="web-command">history</span><h3>🕘 Assignment History</h3>
+      <p>Review recent assign/release activity.</p>
+      <div class="form-grid">
+        <div class="field"><label>Claim System</label><select class="select setup-select" id="historySetup"></select></div>
+        <div class="field"><label>Entries</label><select class="select" id="historyLimit"><option>5</option><option selected>10</option><option>20</option></select></div>
+      </div>
+      <button class="btn" id="historyBtn" type="button" style="margin-top:12px">Load History</button>
+      <div class="result" id="historyResult"></div>
+    </section>
   </div>
 
-  <section class="card tool-card"><span class="section-label">Website Management</span><h3>✏️ Rename Flag System</h3><p>Change an existing Flag System name without losing claims or history. DayZ Manager will also rename its Discord category/channel and refresh the live dashboard.</p><form id="renameForm" class="form-grid"><div class="field"><label>Existing Setup</label><select class="select setup-select" name="setup" required></select></div><div class="field"><label>New Setup Name</label><input class="input" name="new_server" maxlength="50" placeholder="Example: Server 2" required></div><div class="field full"><button class="btn primary" type="submit">Rename Flag System</button></div></form><div class="result" id="renameResult"></div></section>
+  <section class="card tool-card">
+    <span class="section-label">Website Management</span><h3>✏️ Rename Claim System</h3>
+    <p>Rename any Claim System without losing assignments or history. Its Discord channel and dashboard are updated too.</p>
+    <form id="renameForm" class="form-grid">
+      <div class="field"><label>Existing System</label><select class="select setup-select" name="setup" required></select></div>
+      <div class="field"><label>New Name</label><input class="input" name="new_server" maxlength="50" required></div>
+      <div class="field full"><button class="btn primary" type="submit">Rename Claim System</button></div>
+    </form><div class="result" id="renameResult"></div>
+  </section>
 
-  <section class="card tool-card"><span class="web-command">/deletesetup</span><h3>🗑️ Delete Flag System</h3><p>Permanently remove a setup. You can also delete its Discord channel and empty setup category.</p><form id="deleteForm" class="form-grid"><div class="field"><label>Setup</label><select class="select setup-select" name="setup" required></select></div><div class="field"><label>Discord Cleanup</label><label style="padding:12px;border:1px solid var(--line);border-radius:11px"><input type="checkbox" name="delete_channel" checked> Delete Discord flag channel too</label></div><div class="field full"><button class="btn danger-btn" type="submit">Delete Setup Permanently</button></div></form><div class="result" id="deleteResult"></div></section>
+  <section class="card tool-card">
+    <span class="web-command">/deletesetup</span><h3>🗑️ Delete Claim System</h3>
+    <p>Permanently remove any setup and optionally delete its Discord channel.</p>
+    <form id="deleteForm" class="form-grid">
+      <div class="field"><label>Claim System</label><select class="select setup-select" name="setup" required></select></div>
+      <div class="field"><label>Discord Cleanup</label><label style="padding:12px;border:1px solid var(--line);border-radius:11px"><input type="checkbox" name="delete_channel" checked> Delete Discord channel too</label></div>
+      <div class="field full"><button class="btn danger-btn" type="submit">Delete Permanently</button></div>
+    </form><div class="result" id="deleteResult"></div>
+  </section>
 </div>
 </section></main>
+
 <script>
 const GUILD={json.dumps(str(guild.id))},CSRF={csrf},MAPS={maps_json};
 let SETUPS={setup_json},ROLES=[];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
-const key=s=>s.map+'::'+s.server;
-const unpack=v=>{{const i=v.indexOf('::');return {{map:v.slice(0,i),server:v.slice(i+2)}}}};
+const key=s=>s.system_type+'::'+s.map+'::'+s.server;
+const unpack=v=>{{const p=v.split('::');return {{system_type:p[0],map:p[1],server:p.slice(2).join('::')}}}};
 const show=(id,msg,ok=true)=>{{const e=document.getElementById(id);e.textContent=msg;e.classList.add('show');e.style.borderColor=ok?'#285642':'#6d2637'}};
 async function api(path,opt={{}}){{opt.headers=Object.assign({{'X-CSRF-Token':CSRF}},opt.headers||{{}});const r=await fetch('/api/manage/'+encodeURIComponent(GUILD)+path,opt);let d;try{{d=await r.json()}}catch{{d={{error:await r.text()}}}}if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d}}
+function label(s){{return s.system_emoji+' '+s.system_name+' • '+s.map_name+' • '+s.server}}
 function fillMaps(){{document.getElementById('setupMap').innerHTML=MAPS.map(m=>'<option value="'+esc(m.key)+'">'+esc(m.name)+'</option>').join('')}}
-function fillSetups(){{const options=SETUPS.length?SETUPS.map(s=>'<option value="'+esc(key(s))+'">'+esc(s.map_name+' • '+s.server)+'</option>').join(''):'<option value="">No setups yet</option>';document.querySelectorAll('.setup-select').forEach(el=>el.innerHTML=options);updateFlagChoices()}}
-function renderSetups(){{document.getElementById('setupList').innerHTML=SETUPS.length?SETUPS.map(s=>'<div class="setup-row"><div><strong>'+esc(s.map_name+' • '+s.server)+'</strong><div class="tiny">'+esc(key(s))+'</div></div><a class="btn" href="'+esc(s.url||'#')+'">Live Page</a></div>').join(''):'<div class="empty">No Flag Systems yet. Use Create / Repair Setup below.</div>'}}
-async function loadState(){{try{{const d=await api('/state');SETUPS=d.setups;ROLES=d.roles;fillSetups();renderSetups();document.getElementById('roleSelect').innerHTML=ROLES.length?ROLES.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join(''):'<option value="">No assignable roles found</option>'}}catch(err){{console.error('DayZ Manager state load failed:',err);document.getElementById('roleSelect').innerHTML='<option value="">Unable to load roles</option>';const list=document.getElementById('setupList');if(list)list.innerHTML='<div class="empty">⚠️ Unable to load setups: '+esc(err.message)+'</div>';}}}}
-async function updateFlagChoices(){{try{{const ae=document.querySelector('#assignForm .setup-select');if(ae&&ae.value){{const s=unpack(ae.value),d=await api('/flags?map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server));document.getElementById('assignFlag').innerHTML=d.available.map(x=>'<option value="'+esc(x.flag)+'">'+esc(x.flag)+'</option>').join('')||'<option value="">No available flags</option>'}}const re=document.querySelector('#releaseForm .setup-select');if(re&&re.value){{const s=unpack(re.value),d=await api('/flags?map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server));document.getElementById('releaseFlag').innerHTML=d.claimed.map(x=>'<option value="'+esc(x.flag)+'">'+esc(x.flag+' — '+x.role_name)+'</option>').join('')||'<option value="">No claimed flags</option>'}}}}catch(e){{}}}}
-document.addEventListener('change',e=>{{if(e.target.classList.contains('setup-select'))updateFlagChoices()}});
-document.getElementById('setupForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),d=await api('/setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(Object.fromEntries(f))}});show('setupResult',d.message);await loadState()}}catch(x){{show('setupResult',x.message,false)}}}};
-document.getElementById('assignForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),s=unpack(f.get('setup')),d=await api('/assign',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,flag:f.get('flag'),role_id:f.get('role_id')}})}});show('assignResult',d.message);await loadState()}}catch(x){{show('assignResult',x.message,false)}}}};
-document.getElementById('releaseForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),s=unpack(f.get('setup')),d=await api('/release',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,flag:f.get('flag')}})}});show('releaseResult',d.message);await loadState()}}catch(x){{show('releaseResult',x.message,false)}}}};
-document.getElementById('renameForm').onsubmit=async e=>{{e.preventDefault();const f=new FormData(e.target),old=unpack(f.get('setup')),newName=String(f.get('new_server')||'').trim();if(!newName)return show('renameResult','Enter a new setup name.',false);if(!confirm('Rename '+old.map+' • '+old.server+' to '+newName+'?'))return;try{{const d=await api('/rename-setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...old,new_server:newName}})}});show('renameResult',d.message);e.target.reset();await loadState()}}catch(x){{show('renameResult',x.message,false)}}}};
-document.getElementById('deleteForm').onsubmit=async e=>{{e.preventDefault();const f=new FormData(e.target),s=unpack(f.get('setup'));if(!confirm('Permanently delete '+s.map+' • '+s.server+'?'))return;try{{const d=await api('/delete-setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,delete_channel:f.get('delete_channel')==='on'}})}});show('deleteResult',d.message);await loadState()}}catch(x){{show('deleteResult',x.message,false)}}}};
-document.getElementById('statusBtn').onclick=async()=>{{try{{const s=unpack(document.getElementById('statusSetup').value),d=await api('/status?map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server));show('statusResult',JSON.stringify(d,null,2))}}catch(x){{show('statusResult',x.message,false)}}}};
+function fillSetups(){{const options=SETUPS.length?SETUPS.map(s=>'<option value="'+esc(key(s))+'">'+esc(label(s))+'</option>').join(''):'<option value="">No claim systems yet</option>';document.querySelectorAll('.setup-select').forEach(el=>el.innerHTML=options);updateChoices()}}
+function renderSetups(){{document.getElementById('setupList').innerHTML=SETUPS.length?SETUPS.map(s=>'<div class="setup-row"><div><strong>'+esc(label(s))+'</strong><div class="tiny">'+esc(s.system_type+' • '+s.map+' • '+s.server)+'</div></div><a class="btn" href="'+esc(s.url||'#')+'">Live Page</a></div>').join(''):'<div class="empty">No claim systems yet.</div>'}}
+async function loadState(){{try{{const d=await api('/state');SETUPS=d.setups;ROLES=d.roles;fillSetups();renderSetups();document.getElementById('roleSelect').innerHTML=ROLES.length?ROLES.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join(''):'<option value="">No assignable roles</option>'}}catch(err){{show('setupResult','Unable to load Claim Systems: '+err.message,false)}}}}
+async function choicesFor(v){{const s=unpack(v);return await api('/flags?system_type='+encodeURIComponent(s.system_type)+'&map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server))}}
+async function updateChoices(){{try{{const a=document.querySelector('#assignForm .setup-select');if(a&&a.value){{const d=await choicesFor(a.value);document.getElementById('assignItem').innerHTML=d.available.map(x=>'<option value="'+esc(x.flag)+'">'+esc(x.flag)+'</option>').join('')||'<option value="">Nothing available</option>'}}const r=document.querySelector('#releaseForm .setup-select');if(r&&r.value){{const d=await choicesFor(r.value);document.getElementById('releaseItem').innerHTML=d.claimed.map(x=>'<option value="'+esc(x.flag)+'">'+esc(x.flag+' — '+x.role_name)+'</option>').join('')||'<option value="">Nothing claimed</option>'}}}}catch(err){{console.error(err)}}}}
+document.addEventListener('change',e=>{{if(e.target.classList.contains('setup-select'))updateChoices()}});
+document.getElementById('setupForm').onsubmit=async e=>{{e.preventDefault();try{{const o=Object.fromEntries(new FormData(e.target));const d=await api('/setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}});show('setupResult',d.message);await loadState()}}catch(x){{show('setupResult',x.message,false)}}}};
+document.getElementById('assignForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),s=unpack(f.get('setup'));const d=await api('/assign',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,item:f.get('item'),role_id:f.get('role_id')}})}});show('assignResult',d.message);await loadState()}}catch(x){{show('assignResult',x.message,false)}}}};
+document.getElementById('releaseForm').onsubmit=async e=>{{e.preventDefault();try{{const f=new FormData(e.target),s=unpack(f.get('setup'));const d=await api('/release',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,item:f.get('item')}})}});show('releaseResult',d.message);await loadState()}}catch(x){{show('releaseResult',x.message,false)}}}};
+document.getElementById('renameForm').onsubmit=async e=>{{e.preventDefault();const f=new FormData(e.target),s=unpack(f.get('setup')),newName=String(f.get('new_server')||'').trim();if(!newName)return show('renameResult','Enter a new name.',false);if(!confirm('Rename this Claim System to '+newName+'?'))return;try{{const d=await api('/rename-setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,new_server:newName}})}});show('renameResult',d.message);e.target.reset();await loadState()}}catch(x){{show('renameResult',x.message,false)}}}};
+document.getElementById('deleteForm').onsubmit=async e=>{{e.preventDefault();const f=new FormData(e.target),s=unpack(f.get('setup'));if(!confirm('Permanently delete this Claim System?'))return;try{{const d=await api('/delete-setup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...s,delete_channel:f.get('delete_channel')==='on'}})}});show('deleteResult',d.message);await loadState()}}catch(x){{show('deleteResult',x.message,false)}}}};
+document.getElementById('statusBtn').onclick=async()=>{{try{{const s=unpack(document.getElementById('statusSetup').value),d=await api('/status?system_type='+encodeURIComponent(s.system_type)+'&map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server));show('statusResult',JSON.stringify(d,null,2))}}catch(x){{show('statusResult',x.message,false)}}}};
 document.getElementById('refreshBtn').onclick=async()=>{{try{{const s=unpack(document.getElementById('refreshSetup').value),d=await api('/refresh',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(s)}});show('refreshResult',d.message)}}catch(x){{show('refreshResult',x.message,false)}}}};
-document.getElementById('historyBtn').onclick=async()=>{{try{{const s=unpack(document.getElementById('historySetup').value),l=document.getElementById('historyLimit').value,d=await api('/history?map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server)+'&limit='+l);show('historyResult',d.entries.length?d.entries.map(x=>x.when+' — '+x.flag+' '+x.action+' — '+x.role+' — '+x.actor).join('\\n'):'No history yet.')}}catch(x){{show('historyResult',x.message,false)}}}};
+document.getElementById('historyBtn').onclick=async()=>{{try{{const s=unpack(document.getElementById('historySetup').value),l=document.getElementById('historyLimit').value,d=await api('/history?system_type='+encodeURIComponent(s.system_type)+'&map='+encodeURIComponent(s.map)+'&server='+encodeURIComponent(s.server)+'&limit='+l);show('historyResult',d.entries.length?d.entries.map(x=>x.when+' — '+x.item+' '+x.action+' — '+x.role+' — '+x.actor).join('\\n'):'No history yet.')}}catch(x){{show('historyResult',x.message,false)}}}};
 fillMaps();fillSetups();loadState();
 </script>"""
-    return web.Response(text=_page(f"{guild.name} — Flag System Tools", body, _invite_url(bot), f"Flag System tools for {guild.name}."), content_type="text/html", headers={"Cache-Control": "no-store"})
+    return web.Response(
+        text=_page(f"{guild.name} — Claim Systems", body, _invite_url(bot)),
+        content_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def guild_server_tools_page(request: web.Request) -> web.Response:
@@ -1484,25 +1658,28 @@ document.getElementById('refreshStatus').onclick=()=>loadStatus().catch(alert);l
 
 
 async def manage_state_api(request: web.Request) -> web.Response:
-    bot: commands.Bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
-    sessions = await utils.get_guild_flag_setups(str(guild.id))
+
+    sessions = await utils.get_claim_system_setups(str(guild.id))
     setups = []
     for row in sessions:
+        system_type = utils.normalize_system_type(row["system_type"])
         map_key = utils.normalize_map(row["map"])
         server = utils.normalize_server(row["server"])
+        info = utils.CLAIM_SYSTEMS[system_type]
         setups.append({
+            "system_type": system_type,
+            "system_name": info["name"],
+            "system_emoji": info["emoji"],
             "map": map_key,
             "map_name": utils.MAP_DATA.get(map_key, {}).get("name", map_key.title()),
             "server": server,
-            "url": flag_page_url(guild.id, map_key, server),
+            "url": claim_system_page_url(guild.id, system_type, map_key, server),
         })
-    setups.sort(key=lambda x: (x["map_name"].casefold(), x["server"].casefold()))
-    # Fetch roles directly from Discord so the web dashboard does not depend
-    # on an incomplete/stale local role cache.
+
     try:
         discord_roles = await guild.fetch_roles()
     except (discord.Forbidden, discord.HTTPException):
@@ -1519,142 +1696,212 @@ async def manage_state_api(request: web.Request) -> web.Response:
         "guild_name": guild.name,
         "setups": setups,
         "roles": roles,
-        "teleporter_enabled": True,
     })
 
 
 async def manage_flags_api(request: web.Request) -> web.Response:
-    bot: commands.Bot = request.app["bot"]
+    bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
+
+    system_type = utils.normalize_system_type(request.query.get("system_type", "flags"))
     map_key = utils.normalize_map(request.query.get("map", ""))
     server = utils.normalize_server(request.query.get("server", ""))
-    payload = await _get_payload(bot, str(guild.id), map_key, server)
+
+    payload = await _claim_system_payload(
+        bot, str(guild.id), system_type, map_key, server
+    )
     if not payload:
-        return web.json_response({"error": "Flag setup not found."}, status=404)
-    return web.json_response({"available": payload["available"], "claimed": payload["claimed"]})
+        return web.json_response({"error": "Claim System not found."}, status=404)
+
+    return web.json_response({
+        "system_type": system_type,
+        "available": payload["available"],
+        "claimed": payload["claimed"],
+    })
 
 
 async def manage_setup_api(request: web.Request) -> web.Response:
     from cogs.ui.flag_views import FlagManageView
-    bot: commands.Bot = request.app["bot"]
+    from cogs.ui.gear_views import GearManageView
+
+    bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
-        return web.json_response({"error": "Invalid session security token. Refresh the page and try again."}, status=403)
+        return web.json_response({"error": "Invalid session security token."}, status=403)
+
     data = await _request_json(request)
+    system_type = utils.normalize_system_type(data.get("system_type", "flags"))
     map_key = utils.normalize_map(data.get("map", ""))
     server = utils.normalize_server(data.get("server", ""))
+
+    if system_type not in utils.CLAIM_SYSTEMS:
+        return web.json_response({"error": "Invalid Claim System type."}, status=400)
     if map_key not in utils.MAP_DATA:
         return web.json_response({"error": "Invalid map."}, status=400)
     if not server or len(server) > 50:
         return web.json_response({"error": "Server name must be 1–50 characters."}, status=400)
 
-    await utils.initialize_flags(str(guild.id), map_key, server)
+    await utils.initialize_claim_system(
+        str(guild.id), map_key, server, system_type
+    )
+    info = utils.CLAIM_SYSTEMS[system_type]
     map_info = utils.MAP_DATA[map_key]
     setup_cog = bot.get_cog("Setup")
     if not setup_cog:
         return web.json_response({"error": "Setup service is not loaded."}, status=503)
 
     try:
-        category = await setup_cog.get_or_create_category(guild, f"🌍 {map_info['name']} — {server}", "Flag System Setup from web dashboard")
-        channel = await setup_cog.get_or_create_text_channel(
-            guild, utils.channel_name_for(map_key, server), category,
-            "Flag System Setup from web dashboard",
-            f"📜 **{map_info['name']} Flag System Initialized**\n🖥️ Server: **{server}**",
+        category = await setup_cog.get_or_create_category(
+            guild,
+            utils.category_name_for(map_key, server),
+            f"{info['name']} setup from web dashboard",
         )
-        view = await FlagManageView.create(guild, map_key, server, bot)
-        stored = await utils.get_flag_message(str(guild.id), map_key, server)
+        channel = await setup_cog.get_or_create_text_channel(
+            guild,
+            utils.system_channel_name_for(system_type, server),
+            category,
+            f"{info['name']} setup from web dashboard",
+            f"{info['emoji']} **{map_info['name']} {info['name']} System Initialized**\n🖥️ Server: **{server}**",
+        )
+
+        if system_type == "flags":
+            view = await FlagManageView.create(guild, map_key, server, bot)
+        else:
+            view = await GearManageView.create(
+                guild, map_key, server, system_type, bot
+            )
+
+        stored = await utils.get_claim_system_message(
+            str(guild.id), map_key, server, system_type
+        )
         message = None
         if stored:
             old_channel = guild.get_channel(int(stored["channel_id"]))
             if isinstance(old_channel, discord.TextChannel):
                 try:
                     message = await old_channel.fetch_message(int(stored["message_id"]))
-                    if getattr(message.flags, "components_v2", False):
-                        await message.edit(view=view)
-                    else:
-                        await message.delete()
-                        message = None
+                    await message.edit(view=view)
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     message = None
+
         if message is None:
             message = await channel.send(view=view)
-        await utils.save_flag_message(str(guild.id), map_key, server, str(message.channel.id), str(message.id))
+
+        await utils.save_claim_system_message(
+            str(guild.id), map_key, server, system_type,
+            str(message.channel.id), str(message.id)
+        )
+
         try:
             bot.add_view(view, message_id=message.id)
         except ValueError:
             pass
-        return web.json_response({"ok": True, "message": f"✅ Setup ready: {map_info['name']} • {server} in #{channel.name}."})
+
+        return web.json_response({
+            "ok": True,
+            "message": f"✅ {info['name']} setup ready: {map_info['name']} • {server} in #{channel.name}."
+        })
     except discord.Forbidden:
-        return web.json_response({"error": "DayZ Manager is missing Discord permissions required to create/manage the setup channel."}, status=403)
+        return web.json_response({"error": "DayZ Manager is missing Discord channel permissions."}, status=403)
     except discord.HTTPException as exc:
-        log.exception("Web setup Discord error | guild=%s", guild.id)
         return web.json_response({"error": f"Discord rejected the setup request: {exc}"}, status=502)
 
 
 async def manage_assign_api(request: web.Request) -> web.Response:
     from cogs.ui.flag_views import FlagManageView
-    bot: commands.Bot = request.app["bot"]
+    from cogs.ui.gear_views import GearManageView
+
+    bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
         return web.json_response({"error": "Invalid session security token."}, status=403)
+
     data = await _request_json(request)
-    map_key, server = utils.normalize_map(data.get("map", "")), utils.normalize_server(data.get("server", ""))
-    flag = utils.normalize_flag(data.get("flag", ""))
+    system_type = utils.normalize_system_type(data.get("system_type", "flags"))
+    map_key = utils.normalize_map(data.get("map", ""))
+    server = utils.normalize_server(data.get("server", ""))
+    item = utils.normalize_system_item(
+        system_type, data.get("item") or data.get("flag", "")
+    )
+
     try:
         role = guild.get_role(int(data.get("role_id", "0")))
     except (TypeError, ValueError):
         role = None
-    if not flag:
-        return web.json_response({"error": "Invalid flag."}, status=400)
-    if not role or role.is_default() or role.managed:
-        return web.json_response({"error": "That Discord role cannot own a flag."}, status=400)
-    if not await utils.flag_session_exists(str(guild.id), map_key, server):
-        return web.json_response({"error": "Flag setup not found."}, status=404)
 
-    result = await utils.claim_flag(str(guild.id), map_key, server, flag, str(role.id), actor_id=str(session["user"]["id"]), source="web:/assign")
+    if not item:
+        return web.json_response({"error": "Invalid Claim System option."}, status=400)
+    if not role or role.is_default() or role.managed:
+        return web.json_response({"error": "That Discord role cannot own this option."}, status=400)
+
+    actor_id, _ = _web_actor(session)
+    result = await utils.claim_system_item(
+        str(guild.id), map_key, server, system_type, item, str(role.id),
+        actor_id=actor_id, source="web:/assign"
+    )
     if not result:
-        return web.json_response({"error": "That flag is already claimed or unavailable."}, status=409)
-    await FlagManageView.create(guild, map_key, server, bot)
-    view = await FlagManageView.create(guild, map_key, server, bot)
+        return web.json_response({"error": "That option is already claimed or unavailable."}, status=409)
+
+    if system_type == "flags":
+        view = await FlagManageView.create(guild, map_key, server, bot)
+    else:
+        view = await GearManageView.create(guild, map_key, server, system_type, bot)
+
     await view.refresh_message()
-    return web.json_response({"ok": True, "message": f"✅ {flag} assigned to {role.name}."})
+    return web.json_response({"ok": True, "message": f"✅ {item} assigned to {role.name}."})
 
 
 async def manage_release_api(request: web.Request) -> web.Response:
     from cogs.ui.flag_views import FlagManageView
-    bot: commands.Bot = request.app["bot"]
+    from cogs.ui.gear_views import GearManageView
+
+    bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
         return web.json_response({"error": "Invalid session security token."}, status=403)
+
     data = await _request_json(request)
-    map_key, server = utils.normalize_map(data.get("map", "")), utils.normalize_server(data.get("server", ""))
-    flag = utils.normalize_flag(data.get("flag", ""))
-    if not flag:
-        return web.json_response({"error": "Invalid flag."}, status=400)
-    if not await utils.flag_session_exists(str(guild.id), map_key, server):
-        return web.json_response({"error": "Flag setup not found."}, status=404)
-    result = await utils.release_flag(str(guild.id), map_key, server, flag, actor_id=str(session["user"]["id"]), source="web:/release")
+    system_type = utils.normalize_system_type(data.get("system_type", "flags"))
+    map_key = utils.normalize_map(data.get("map", ""))
+    server = utils.normalize_server(data.get("server", ""))
+    item = utils.normalize_system_item(
+        system_type, data.get("item") or data.get("flag", "")
+    )
+
+    if not item:
+        return web.json_response({"error": "Invalid Claim System option."}, status=400)
+
+    actor_id, _ = _web_actor(session)
+    result = await utils.release_system_item(
+        str(guild.id), map_key, server, system_type, item,
+        actor_id=actor_id, source="web:/release"
+    )
     if not result:
-        return web.json_response({"error": "That flag is already available or does not exist."}, status=409)
-    view = await FlagManageView.create(guild, map_key, server, bot)
+        return web.json_response({"error": "That option is already available or missing."}, status=409)
+
+    if system_type == "flags":
+        view = await FlagManageView.create(guild, map_key, server, bot)
+    else:
+        view = await GearManageView.create(guild, map_key, server, system_type, bot)
+
     await view.refresh_message()
-    return web.json_response({"ok": True, "message": f"✅ {flag} released."})
+    return web.json_response({"ok": True, "message": f"✅ {item} released."})
 
 
 async def manage_rename_setup_api(request: web.Request) -> web.Response:
-    bot: commands.Bot = request.app["bot"]
+    bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
@@ -1663,33 +1910,27 @@ async def manage_rename_setup_api(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid session security token."}, status=403)
 
     data = await _request_json(request)
+    system_type = utils.normalize_system_type(data.get("system_type", "flags"))
     map_key = utils.normalize_map(data.get("map", ""))
     old_server = utils.normalize_server(data.get("server", ""))
     new_server = utils.normalize_server(data.get("new_server", ""))
 
-    if map_key not in utils.MAP_DATA:
-        return web.json_response({"error": "Invalid map."}, status=400)
-    if not old_server:
-        return web.json_response({"error": "Select an existing Flag System."}, status=400)
     if not new_server or len(new_server) > 50:
         return web.json_response({"error": "New setup name must be 1–50 characters."}, status=400)
-    if old_server == new_server:
-        return web.json_response({"error": "The new setup name is the same as the current name."}, status=400)
 
-    stored = await utils.get_flag_message(str(guild.id), map_key, old_server)
+    stored = await utils.get_claim_system_message(
+        str(guild.id), map_key, old_server, system_type
+    )
     channel = None
     category = None
     if stored:
-        try:
-            channel = guild.get_channel(int(stored["channel_id"]))
-        except (TypeError, ValueError):
-            channel = None
+        channel = guild.get_channel(int(stored["channel_id"]))
         if isinstance(channel, discord.TextChannel):
             category = channel.category
 
     try:
-        counts = await utils.rename_flag_session(
-            str(guild.id), map_key, old_server, new_server
+        counts = await utils.rename_claim_system(
+            str(guild.id), map_key, old_server, new_server, system_type
         )
     except LookupError as exc:
         return web.json_response({"error": str(exc)}, status=404)
@@ -1698,42 +1939,41 @@ async def manage_rename_setup_api(request: web.Request) -> web.Response:
     except ValueError as exc:
         return web.json_response({"error": str(exc)}, status=400)
 
+    info = utils.CLAIM_SYSTEMS[system_type]
     warnings = []
-    map_name = utils.MAP_DATA[map_key]["name"]
-    reason = f"DayZ Manager Flag System renamed by Discord user {session['user']['id']}"
 
     if isinstance(channel, discord.TextChannel):
         try:
-            await channel.edit(name=utils.channel_name_for(map_key, new_server), reason=reason)
-        except discord.Forbidden:
-            warnings.append("I could not rename the Discord channel because Manage Channels permission is missing.")
-        except discord.HTTPException:
-            warnings.append("Discord returned an error while renaming the flag channel.")
+            await channel.edit(
+                name=utils.system_channel_name_for(system_type, new_server),
+                reason=f"DayZ Manager {info['name']} rename"
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            warnings.append("Could not rename the Discord channel.")
 
-    if category is not None:
+    if category is not None and len(category.channels) == 1:
         try:
-            await category.edit(name=f"🌍 {map_name} — {new_server}", reason=reason)
-        except discord.Forbidden:
-            warnings.append("I could not rename the Discord category because Manage Channels permission is missing.")
-        except discord.HTTPException:
-            warnings.append("Discord returned an error while renaming the setup category.")
+            await category.edit(
+                name=utils.category_name_for(map_key, new_server),
+                reason=f"DayZ Manager {info['name']} rename"
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            warnings.append("Could not rename the Discord category.")
 
-    # The database rename has already moved the stored message record, so refresh
-    # using the new key to update the displayed server name and button identifiers.
-    ok, refresh_note = await _refresh_flag_dashboard(bot, guild, map_key, new_server)
+    ok, note = await _refresh_claim_dashboard(
+        bot, guild, map_key, new_server, system_type
+    )
     if not ok:
-        warnings.append(refresh_note)
+        warnings.append(note)
 
-    message = f"✅ Renamed {map_name} • {old_server} → {new_server}. Claims and history were preserved."
+    message = f"✅ Renamed {info['name']} • {old_server} → {new_server}. Assignments and history were preserved."
     if warnings:
         message += "\n⚠️ " + " ".join(warnings)
+
     return web.json_response({
         "ok": True,
         "message": message,
-        "map": map_key,
-        "old_server": old_server,
-        "new_server": new_server,
-        "url": flag_page_url(guild.id, map_key, new_server),
+        "url": claim_system_page_url(guild.id, system_type, map_key, new_server),
         "counts": counts,
         "warnings": warnings,
     })
@@ -1746,21 +1986,37 @@ async def manage_delete_setup_api(request: web.Request) -> web.Response:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
         return web.json_response({"error": "Invalid session security token."}, status=403)
+
     data = await _request_json(request)
-    map_key, server = utils.normalize_map(data.get("map", "")), utils.normalize_server(data.get("server", ""))
-    if not await utils.flag_session_exists(str(guild.id), map_key, server):
-        return web.json_response({"error": "Setup not found in this Discord server."}, status=404)
-    stored = await utils.get_flag_message(str(guild.id), map_key, server)
-    counts = await utils.delete_flag_session(str(guild.id), map_key, server)
+    system_type = utils.normalize_system_type(data.get("system_type", "flags"))
+    map_key = utils.normalize_map(data.get("map", ""))
+    server = utils.normalize_server(data.get("server", ""))
+
+    if not await utils.claim_system_exists(
+        str(guild.id), map_key, server, system_type
+    ):
+        return web.json_response({"error": "Claim System not found."}, status=404)
+
+    stored = await utils.get_claim_system_message(
+        str(guild.id), map_key, server, system_type
+    )
+    counts = await utils.delete_claim_system(
+        str(guild.id), map_key, server, system_type
+    )
+
     note = "Database setup removed."
     category_deleted = False
+
     if bool(data.get("delete_channel", True)) and stored:
         channel = guild.get_channel(int(stored["channel_id"]))
         if isinstance(channel, discord.TextChannel):
             category = channel.category
-            setup_only = bool(category and len(category.channels) == 1 and category.channels[0].id == channel.id)
+            setup_only = bool(
+                category and len(category.channels) == 1
+                and category.channels[0].id == channel.id
+            )
             try:
-                await channel.delete(reason=f"DayZ Manager web setup deletion by Discord user {session['user']['id']}")
+                await channel.delete(reason="DayZ Manager Claim System deletion")
                 note = "Database setup and Discord channel removed."
                 if setup_only and category:
                     try:
@@ -1769,10 +2025,17 @@ async def manage_delete_setup_api(request: web.Request) -> web.Response:
                     except (discord.Forbidden, discord.HTTPException):
                         pass
             except discord.Forbidden:
-                note = "Database setup removed, but the bot lacks permission to delete the Discord channel."
+                note = "Database removed, but the bot lacks permission to delete the Discord channel."
             except discord.HTTPException:
-                note = "Database setup removed, but Discord returned an error deleting the channel."
-    return web.json_response({"ok": True, "message": f"🗑️ {map_key.title()} • {server} deleted. {note}" + (" Empty category also removed." if category_deleted else ""), "counts": counts})
+                note = "Database removed, but Discord returned an error deleting the channel."
+
+    info = utils.CLAIM_SYSTEMS[system_type]
+    return web.json_response({
+        "ok": True,
+        "message": f"🗑️ {info['name']} • {map_key.title()} • {server} deleted. {note}"
+                   + (" Empty category also removed." if category_deleted else ""),
+        "counts": counts,
+    })
 
 
 async def manage_status_api(request: web.Request) -> web.Response:
@@ -1780,14 +2043,33 @@ async def manage_status_api(request: web.Request) -> web.Response:
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
-    map_key, server = utils.normalize_map(request.query.get("map", "")), utils.normalize_server(request.query.get("server", ""))
-    flags = await utils.get_all_flags(str(guild.id), map_key, server)
-    if not flags:
-        return web.json_response({"error": "Flag setup not found."}, status=404)
-    stored = await utils.get_flag_message(str(guild.id), map_key, server)
-    claimed = [r for r in flags if r["status"] == "❌" and r["role_id"]]
-    missing_roles = sum(1 for r in claimed if not guild.get_role(int(r["role_id"])))
-    channel_state, message_state = "Not stored", "Not stored"
+
+    system_type = utils.normalize_system_type(request.query.get("system_type", "flags"))
+    map_key = utils.normalize_map(request.query.get("map", ""))
+    server = utils.normalize_server(request.query.get("server", ""))
+
+    rows = await utils.get_claim_system_items(
+        str(guild.id), map_key, server, system_type
+    )
+    if not rows:
+        return web.json_response({"error": "Claim System not found."}, status=404)
+
+    stored = await utils.get_claim_system_message(
+        str(guild.id), map_key, server, system_type
+    )
+    claimed = [row for row in rows if row["role_id"] or row["status"] == "❌"]
+
+    missing_roles = 0
+    for row in claimed:
+        if row["role_id"]:
+            try:
+                if guild.get_role(int(row["role_id"])) is None:
+                    missing_roles += 1
+            except (TypeError, ValueError):
+                missing_roles += 1
+
+    channel_state = "Not stored"
+    message_state = "Not stored"
     if stored:
         channel = guild.get_channel(int(stored["channel_id"]))
         channel_state = f"#{channel.name}" if isinstance(channel, discord.TextChannel) else "Missing channel"
@@ -1801,12 +2083,15 @@ async def manage_status_api(request: web.Request) -> web.Response:
                 message_state = "No permission"
             except discord.HTTPException:
                 message_state = "Discord error"
+
+    info = utils.CLAIM_SYSTEMS[system_type]
     return web.json_response({
+        "type": info["name"],
         "map": utils.MAP_DATA.get(map_key, {}).get("name", map_key.title()),
         "server": server,
-        "available": len(flags) - len(claimed),
+        "available": len(rows) - len(claimed),
         "claimed": len(claimed),
-        "total": len(flags),
+        "total": len(rows),
         "channel": channel_state,
         "dashboard_message": message_state,
         "missing_roles": missing_roles,
@@ -1814,17 +2099,26 @@ async def manage_status_api(request: web.Request) -> web.Response:
 
 
 async def manage_refresh_api(request: web.Request) -> web.Response:
-    bot: commands.Bot = request.app["bot"]
+    bot = request.app["bot"]
     guild_id = request.match_info["guild_id"]
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
     if not _require_csrf(request, session):
         return web.json_response({"error": "Invalid session security token."}, status=403)
+
     data = await _request_json(request)
-    map_key, server = utils.normalize_map(data.get("map", "")), utils.normalize_server(data.get("server", ""))
-    ok, message = await _refresh_flag_dashboard(bot, guild, map_key, server)
-    return web.json_response({"ok": ok, "message": ("✅ " if ok else "⚠️ ") + message}, status=200 if ok else 404)
+    system_type = utils.normalize_system_type(data.get("system_type", "flags"))
+    map_key = utils.normalize_map(data.get("map", ""))
+    server = utils.normalize_server(data.get("server", ""))
+
+    ok, message = await _refresh_claim_dashboard(
+        bot, guild, map_key, server, system_type
+    )
+    return web.json_response(
+        {"ok": ok, "message": ("✅ " if ok else "⚠️ ") + message},
+        status=200 if ok else 404,
+    )
 
 
 async def manage_history_api(request: web.Request) -> web.Response:
@@ -1832,12 +2126,20 @@ async def manage_history_api(request: web.Request) -> web.Response:
     session, guild = await _authorized_web_guild(request, guild_id)
     if not session or not guild:
         return web.json_response({"error": "Administrator access required."}, status=403)
-    map_key, server = utils.normalize_map(request.query.get("map", "")), utils.normalize_server(request.query.get("server", ""))
+
+    system_type = utils.normalize_system_type(request.query.get("system_type", "flags"))
+    map_key = utils.normalize_map(request.query.get("map", ""))
+    server = utils.normalize_server(request.query.get("server", ""))
+
     try:
         limit = max(1, min(20, int(request.query.get("limit", "10"))))
     except ValueError:
         limit = 10
-    rows = await utils.get_flag_history(str(guild.id), map_key, server, limit)
+
+    rows = await utils.get_claim_system_history(
+        str(guild.id), map_key, server, system_type, limit
+    )
+
     entries = []
     for row in rows:
         role_name = "No role"
@@ -1847,15 +2149,16 @@ async def manage_history_api(request: web.Request) -> web.Response:
                 role_name = role.name if role else f"Missing role {row['role_id']}"
             except (TypeError, ValueError):
                 role_name = "Unknown role"
-        actor = str(row["actor_id"] or "Unknown")
+
         entries.append({
-            "flag": str(row["flag"]),
+            "item": str(row["flag"]),
             "action": str(row["action"]).title(),
             "role": role_name,
-            "actor": actor,
+            "actor": str(row["actor_id"] or "Unknown"),
             "when": row["created_at"].strftime("%Y-%m-%d %H:%M UTC"),
             "source": str(row["source"]),
         })
+
     return web.json_response({"entries": entries})
 
 
@@ -2249,7 +2552,10 @@ async def my_setups_api(request: web.Request) -> web.Response:
     if not session:
         return web.json_response({"error": "Authentication required."}, status=401)
     allowed = set(session.get("guild_ids", []))
-    setups = [item for item in await _public_setups(bot) if item["guild_id"] in allowed]
+    setups = [
+        item for item in await _public_claim_setups(bot)
+        if item["guild_id"] in allowed
+    ]
     response = web.json_response({"setups": setups})
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -2257,7 +2563,7 @@ async def my_setups_api(request: web.Request) -> web.Response:
 
 async def setups_api(request: web.Request) -> web.Response:
     bot: commands.Bot = request.app["bot"]
-    response = web.json_response({"setups": await _public_setups(bot)})
+    response = web.json_response({"setups": await _public_claim_setups(bot)})
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -2276,71 +2582,85 @@ async def flags_root_redirect(request: web.Request) -> web.StreamResponse:
 
 
 async def flags_directory(request: web.Request) -> web.Response:
-    bot: commands.Bot = request.app["bot"]
+    bot = request.app["bot"]
+    setups = await _public_claim_setups(bot)
 
-    # Public /servers is the directory of Discord servers using DayZ Manager.
-    # Individual flag setups are grouped under each server page.
-    setups = await _public_setups(bot)
-    grouped: dict[str, dict] = {}
+    grouped = {}
     for item in setups:
-        guild_id = item["guild_id"]
-        group = grouped.setdefault(guild_id, {
-            "guild_id": guild_id,
+        group = grouped.setdefault(item["guild_id"], {
+            "guild_id": item["guild_id"],
             "guild_name": item["guild_name"],
             "guild_icon": item["guild_icon"],
             "setups": [],
             "maps": set(),
+            "types": set(),
         })
         group["setups"].append(item)
         group["maps"].add(item["map_name"])
+        group["types"].add(item["system_type"])
 
     cards = []
     for group in sorted(grouped.values(), key=lambda g: g["guild_name"].casefold()):
-        icon = f'<img alt="" src="{html.escape(group["guild_icon"])}">' if group["guild_icon"] else "🚩"
+        icon = (
+            f'<img alt="" src="{html.escape(group["guild_icon"])}">'
+            if group["guild_icon"] else "📌"
+        )
         setup_count = len(group["setups"])
-        maps = " • ".join(sorted(group["maps"], key=str.casefold)) or "Flag System"
-        search_text = f'{group["guild_name"]} {maps}'.casefold()
+        type_text = " • ".join(
+            utils.CLAIM_SYSTEMS[key]["name"]
+            for key in ("flags", "raincoats", "armbands")
+            if key in group["types"]
+        )
+        maps = " • ".join(sorted(group["maps"], key=str.casefold))
+        search = f'{group["guild_name"]} {maps} {type_text}'.casefold()
         plural = "s" if setup_count != 1 else ""
+
         cards.append(
-            f'''<a class="card server-card server-entry" href="/servers/{quote(group['guild_id'], safe='')}" data-search="{html.escape(search_text)}">
+            f'''<a class="card server-card server-entry" href="/servers/{quote(group['guild_id'], safe='')}" data-search="{html.escape(search)}">
 <div class="server-icon">{icon}</div>
 <div class="server-main">
   <div class="server-name">{html.escape(group['guild_name'])}</div>
-  <div class="meta">{html.escape(maps)}</div>
-  <div class="counts"><span class="pill">🚩 {setup_count} Flag System{plural}</span></div>
+  <div class="meta">{html.escape(type_text or "Claim Systems")} • {html.escape(maps)}</div>
+  <div class="counts"><span class="pill">📌 {setup_count} Claim System{plural}</span></div>
 </div>
 <span style="color:#7f93a9">→</span>
 </a>'''
         )
 
-    entries = "".join(cards) if cards else '<div class="card empty" style="grid-column:1/-1">No DayZ Manager Flag System servers are currently available.</div>'
+    entries = "".join(cards) if cards else '<div class="card empty" style="grid-column:1/-1">No public DayZ Manager Claim Systems are currently available.</div>'
+
     body = f'''
 <main class="wrap"><section class="section" style="padding-top:45px">
 <span class="eyebrow"><span class="dot"></span> DayZ Manager Community</span>
 <h1 style="font-size:clamp(38px,6vw,64px)">Servers Using <span class="gradient">DayZ Manager</span></h1>
-<p class="lead">Choose a DayZ community to view only that server's live Flag Systems. Individual map/server setups stay grouped under their Discord server.</p>
-<div class="directory-tools"><input id="search" class="search" placeholder="Search Discord server or map..." autocomplete="off"></div>
+<p class="lead">Browse communities using DayZ Manager Flags, Raincoats, and Armbands.</p>
+<div class="directory-tools"><input id="search" class="search" placeholder="Search server, map, or Claim System..." autocomplete="off"></div>
 <div id="serverGrid" class="server-grid">{entries}</div>
 <div id="noResults" class="card empty hidden" style="margin-top:14px">No servers match your search.</div>
 </section></main>
 <script>const q=document.getElementById('search');const cards=[...document.querySelectorAll('.server-entry')];const none=document.getElementById('noResults');q.addEventListener('input',()=>{{const v=q.value.trim().toLowerCase();let shown=0;cards.forEach(c=>{{const ok=!v||c.dataset.search.includes(v);c.classList.toggle('hidden',!ok);if(ok)shown++}});none.classList.toggle('hidden',shown!==0)}});</script>'''
+
     return web.Response(
-        text=_page("Servers Using DayZ Manager", body, _invite_url(bot), "Browse DayZ communities using DayZ Manager and open each server's live Flag Systems."),
+        text=_page("Servers Using DayZ Manager", body, _invite_url(bot)),
         content_type="text/html",
         headers={"Cache-Control": "no-store"},
     )
 
 
 async def server_flag_systems_page(request: web.Request) -> web.Response:
-    bot: commands.Bot = request.app["bot"]
+    bot = request.app["bot"]
     guild_id = request.match_info["guild_id"].strip()
 
-    setups = [item for item in await _public_setups(bot) if item["guild_id"] == guild_id]
+    setups = [
+        item for item in await _public_claim_setups(bot)
+        if item["guild_id"] == guild_id
+    ]
+
     if not setups:
         return web.Response(
             text=_page(
                 "Server Not Found — DayZ Manager",
-                '<main class="wrap"><section class="section"><div class="card empty"><h2>🚩 Server not found</h2><p>This server has no public Flag Systems or DayZ Manager is no longer connected to it.</p><a class="btn" href="/servers">← Servers Using DayZ Manager</a></div></section></main>',
+                '<main class="wrap"><section class="section"><div class="card empty"><h2>📌 Server not found</h2><p>This server has no public Claim Systems or DayZ Manager is no longer connected to it.</p><a class="btn" href="/servers">← Servers Using DayZ Manager</a></div></section></main>',
                 _invite_url(bot),
             ),
             content_type="text/html",
@@ -2349,46 +2669,67 @@ async def server_flag_systems_page(request: web.Request) -> web.Response:
         )
 
     first = setups[0]
-    icon = f'<img alt="" src="{html.escape(first["guild_icon"])}">' if first["guild_icon"] else "🚩"
+    icon = (
+        f'<img alt="" src="{html.escape(first["guild_icon"])}">'
+        if first["guild_icon"] else "📌"
+    )
+
     cards = []
-    for item in sorted(setups, key=lambda x: (x["map_name"].casefold(), x["server"].casefold())):
-        url = item["url"] or "#"
+    for item in sorted(
+        setups,
+        key=lambda x: (
+            x["system_name"].casefold(),
+            x["map_name"].casefold(),
+            x["server"].casefold(),
+        ),
+    ):
         cards.append(
-            f'''<a class="card server-card" href="{html.escape(url)}">
-<div class="server-icon">🚩</div>
+            f'''<a class="card server-card" href="{html.escape(item["url"] or "#")}">
+<div class="server-icon">{html.escape(item["system_emoji"])}</div>
 <div class="server-main">
-  <div class="server-name">{html.escape(item['map_name'])} • {html.escape(item['server'])}</div>
-  <div class="meta">Live Flag System</div>
+  <div class="server-name">{html.escape(item["system_name"])} • {html.escape(item["map_name"])} • {html.escape(item["server"])}</div>
+  <div class="meta">Live {html.escape(item["system_name"])} Claim System</div>
   <div class="counts">
-    <span class="pill green">🟢 {item['available_count']} Available</span>
-    <span class="pill red">🔴 {item['claimed_count']} Claimed</span>
-    <span class="pill">🏴 {item['total']} Total</span>
+    <span class="pill green">🟢 {item["available_count"]} Available</span>
+    <span class="pill red">🔴 {item["claimed_count"]} Claimed</span>
+    <span class="pill">{item["total"]} Total</span>
   </div>
 </div>
 <span style="color:#7f93a9">→</span>
 </a>'''
         )
 
+    by_type = {
+        key: sum(1 for item in setups if item["system_type"] == key)
+        for key in ("flags", "raincoats", "armbands")
+    }
+
     body = f'''
 <main class="wrap"><section class="section" style="padding-top:40px">
 <a href="/servers" class="meta">← Servers Using DayZ Manager</a>
 <div class="dashboard-head" style="margin-top:18px">
   <div>
-    <span class="eyebrow"><span class="dot"></span> Live Flag Systems</span>
-    <h1 style="font-size:clamp(36px,6vw,62px);margin-bottom:10px">{html.escape(first['guild_name'])}</h1>
-    <p class="section-sub">All public Flag Systems belonging to this Discord server are shown below.</p>
+    <span class="eyebrow"><span class="dot"></span> Live Claim Systems</span>
+    <h1 style="font-size:clamp(36px,6vw,62px);margin-bottom:10px">{html.escape(first["guild_name"])}</h1>
+    <p class="section-sub">Flags, Raincoats, and Armbands for this Discord community are shown below.</p>
   </div>
   <div class="server-icon" style="width:72px;height:72px;font-size:34px">{icon}</div>
 </div>
-<div class="stat-band" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
-  <div class="big-stat"><strong>{len(setups)}</strong><span>Flag Systems</span></div>
-  <div class="big-stat"><strong class="green">{sum(x['available_count'] for x in setups)}</strong><span>Available Flags</span></div>
-  <div class="big-stat"><strong class="red">{sum(x['claimed_count'] for x in setups)}</strong><span>Claimed Flags</span></div>
+<div class="stat-band" style="grid-template-columns:repeat(4,1fr);margin-bottom:24px">
+  <div class="big-stat"><strong>{len(setups)}</strong><span>Claim Systems</span></div>
+  <div class="big-stat"><strong>🚩 {by_type["flags"]}</strong><span>Flag Systems</span></div>
+  <div class="big-stat"><strong>🧥 {by_type["raincoats"]}</strong><span>Raincoat Systems</span></div>
+  <div class="big-stat"><strong>🎽 {by_type["armbands"]}</strong><span>Armband Systems</span></div>
 </div>
 <div class="server-grid">{"".join(cards)}</div>
 </section></main>'''
+
     return web.Response(
-        text=_page(f"{first['guild_name']} — Flag Systems", body, _invite_url(bot), f"Live DayZ Manager Flag Systems for {first['guild_name']}."),
+        text=_page(
+            f"{first['guild_name']} — Claim Systems",
+            body,
+            _invite_url(bot),
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-store"},
     )
@@ -2569,6 +2910,7 @@ async def start_web_server(bot: commands.Bot) -> web.AppRunner:
     app.router.add_get("/dashboard", dashboard_page)
     app.router.add_get("/dashboard/{guild_id}", guild_dashboard_page)
     app.router.add_get("/dashboard/{guild_id}/flags", guild_flag_tools_page)
+    app.router.add_get("/dashboard/{guild_id}/claims", guild_flag_tools_page)
     app.router.add_get("/dashboard/{guild_id}/tools", guild_server_tools_page)
     app.router.add_get("/dashboard/{guild_id}/tasks", guild_tasks_page)
     app.router.add_get("/dashboard/{guild_id}/status", guild_status_page)
