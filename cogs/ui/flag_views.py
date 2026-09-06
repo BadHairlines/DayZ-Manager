@@ -120,21 +120,17 @@ class FlagManageView(discord.ui.LayoutView):
                 "## Claimed Flags\n🟢 No flags are currently claimed."
             )
 
-        primary_row = discord.ui.ActionRow(
-            DashboardButton("Claim Flag", "🟢", discord.ButtonStyle.success, f"flag_claim:{self.identifier}", "claim"),
+        # Keep the public Discord dashboard intentionally simple.
+        # All advanced tools remain available through slash commands and the website.
+        action_items = [
+            DashboardButton("Assign Flag", "🟢", discord.ButtonStyle.success, f"flag_claim:{self.identifier}", "claim"),
             DashboardButton("Release Flag", "🔴", discord.ButtonStyle.danger, f"flag_release:{self.identifier}", "release"),
-            DashboardButton("View Flags", "📋", discord.ButtonStyle.primary, f"flag_view:{self.identifier}", "view"),
-        )
-
-        secondary_items = [
-            DashboardButton("Find Flag", "🔎", discord.ButtonStyle.secondary, f"flag_find:{self.identifier}", "find"),
-            DashboardButton("History", "🕘", discord.ButtonStyle.secondary, f"flag_history:{self.identifier}", "history"),
-            DashboardButton("Admin Panel", "⚙️", discord.ButtonStyle.secondary, f"flag_admin:{self.identifier}", "admin"),
         ]
+
         if self.guild:
             website_url = flag_page_url(self.guild.id, self.map_key, self.server)
             if website_url:
-                secondary_items.append(
+                action_items.append(
                     discord.ui.Button(
                         label="Live Website",
                         emoji="🌐",
@@ -142,7 +138,8 @@ class FlagManageView(discord.ui.LayoutView):
                         url=website_url,
                     )
                 )
-        secondary_row = discord.ui.ActionRow(*secondary_items)
+
+        action_row = discord.ui.ActionRow(*action_items)
 
         footer = discord.ui.TextDisplay(
             "-# DayZ Manager • Discord + Live Web Flag Management • Updates automatically after every claim/release"
@@ -157,8 +154,7 @@ class FlagManageView(discord.ui.LayoutView):
             discord.ui.Separator(),
             claimed_registry,
             discord.ui.Separator(),
-            primary_row,
-            secondary_row,
+            action_row,
             discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
             footer,
             accent_colour=utils.EMBED_COLOR,
